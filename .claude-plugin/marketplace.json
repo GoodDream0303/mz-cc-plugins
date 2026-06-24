@@ -1,0 +1,24 @@
+{
+  "name": "mz-cc-plugins",
+  "owner": {
+    "name": "mzzhu2"
+  },
+  "metadata": {
+    "description": "mzzhu2 的 Claude Code 插件市场:多会话状态悬浮窗 + 跨会话任务接力。",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "claude-scope",
+      "source": "./claude-scope",
+      "description": "悬浮窗实时监视多个 Claude Code 会话状态(绿=执行中 / 黄=待机 / 红=需要你);红灯 hook 装上即自动注册。",
+      "category": "monitoring",
+      "tags": ["overlay", "monitoring", "sessions", "notifications"]
+    },
+    {
+      "name": "task-handoff",
+      "source": "./task-handoff",
+      "description": "跨会话开发任务接力:落盘交接文档、新会话恢复、任务管理。把会话状态外置成 markdown,长任务可多会话接力,中途无需重述背景。"
+    }
+  ]
+}

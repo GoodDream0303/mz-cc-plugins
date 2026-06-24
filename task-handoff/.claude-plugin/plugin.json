@@ -1,0 +1,18 @@
+{
+  "name": "task-handoff",
+  "version": "1.0.0",
+  "description": "跨会话开发任务接力:落盘交接文档、新会话恢复、任务管理",
+  "author": {
+    "name": "mzzhu2"
+  },
+  "keywords": ["task", "handoff", "session", "workflow", "接力", "会话"],
+  "userConfig": {
+    "handoff_root": {
+      "type": "directory",
+      "title": "接力文档根目录",
+      "description": "存放任务交接文档与 INDEX.md 的目录,例如 D:/ClaudeTasks 或 ~/.claude/task-handoff。每个任务一个子文件夹,内含 handoff.md。",
+      "default": "~/.claude/task-handoff",
+      "required": true
+    }
+  }
+}
