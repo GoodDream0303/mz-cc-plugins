@@ -10,7 +10,7 @@ claude-scope (tkinter 轻量版)
 (早期版本用 OpenProcess/Toolhelp 查后台 shell,疑似被 EDR 拦截并连带影响 MCP/Dashboard,已彻底移除)。
 设计为极低占用:after() 每秒轮询一次,无忙循环;数据无变化不重绘;无任何持续动画。
 """
-import os, sys, json, time, ctypes, subprocess, shutil
+import os, sys, json, time, ctypes, subprocess
 import tkinter as tk
 import tkinter.font as tkfont
 
@@ -23,16 +23,10 @@ else:
     APP_DIR = os.path.dirname(os.path.abspath(__file__))
 RUNTIME_DIR = os.path.join(APP_DIR, ".runtime")
 CONFIG_PATH = os.path.join(RUNTIME_DIR, "config.json")
-# 红灯标记放固定共享目录:插件版 hook(${CLAUDE_PLUGIN_ROOT} 会随版本变)与独立 exe 版 hook
-# 都写这里,两种分发方式共用同一标记,可并存。config/日志仍留 exe 旁(属本安装私有)。
+# 红灯标记放固定共享目录:由插件的 Notification hook(scope-attn.js)写入,本程序只读。
+# config/日志仍留 exe 旁(属本安装私有)。
 SCOPE_DIR = os.path.join(HOME, ".claude", ".scope")
 ATTN_DIR = os.path.join(SCOPE_DIR, "attn")
-
-# 红灯链路依赖的环境(hook 脚本与配置都在 exe 旁边)
-HOOKS_DIR = os.path.join(APP_DIR, "hooks")
-ATTN_JS = os.path.join(HOOKS_DIR, "scope-attn.js")      # Notification hook 脚本
-CLEAR_JS = os.path.join(HOOKS_DIR, "scope-clear.js")    # UserPromptSubmit hook 脚本
-SETTINGS_PATH = os.path.join(HOME, ".claude", "settings.json")
 
 POLL_MS = 1000
 ATTN_MAX_AGE = 30 * 60 * 1000  # 红灯标记过期(ms)
@@ -599,135 +593,6 @@ class Scope:
         self._sig = None; self.draw(); self.save_cfg()
 
 
-# ---------------- 环境检测 / 初始化(红灯链路) ----------------
-# 红灯靠"Claude 通知 → settings.json 里登记的 hook(node 跑 scope-*.js) → 写 .runtime/attn 标记
-# → 本程序读到亮红"这条外部链路。只发单个 exe 给别人时,对方既没 JS 脚本也可能没 node,
-# 故启动时体检:JS 是否在位、settings.json 是否登记且路径指向当前 exe 旁、node 是否可用;缺则弹窗征求同意后修复。
-def load_settings():
-    try:
-        with open(SETTINGS_PATH, "r", encoding="utf-8-sig") as f:  # 容忍可能存在的 BOM
-            return json.load(f)
-    except (OSError, ValueError):
-        return {}
-
-def _hook_points_here(settings, event, js_name, js_path):
-    # True 仅当该 event 下存在"我们的"hook(命令含 js_name)且其路径正好指向当前 exe 旁的脚本;
-    # 含 js_name 但路径指向别处(搬过文件夹) -> 返回 False(视为需修复)。
-    for group in (settings.get("hooks", {}) or {}).get(event, []) or []:
-        for h in group.get("hooks", []) or []:
-            c = h.get("command") or ""
-            if js_name in c:
-                return js_path.lower() in c.lower()
-    return False
-
-def detect_env():
-    settings = load_settings()
-    d = {"js_attn": os.path.exists(ATTN_JS),
-         "js_clear": os.path.exists(CLEAR_JS),
-         "hook_notif": _hook_points_here(settings, "Notification", "scope-attn.js", ATTN_JS),
-         "hook_prompt": _hook_points_here(settings, "UserPromptSubmit", "scope-clear.js", CLEAR_JS),
-         "node": shutil.which("node") is not None}
-    # 可修复 = JS/hook 任一缺失或路径过期;node 缺失无法代装,只警告
-    d["repairable"] = not (d["js_attn"] and d["js_clear"] and d["hook_notif"] and d["hook_prompt"])
-    d["needs_action"] = d["repairable"] or (not d["node"])
-    return d
-
-def _extract_hooks():
-    # 打包态:把内嵌的 JS 释出到 exe 旁的 hooks\;非打包态:JS 已在源码目录,无需处理。
-    os.makedirs(HOOKS_DIR, exist_ok=True)
-    if not getattr(sys, "frozen", False):
-        return
-    src = os.path.join(getattr(sys, "_MEIPASS", ""), "hooks")
-    for name in ("scope-attn.js", "scope-clear.js"):
-        try:
-            shutil.copyfile(os.path.join(src, name), os.path.join(HOOKS_DIR, name))
-        except OSError:
-            log_error("extract:" + name)
-
-def _merge_hook(settings, event, js_path, js_name):
-    # 幂等合并:event 下若已有"我们的"条目则改其路径,否则追加;绝不动用户的其它 hook。
-    cmd = 'node "%s"' % js_path
-    arr = settings.setdefault("hooks", {}).setdefault(event, [])
-    for group in arr:
-        for h in group.get("hooks", []) or []:
-            if js_name in (h.get("command") or ""):
-                h["command"] = cmd
-                h["type"] = "command"
-                return
-    arr.append({"hooks": [{"type": "command", "command": cmd}]})
-
-def repair_env():
-    _extract_hooks()
-    settings = load_settings()
-    try:
-        if os.path.exists(SETTINGS_PATH):
-            shutil.copyfile(SETTINGS_PATH, SETTINGS_PATH + ".scope-bak")  # 写坏可回滚
-    except OSError:
-        pass
-    _merge_hook(settings, "Notification", ATTN_JS, "scope-attn.js")
-    _merge_hook(settings, "UserPromptSubmit", CLEAR_JS, "scope-clear.js")
-    try:
-        os.makedirs(os.path.dirname(SETTINGS_PATH), exist_ok=True)
-        with open(SETTINGS_PATH, "w", encoding="utf-8") as f:   # UTF-8 无 BOM
-            json.dump(settings, f, ensure_ascii=False, indent=2)
-    except OSError:
-        log_error("write-settings")
-    os.makedirs(ATTN_DIR, exist_ok=True)
-
-def prompt_env_dialog(root, d):
-    # 返回 True=用户同意修复;False=跳过/仅警告。主窗此时处于 withdraw 状态,本框是唯一可见窗口。
-    BG, FG = "#0c1c12", "#cfeede"
-    win = tk.Toplevel(root)
-    win.title("Claude Scope 环境检测")
-    win.configure(bg=BG)
-    win.resizable(False, False)
-    win.attributes("-topmost", True)
-    res = {"ok": False}
-
-    def row(text, ok, warn=False):
-        color = C_RUN if ok else (C_STBY if warn else C_ATTN)
-        tk.Label(win, text=("%s  %s" % ("✓" if ok else "✗", text)),
-                 bg=BG, fg=color, font=("Microsoft YaHei UI", 10), anchor="w").pack(fill="x", padx=18, pady=2)
-
-    tk.Label(win, text='红灯("需要你")功能依赖以下环境:', bg=BG, fg=FG,
-             font=("Microsoft YaHei UI", 10, "bold")).pack(fill="x", padx=18, pady=(14, 6))
-    row("Notification hook(亮红灯)", d["hook_notif"] and d["js_attn"])
-    row("UserPromptSubmit hook(灭红灯)", d["hook_prompt"] and d["js_clear"])
-    row("Node 运行时" + ("" if d["node"] else " — 未检测到,请先安装 node,否则红灯不工作"),
-        d["node"], warn=True)
-
-    tip = ("是否自动修复 hook 配置?(将写入 ~/.claude/settings.json)" if d["repairable"]
-           else "hook 已就绪,仅缺 Node;装好 node 后红灯即生效。")
-    tk.Label(win, text=tip, bg=BG, fg=FG, font=("Microsoft YaHei UI", 10),
-             wraplength=360, justify="left").pack(fill="x", padx=18, pady=(10, 8))
-
-    def yes():
-        res["ok"] = True; win.destroy()
-    def no():
-        res["ok"] = False; win.destroy()
-
-    bf = tk.Frame(win, bg=BG); bf.pack(fill="x", padx=18, pady=(0, 14))
-    bstyle = dict(bd=0, relief="flat", font=("Microsoft YaHei UI", 9),
-                  activeforeground="#eafff5", cursor="hand2", padx=14, pady=4)
-    if d["repairable"]:
-        tk.Button(bf, text="自动修复", command=yes, bg="#1f5a3c", fg="#eafff5",
-                  activebackground="#2a774f", **bstyle).pack(side="right", padx=(8, 0))
-        tk.Button(bf, text="跳过", command=no, bg="#173024", fg=C_DIM,
-                  activebackground="#21422f", **bstyle).pack(side="right")
-    else:
-        tk.Button(bf, text="知道了", command=no, bg="#1f5a3c", fg="#eafff5",
-                  activebackground="#2a774f", **bstyle).pack(side="right")
-
-    win.update_idletasks()
-    w, h = win.winfo_reqwidth(), win.winfo_reqheight()
-    sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
-    win.geometry("%dx%d+%d+%d" % (w, h, (sw - w) // 2, (sh - h) // 3))
-    win.protocol("WM_DELETE_WINDOW", no)
-    win.grab_set()
-    root.wait_window(win)
-    return res["ok"]
-
-
 def configure_winapi():
     # 仅声明自有窗口/光标相关的 user32 调用类型(不碰任何其它进程)
     from ctypes import wintypes as wt
@@ -755,15 +620,7 @@ def main():
     root = tk.Tk()
     root.report_callback_exception = lambda *a: log_error("tk-callback")
     root.title("claude-scope")
-    root.withdraw()                       # 先藏主窗:体检弹框作为唯一可见窗口,正常时一闪即过
-    try:
-        d = detect_env()
-        if d.get("needs_action") and prompt_env_dialog(root, d) and d.get("repairable"):
-            repair_env()
-    except Exception:
-        log_error("env-check")
     Scope(root)
-    root.deiconify()
     root.mainloop()
 
 
