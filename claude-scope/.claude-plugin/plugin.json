@@ -1,7 +1,7 @@
 {
   "name": "claude-scope",
-  "description": "悬浮窗实时监视多个 Claude Code 会话状态(绿=执行中 / 黄=待机 / 红=需要你)。装上即自动注册红灯 hook,无需手改 settings.json;用 /claude-scope:show 拉起悬浮窗。",
-  "version": "1.0.2",
+  "description": "悬浮窗实时监视多个 Claude Code 会话状态(绿=执行中 / 黄=待机 / 红=需要你)。装上即自动注册红灯 hook,无需手改 settings.json;用 /claude-scope:scope-show 拉起悬浮窗。",
+  "version": "1.0.3",
   "author": {
     "name": "mzzhu2"
   },

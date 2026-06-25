@@ -20,7 +20,7 @@
 ## 使用
 
 ```
-/claude-scope:show
+/claude-scope:scope-show
 ```
 
 用系统 Python 的无窗口启动器 `pyw` 直接跑 `src/scope.pyw` 拉起悬浮窗（不打包 exe）。
@@ -38,5 +38,5 @@
 .claude-plugin/   插件与 marketplace 清单
 hooks/            scope-attn.js / scope-clear.js + hooks.json(自动注册)
 src/              scope.pyw(tkinter 悬浮窗，由 pyw 直接运行) + icon.ico / start.vbs
-skills/show/      /claude-scope:show 启动命令
+skills/scope-show/   /claude-scope:scope-show 启动命令
 ```

@@ -1,5 +1,5 @@
 ---
-name: show
+name: scope-show
 description: 启动 claude-scope 悬浮窗,实时监视各 Claude Code 会话的"执行中/待机/需要你"状态。用户需要看多会话状态时手动触发。
 disable-model-invocation: true
 allowed-tools: Bash

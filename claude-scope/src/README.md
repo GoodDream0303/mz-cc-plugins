@@ -1,6 +1,6 @@
 # claude-scope 悬浮窗(纯 Python,不打包)
 
-悬浮窗程序本体。插件 `/claude-scope:show` 用 `pyw "<plugin>/src/scope.pyw"` 直接运行,**不再打包 exe**
+悬浮窗程序本体。插件 `/claude-scope:scope-show` 用 `pyw "<plugin>/src/scope.pyw"` 直接运行,**不再打包 exe**
 （避免 onefile 运行期解压 Python 运行时被 EDR/AV 拦导致 `failed to start embedded python interpreter`）。
 
 - `scope.pyw` — tkinter 悬浮窗（合法 UTF-8 无 BOM，可直接编辑）。**纯浮窗**：只读
