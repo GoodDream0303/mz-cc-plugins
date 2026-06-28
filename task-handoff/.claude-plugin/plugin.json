@@ -1,6 +1,6 @@
 {
   "name": "task-handoff",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "跨会话开发任务接力:落盘交接文档、新会话恢复、任务管理",
   "author": {
     "name": "mzzhu2"
