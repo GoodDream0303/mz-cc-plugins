@@ -225,12 +225,11 @@ def read_sessions():
 
     assign_labels(out)
     for s in out:
-        if s["name"]:
-            s["label"] = s["name"]
-        else:
-            t = fallback_title(s["id"], s["cwd"])
-            if t:
-                s["label"] = t
+        # 优先用 transcript 的 ai-title(可含中文);sessions.json 的 name 是 ASCII slug,
+        # 中文标题会退化成"目录名-编号"占位串,故仅作次选,路径名(assign_labels)兜底。
+        title = fallback_title(s["id"], s["cwd"]) or s["name"]
+        if title:
+            s["label"] = title
 
     out.sort(key=lambda s: (s["started"], s["pid"]))   # 稳定顺序,行不随状态跳动
     return out
