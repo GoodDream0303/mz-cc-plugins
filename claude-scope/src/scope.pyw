@@ -181,8 +181,8 @@ def read_bg_jobs():
             state = data.get("state", "")
             tempo = data.get("tempo", "")
             name = data.get("name", "")
-            # 只记录运行中的后台任务(state=working 或其他非终态)
-            if state in ("working", "pending", "starting"):
+            # 只记录运行中的后台任务,排除终态(done/failed/cancelled等)
+            if state in ("working", "pending", "starting") and tempo not in ("idle", "done"):
                 jobs[sid] = {"name": name, "state": state, "tempo": tempo}
         except (OSError, ValueError):
             pass
@@ -250,10 +250,13 @@ def read_sessions():
             if data is None:
                 continue
         kind = data.get("kind")
-        if kind and kind != "interactive":  # 只显示交互窗口,过滤后台作业(kind=bg)等
-            continue
         sid = data.get("sessionId") or fn[:-5]
         status = "busy" if data.get("status") == "busy" else "idle"
+
+        # 过滤已完成的后台会话(kind=bg 且 status=idle)
+        if kind == "bg" and status == "idle":
+            continue
+
         if status == "busy" and sid in attn:
             try:
                 os.remove(os.path.join(ATTN_DIR, sid + ".attn"))
@@ -261,13 +264,15 @@ def read_sessions():
                 pass
             attn.discard(sid)
 
-        # 状态优先级: 红(attn) > 蓝(bg) > 绿(busy) > 黄(idle)
+        # 状态优先级: 红(attn) > 蓝(bg后台任务) > 绿(busy) > 黄(idle)
+        # 后台会话(kind=bg)显示蓝灯,从 jobs 读取任务详情
         if sid in attn:
             state = "attn"
             bg_info = None
-        elif sid in bg_jobs:
+        elif kind == "bg":
+            # 后台会话显示蓝灯,尝试从 bg_jobs 获取详情(可能为空,用会话自身信息兜底)
             state = "bg"
-            bg_info = bg_jobs[sid]
+            bg_info = bg_jobs.get(sid, {"name": data.get("name", ""), "state": status, "tempo": ""})
         elif status == "busy":
             state = "run"
             bg_info = None
