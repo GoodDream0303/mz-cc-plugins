@@ -16,5 +16,7 @@ allowed-tools: Bash
 > 依赖:目标机需装有 **Python 3**(标准安装自带 `pyw` 启动器与 tkinter)。若 `pyw` 不可用,
 > 回退用 `pythonw "${CLAUDE_PLUGIN_ROOT}/src/scope.pyw" &`。
 
-启动后请告诉用户:悬浮窗已拉起;绿灯=执行中、黄灯=待机、红灯=需要你(等授权/回答)。
+启动后请告诉用户:悬浮窗已拉起;红灯=需要你(等授权/回答)、蓝灯=后台任务(agent/workflow)运行中、
+绿灯=执行中、黄灯=待机。优先级红>蓝>绿>黄;悬停蓝灯行可看后台任务名与状态。
 红灯由本插件的 Notification/UserPromptSubmit hook 驱动(已随插件自动注册,标记写在 `~/.claude/.scope/attn/`)。
+蓝灯读 `~/.claude/jobs/<id>/state.json`,无需 hook。
