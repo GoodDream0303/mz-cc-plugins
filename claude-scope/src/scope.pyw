@@ -37,6 +37,7 @@ ATTN_DIR = os.path.join(SCOPE_DIR, "attn")
 
 POLL_MS = 1000
 ATTN_MAX_AGE = 30 * 60 * 1000  # 红灯标记过期(ms)
+TOMBSTONE_AGE_MS = 15 * 60 * 1000  # 僵尸行判定阈值(interactive+busy+陈旧超此值→隐藏)
 
 # 调色板(磷光)
 C_KEY   = "#ff00fe"   # 透明色键(圆角与外缘透明)
@@ -189,6 +190,20 @@ def read_bg_jobs():
     return jobs
 
 
+def _is_converted_interactive(bg_info):
+    """判断一个 bg 会话是否为「转换态交互会话」(左键切走的),而非纯后台任务。
+    判据:bgIsolation 字段存在 或 respawnFlags 含 --reply-on-resume。
+    """
+    if not bg_info:
+        return False
+    # 优先用 bgIsolation:转换态有此键(值"none"),纯--bg任务无此键
+    if "bgIsolation" in bg_info:
+        return True
+    # 备用判据:respawnFlags 含 --reply-on-resume
+    flags = bg_info.get("respawnFlags", [])
+    return "--reply-on-resume" in flags
+
+
 # ---------------- 标签消歧 ----------------
 def segs_of(cwd):
     return [x for x in (cwd or "").replace("\\", "/").rstrip("/").split("/") if x and not x.endswith(":")]
@@ -252,9 +267,11 @@ def read_sessions():
         kind = data.get("kind")
         sid = data.get("sessionId") or fn[:-5]
         status = "busy" if data.get("status") == "busy" else "idle"
+        updated_at = data.get("updatedAt", 0)
+        now = time.time() * 1000
 
-        # 过滤已完成的后台会话(kind=bg 且 status=idle)
-        if kind == "bg" and status == "idle":
+        # 僵尸行检测:interactive + busy + 陈旧超过阈值 → 跳过(墓碑记录,永不更新)
+        if kind == "interactive" and status == "busy" and (now - updated_at) > TOMBSTONE_AGE_MS:
             continue
 
         if status == "busy" and sid in attn:
@@ -264,21 +281,34 @@ def read_sessions():
                 pass
             attn.discard(sid)
 
-        # 状态优先级: 红(attn) > 蓝(bg后台任务) > 绿(busy) > 黄(idle)
-        # 后台会话(kind=bg)显示蓝灯,从 jobs 读取任务详情
+        # 状态优先级: 红(attn) > 蓝(纯后台任务) > 绿(busy) > 黄(idle)
+        # 转换态交互会话(左键切走的)按普通会话显示(绿/黄),蓝灯只给纯后台任务
+        bg_info = None
         if sid in attn:
             state = "attn"
-            bg_info = None
         elif kind == "bg":
-            # 后台会话显示蓝灯,尝试从 bg_jobs 获取详情(可能为空,用会话自身信息兜底)
-            state = "bg"
-            bg_info = bg_jobs.get(sid, {"name": data.get("name", ""), "state": status, "tempo": ""})
+            # 读 jobs/<id>/state.json 获取完整字段,用于判别转换态
+            job_id = data.get("jobId")
+            full_bg_info = None
+            if job_id:
+                try:
+                    job_state_path = os.path.join(JOBS_DIR, job_id, "state.json")
+                    with open(job_state_path, "r", encoding="utf-8") as jf:
+                        full_bg_info = json.load(jf)
+                except (OSError, ValueError):
+                    pass
+            # 判别:转换态当普通会话(绿/黄),纯后台任务才显示蓝灯
+            if full_bg_info and _is_converted_interactive(full_bg_info):
+                # 转换态交互会话 → 按 status 显示绿/黄
+                state = "run" if status == "busy" else "stby"
+            else:
+                # 纯后台任务 → 蓝灯
+                state = "bg"
+                bg_info = bg_jobs.get(sid, {"name": data.get("name", ""), "state": status, "tempo": ""})
         elif status == "busy":
             state = "run"
-            bg_info = None
         else:
             state = "stby"
-            bg_info = None
 
         out.append({"id": sid, "pid": data.get("pid") or 0, "cwd": data.get("cwd") or "",
                     "name": data.get("name") or "", "state": state, "bg_info": bg_info,
