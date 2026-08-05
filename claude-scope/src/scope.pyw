@@ -1,10 +1,16 @@
 # -*- coding: utf-8 -*-
 """
 claude-scope (tkinter 轻量版)
-多会话状态悬浮监视器:绿=思考/执行中(busy)、琥珀=待机(idle)、红=需要你(等待授权/回答)。
+多会话状态悬浮监视器:
+  红=需要你(等待授权/回答)
+  蓝=等待后台(agent/workflow运行中)
+  绿=思考/执行中(自己busy)
+  黄=待机(idle)
 无边框 / 置顶 / 半透明(滚轮或滑块调) / 可拖动 / 可缩放(右下角缩放整体,右边缘单独调宽)。
-数据源:~/.claude/sessions/<PID>.json 的 status / name 字段;红灯来自本目录 .runtime/attn 标记
-(由 Claude 的 Notification hook 写入)。绿=busy、黄=idle、红=需要你。
+数据源:~/.claude/sessions/<PID>.json 的 status / name 字段;
+       ~/.claude/jobs/<id>/state.json 检测后台任务;
+       红灯来自本目录 .runtime/attn 标记(由 Claude 的 Notification hook 写入)。
+状态优先级:红 > 蓝 > 绿 > 黄。
 
 **安全约束:本程序只读 ~/.claude 文件、只操作自己的窗口与光标,绝不枚举或打开其它进程**
 (早期版本用 OpenProcess/Toolhelp 查后台 shell,疑似被 EDR 拦截并连带影响 MCP/Dashboard,已彻底移除)。
@@ -17,6 +23,7 @@ import tkinter.font as tkfont
 HOME = os.path.expanduser("~")
 SESSIONS_DIR = os.path.join(HOME, ".claude", "sessions")
 PROJECTS_DIR = os.path.join(HOME, ".claude", "projects")
+JOBS_DIR = os.path.join(HOME, ".claude", "jobs")
 if getattr(sys, "frozen", False):   # PyInstaller 打包后:以 exe 所在目录为基准(而非临时解压目录)
     APP_DIR = os.path.dirname(os.path.abspath(sys.executable))
 else:
@@ -35,15 +42,16 @@ ATTN_MAX_AGE = 30 * 60 * 1000  # 红灯标记过期(ms)
 C_KEY   = "#ff00fe"   # 透明色键(圆角与外缘透明)
 C_VOID  = "#08160e"
 C_BORDER= "#1f5a3c"
-C_RUN   = "#45f0a0"
-C_STBY  = "#ffb347"
-C_ATTN  = "#ff5a52"
+C_RUN   = "#45f0a0"   # 绿
+C_STBY  = "#ffb347"   # 黄
+C_ATTN  = "#ff5a52"   # 红
+C_BG    = "#4a9eff"   # 蓝(后台任务)
 C_DIM   = "#5f9c80"
 C_NAME  = "#cfeede"
 C_GRID  = "#10301e"
 
-STATE_WORD = {"run": "RUN", "stby": "STBY", "attn": "ATTN"}
-STATE_COLOR = {"run": C_RUN, "stby": C_STBY, "attn": C_ATTN}
+STATE_WORD = {"run": "RUN", "stby": "STBY", "attn": "ATTN", "bg": "BG"}
+STATE_COLOR = {"run": C_RUN, "stby": C_STBY, "attn": C_ATTN, "bg": C_BG}
 
 # 未缩放的基准尺寸(实际尺寸 = 基准 * scale)
 HEADER_H, ROW_H, PAD = 24, 22, 8
@@ -148,6 +156,39 @@ def read_attn():
     return s
 
 
+# ---------------- 后台任务(agent/workflow) ----------------
+def read_bg_jobs():
+    """
+    返回 dict: sessionId -> {"name": ..., "state": ..., "tempo": ...}
+    """
+    jobs = {}
+    try:
+        job_ids = os.listdir(JOBS_DIR)
+    except OSError:
+        return jobs
+    for jid in job_ids:
+        if jid == "pins.json":
+            continue
+        state_file = os.path.join(JOBS_DIR, jid, "state.json")
+        if not os.path.exists(state_file):
+            continue
+        try:
+            with open(state_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            sid = data.get("sessionId")
+            if not sid:
+                continue
+            state = data.get("state", "")
+            tempo = data.get("tempo", "")
+            name = data.get("name", "")
+            # 只记录运行中的后台任务(state=working 或其他非终态)
+            if state in ("working", "pending", "starting"):
+                jobs[sid] = {"name": name, "state": state, "tempo": tempo}
+        except (OSError, ValueError):
+            pass
+    return jobs
+
+
 # ---------------- 标签消歧 ----------------
 def segs_of(cwd):
     return [x for x in (cwd or "").replace("\\", "/").rstrip("/").split("/") if x and not x.endswith(":")]
@@ -191,6 +232,7 @@ _session_cache = {}  # filename -> 上次成功解析的 json(用于读到半截
 
 def read_sessions():
     attn = read_attn()
+    bg_jobs = read_bg_jobs()
     out = []
     try:
         files = os.listdir(SESSIONS_DIR)
@@ -218,9 +260,23 @@ def read_sessions():
             except OSError:
                 pass
             attn.discard(sid)
-        state = "run" if status == "busy" else ("attn" if sid in attn else "stby")
+
+        # 状态优先级: 红(attn) > 蓝(bg) > 绿(busy) > 黄(idle)
+        if sid in attn:
+            state = "attn"
+            bg_info = None
+        elif sid in bg_jobs:
+            state = "bg"
+            bg_info = bg_jobs[sid]
+        elif status == "busy":
+            state = "run"
+            bg_info = None
+        else:
+            state = "stby"
+            bg_info = None
+
         out.append({"id": sid, "pid": data.get("pid") or 0, "cwd": data.get("cwd") or "",
-                    "name": data.get("name") or "", "state": state,
+                    "name": data.get("name") or "", "state": state, "bg_info": bg_info,
                     "started": data.get("startedAt") or 0, "label": ""})
 
     assign_labels(out)
@@ -275,11 +331,14 @@ class Scope:
         self.pin_bbox = self.x_bbox = self.grip_bbox = (0, 0, 0, 0)
         self.op_track = None
         self._drag = None
+        self.tooltip = None
+        self.tooltip_label = None
 
         self.cv.bind("<ButtonPress-1>", self.on_press)
         self.cv.bind("<B1-Motion>", self.on_drag)
         self.cv.bind("<ButtonRelease-1>", self.on_release)
         self.cv.bind("<Motion>", self.on_motion)
+        self.cv.bind("<Leave>", self.on_leave)
         self.cv.bind("<Button-3>", self.show_menu)   # 右键菜单
         root.bind("<MouseWheel>", self.on_wheel)
 
@@ -370,7 +429,7 @@ class Scope:
     def poll(self):
         try:
             sessions = read_sessions()
-            sig = tuple((s["id"], s["state"], s["label"]) for s in sessions) + (self.W, round(self.s, 2))
+            sig = tuple((s["id"], s["state"], s["label"], s.get("bg_info")) for s in sessions) + (self.W, round(self.s, 2))
             if sig != self._sig:
                 self._sig = sig
                 self.sessions = sessions
@@ -466,6 +525,7 @@ class Scope:
         name_x = pad + round(38 * s)
         name_max = (W - pad - round(40 * s) - round(6 * s)) - name_x
         led_x = pad + round(26 * s)
+        self.row_bboxes = []  # 记录每行的区域,用于悬停检测
         for i, ss in enumerate(self.sessions):
             cy = hdr + row * i + row // 2
             col = STATE_COLOR[ss["state"]]
@@ -475,6 +535,10 @@ class Scope:
             nm = C_NAME if ss["state"] != "stby" else "#9ec4b3"
             cv.create_text(name_x, cy, anchor="w", text=label, fill=nm, font=self.f_name)
             cv.create_text(W - pad, cy, anchor="e", text=STATE_WORD[ss["state"]], fill=col, font=self.f_state)
+            # 记录行区域
+            y1 = hdr + row * i
+            y2 = y1 + row
+            self.row_bboxes.append((0, y1, W, y2, i))
 
         self.grip_bbox = (W - round(16 * s), H - round(16 * s), W, H)
         self._draw_grip(W, H, s)
@@ -522,6 +586,46 @@ class Scope:
             return "vsize"
         return None
 
+    def _get_row_at(self, x, y):
+        """返回鼠标下的行索引,无则 None"""
+        if not hasattr(self, 'row_bboxes'):
+            return None
+        for x1, y1, x2, y2, idx in self.row_bboxes:
+            if x1 <= x <= x2 and y1 <= y <= y2:
+                return idx
+        return None
+
+    def show_tooltip(self, x, y, text):
+        """在鼠标位置显示 tooltip"""
+        self.hide_tooltip()
+        if not text:
+            return
+        self.tooltip = tk.Toplevel(self.root)
+        self.tooltip.overrideredirect(True)
+        self.tooltip.attributes("-topmost", True)
+        try:
+            self.tooltip.attributes("-transparentcolor", C_KEY)
+        except tk.TclError:
+            pass
+        self.tooltip_label = tk.Label(self.tooltip, text=text,
+                                      bg="#1a2f22", fg="#cfeede",
+                                      font=("Microsoft YaHei UI", 8),
+                                      bd=1, relief="solid", padx=6, pady=3)
+        self.tooltip_label.pack()
+        # 定位到鼠标右下方
+        cx, cy = cursor_pos()
+        self.tooltip.geometry("+%d+%d" % (cx + 12, cy + 12))
+
+    def hide_tooltip(self):
+        """隐藏 tooltip"""
+        if self.tooltip:
+            try:
+                self.tooltip.destroy()
+            except Exception:
+                pass
+            self.tooltip = None
+            self.tooltip_label = None
+
     def on_motion(self, e):
         z = self._zone(e.x, e.y)
         if z == "size":
@@ -532,8 +636,28 @@ class Scope:
             self.cv.config(cursor="size_ns")
         elif self._in_track(e.x, e.y) or self._in(self.pin_bbox, e.x, e.y) or self._in(self.x_bbox, e.x, e.y):
             self.cv.config(cursor="hand2")
+            self.hide_tooltip()
         else:
             self.cv.config(cursor="fleur")
+            # 检测是否悬停在某一行上
+            row_idx = self._get_row_at(e.x, e.y)
+            if row_idx is not None and row_idx < len(self.sessions):
+                ss = self.sessions[row_idx]
+                # 只有蓝灯(后台任务)才显示 tooltip
+                if ss["state"] == "bg" and ss.get("bg_info"):
+                    bg = ss["bg_info"]
+                    tip_text = "后台任务: %s\n状态: %s" % (bg.get("name", "(无名称)"), bg.get("state", "未知"))
+                    if bg.get("tempo"):
+                        tip_text += "\n节奏: %s" % bg["tempo"]
+                    self.show_tooltip(e.x, e.y, tip_text)
+                else:
+                    self.hide_tooltip()
+            else:
+                self.hide_tooltip()
+
+    def on_leave(self, e):
+        """鼠标离开窗口时隐藏 tooltip"""
+        self.hide_tooltip()
 
     def on_press(self, e):
         if self._in(self.x_bbox, e.x, e.y):
