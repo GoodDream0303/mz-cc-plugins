@@ -37,7 +37,6 @@ ATTN_DIR = os.path.join(SCOPE_DIR, "attn")
 
 POLL_MS = 1000
 ATTN_MAX_AGE = 30 * 60 * 1000  # 红灯标记过期(ms)
-TOMBSTONE_AGE_MS = 15 * 60 * 1000  # 僵尸行判定阈值(interactive+busy+陈旧超此值→隐藏)
 
 # 调色板(磷光)
 C_KEY   = "#ff00fe"   # 透明色键(圆角与外缘透明)
@@ -270,10 +269,6 @@ def read_sessions():
         updated_at = data.get("updatedAt", 0)
         now = time.time() * 1000
 
-        # 僵尸行检测:interactive + busy + 陈旧超过阈值 → 跳过(墓碑记录,永不更新)
-        if kind == "interactive" and status == "busy" and (now - updated_at) > TOMBSTONE_AGE_MS:
-            continue
-
         if status == "busy" and sid in attn:
             try:
                 os.remove(os.path.join(ATTN_DIR, sid + ".attn"))
@@ -323,6 +318,41 @@ def read_sessions():
             s["label"] = title
 
     out.sort(key=lambda s: (s["started"], s["pid"]))   # 稳定顺序,行不随状态跳动
+
+    # 调试日志：记录所有会话
+    try:
+        log_path = os.path.join(RUNTIME_DIR, "sessions.log")
+        with open(log_path, "w", encoding="utf-8") as log:
+            log.write(f"=== {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+            log.write(f"读取到 {len(out)} 个会话（去重前）:\n")
+            for s in out:
+                log.write(f"  PID:{s['pid']} SID:{s['id'][:8]} State:{s['state']} Name:{s['name']} Label:{s['label']}\n")
+    except:
+        pass
+
+    # 去重:同一个 sessionId 只保留最新的一条(解决缓存导致的重复显示)
+    before_count = len(out)
+    seen = {}
+    for s in out:
+        sid = s["id"]
+        # 保留 started 时间更晚的(更新的会话),或第一次出现的
+        if sid not in seen or s["started"] >= seen[sid]["started"]:
+            seen[sid] = s
+    out = list(seen.values())
+    out.sort(key=lambda s: (s["started"], s["pid"]))   # 去重后重新排序
+
+    # 调试日志
+    try:
+        log_path = os.path.join(RUNTIME_DIR, "sessions.log")
+        with open(log_path, "a", encoding="utf-8") as log:
+            if before_count != len(out):
+                log.write(f"去重: {before_count} -> {len(out)}\n")
+            log.write(f"最终返回 {len(out)} 个会话:\n")
+            for s in out:
+                log.write(f"  PID:{s['pid']} SID:{s['id'][:8]} State:{s['state']} Label:{s['label']}\n")
+    except:
+        pass
+
     return out
 
 
