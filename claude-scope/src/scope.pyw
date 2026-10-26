@@ -238,8 +238,6 @@ def read_sessions():
         sid = data.get("sessionId") or fn[:-5]
         # Claude Code 写入的 status: busy / waiting(等授权或回答) / idle / shell 等
         status = data.get("status") or "idle"
-        updated_at = data.get("updatedAt", 0)
-        now = time.time() * 1000
 
         # 状态优先级: 红(waiting) > 蓝(纯后台任务) > 绿(busy/shell 等) > 黄(idle)
         # 转换态交互会话(左键切走的)按普通会话显示(绿/黄),蓝灯只给纯后台任务
@@ -392,11 +390,8 @@ class Scope:
     def restart(self):
         self.save_cfg()
         try:
-            if getattr(sys, "frozen", False):
-                subprocess.Popen([sys.executable], close_fds=True, creationflags=0x00000008)
-            else:
-                subprocess.Popen([sys.executable, os.path.abspath(__file__)],
-                                 close_fds=True, creationflags=0x00000008)
+            subprocess.Popen([sys.executable, os.path.abspath(__file__)],
+                             close_fds=True, creationflags=0x00000008)
         except Exception:
             log_error("restart")
         self.root.after(150, self.root.destroy)
