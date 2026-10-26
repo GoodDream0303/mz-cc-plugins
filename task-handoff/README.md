@@ -1,7 +1,7 @@
-# task-handoff —— 跨会话开发任务接力插件
+# task-handoff —— 跨会话开发任务接力插件(v2)
 
-把会话状态**外置**成 markdown 交接文档,让一个长任务可以由**多个 Claude Code 会话接力完成**,
-中途无需重复描述背景。解决两个痛点:单会话上下文过长导致变慢/不足;新开会话又得从头交代。
+把会话状态**外置**成交接文档,让一个长任务可以由**多个 Claude Code 会话接力完成**,中途无需重复描述背景。
+v2 的核心承诺:**重要信息一字不丢**——内容只搬不删、状态与历史分层、git 兜底、交接文档可回链到原始会话。
 
 ## 它提供什么
 
@@ -9,12 +9,22 @@
 
 | 技能 | 作用 |
 |------|------|
-| `/task-handoff:task-save` | **落盘**:把当前进展总结进交接文档 `handoff.md`,同步总账 `INDEX.md`。当你说"准备新开会话/先到这"时也会主动触发。 |
-| `/task-handoff:task-resume` | **接力**:新会话里读回某任务的交接文档,复述确认后从"下一步"继续。带任务名定位,留空则列出进行中任务。 |
-| `/task-handoff:task-manage` | **管理**:删除任务、改TaskId/重命名/改状态、归档已完成、清理体检 INDEX 一致性。 |
+| `/task-handoff:task-save [任务名]` | **落盘**:状态快照写进 `handoff.md`,本次变动追加到 `log.md`,同步总账 `INDEX.md`,git 自动提交,记录会话 ID。说"准备新开会话/先到这"时也会主动触发。 |
+| `/task-handoff:task-resume [序号\|任务名]` | **接力**:新会话里读回 `handoff.md`,机械核对分支/提交/路径是否仍一致,复述确认后从"下一步"继续。不带参数则列出进行中与阻塞任务。 |
+| `/task-handoff:task-manage` | **管理**(只能显式调用):删除、改TaskId/重命名/改状态、归档、体检、精简(搬历史到 log)、迁移 v1→v2。 |
 
-数据结构:你配置的根目录下,每个任务一个独立文件夹(`简明任务名_日期/`),内含 `handoff.md`;
-根目录一份 `INDEX.md` 作总账(主表列进行中任务,已完成任务集中到 `## 已完成` 分区、独立 `C` 序号)。所有文档 UTF-8。
+## 数据结构
+
+```
+<handoff_root>/            自动初始化为 git 仓库,每次 save/manage 提交一次
+  INDEX.md                 总账,四区:主表(🔄,序号 1..N)/ ## 阻塞(⬜,B1..)/ ## 已完成(✅,C1..)/ ## 已归档(-)
+  <任务名_YYYYMMDD>/
+    handoff.md             状态层:目标 / 背景 / 当前状态 / 有效决策 / 改动清单 / 验证 / 下一步 / 未决 / 关键链接,新会话必读
+    log.md                 历史层:只追加;从 handoff 搬出的每一条都带原文与原因
+  archive/                 归档任务
+```
+
+规则:任何内容离开 handoff.md 必须同次以原文进入 log.md;不生成 .bak,回退用 git。所有文档 UTF-8 无 BOM。
 
 ## 安装
 
@@ -23,22 +33,24 @@
 /plugin install task-handoff@mz-cc-plugins
 ```
 
-安装时会提示填 **接力文档根目录**(`handoff_root`)——即交接文档存放位置,
-例如 `D:/ClaudeTasks` 或默认 `~/.claude/task-handoff`。这是每个用户各自的本地目录。
-
-> 安装后无需改你的 CLAUDE.md;主动触发行为由技能描述驱动。
+安装时会提示填 **接力文档根目录**(`handoff_root`),例如 `D:/ClaudeTasks` 或默认 `~/.claude/task-handoff`。
+依赖:`git`、`python3`(校验脚本只用标准库)。无需改你的 CLAUDE.md。
 
 ## 用法
 
-1. 干活到一段落,或说"我准备新开会话" → `/task-handoff:task-save`,把目标/进度/决策/下一步/关键链接写进 `handoff.md`。
-2. 新开会话第一句 `/task-handoff:task-resume <任务名>`(或不带参数让它列出进行中任务)→ 读回并复述,从"下一步"直接续,不用重述背景。
-3. 整理时用 `/task-handoff:task-manage`。
+1. 干活到一段落,或说"我准备新开会话" → `/task-handoff:task-save`。
+2. 新开会话第一句 `/task-handoff:task-resume 1`(序号)或 `/task-handoff:task-resume <任务名>` → 读回、核对、复述,从"下一步"直接续。
+3. 整理时 `/task-handoff:task-manage`。
 
-## 说明
+## 会话回链
 
-- 数据目录路径用插件 `userConfig` 注入,跨平台可用(不写死任何盘符)。
-- 交接文档模板为精简版:任务目标 / 当前进度 / 关键决策 / 下一步 / 关键链接与路径(必填),背景、改动清单、验证方法、未决问题(按需)。
-- 删除等不可逆操作前会先展示目标并请你确认。
+每次 save 会把当前会话 ID 写进 handoff 头部 `> 落盘记录:`。下个会话若觉得摘要不够,可 `claude --resume <id>` 打开原会话,或 `claude -p --resume <id> "<问题>"` 向原会话提问。
+原始记录受 Claude Code 的 `cleanupPeriodDays`(默认 30 天)约束,需要长期回查可在 `~/.claude/settings.json` 自行调大;handoff + log 仍是唯一不依赖本机状态的长期载体。
+
+## 从 v1 升级
+
+- INDEX 需改成四区七列(任务名 / 一句话状态拆开);旧 handoff 可照常 resume,下次 save 自动迁移,或 `/task-handoff:task-manage` 选"迁移"。
+- 迁移会做零丢失校验:旧文档每一行都能在新 handoff.md 或 log.md 里逐字找到,否则不落盘。
 
 ## 许可
 

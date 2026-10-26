@@ -18,7 +18,7 @@
     {
       "name": "task-handoff",
       "source": "./task-handoff",
-      "description": "跨会话开发任务接力:落盘交接文档、新会话恢复、任务管理。把会话状态外置成 markdown,长任务可多会话接力,中途无需重述背景。"
+      "description": "跨会话开发任务接力 v2:状态层 handoff.md + 历史层 log.md,只搬不删、git 兜底、会话 ID 回链、resume 机械核对。长任务可多会话接力,中途无需重述背景。"
     }
   ]
 }
