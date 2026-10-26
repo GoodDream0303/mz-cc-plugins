@@ -15,11 +15,15 @@ claude-scope (tkinter 轻量版)
 
 **安全约束:本程序只读 ~/.claude 文件、只操作自己的窗口与光标,绝不枚举或打开其它进程**
 (早期版本用 OpenProcess/Toolhelp 查后台 shell,疑似被 EDR 拦截并连带影响 MCP/Dashboard,已彻底移除)。
+唯一例外:用户右键某行「关闭」并确认后,一次性启动外部命令结束该会话:后台会话 `claude stop <jobId>`;
+交互会话起子进程 `scope.pyw --quit-session <pid>` 往其控制台注入 Ctrl+C 正常退出,未退出时再经用户确认
+`taskkill /F /PID <pid> /FI "IMAGENAME eq claude.exe"`。本程序(浮窗进程)仍不持有任何进程句柄。
 设计为极低占用:after() 每秒轮询一次,无忙循环;数据无变化不重绘;无任何持续动画。
 """
-import os, re, sys, json, time, ctypes, subprocess
+import os, re, sys, json, time, ctypes, shutil, subprocess, threading
 import tkinter as tk
 import tkinter.font as tkfont
+from tkinter import messagebox
 
 HOME = os.path.expanduser("~")
 SESSIONS_DIR = os.path.join(HOME, ".claude", "sessions")
@@ -213,14 +217,17 @@ def assign_labels(items):
 
 # ---------------- 采集会话 ----------------
 _session_cache = {}  # filename -> 上次成功解析的 json(用于读到半截写入时沿用上一帧)
+_killed = set()      # 右键关闭成功的 (pid, sessionId):强杀后会话文件可能残留,等 CLI 清理前不显示
 
 def read_sessions():
     bg_jobs = read_bg_jobs()
     out = []
+    present = set()
     try:
         files = os.listdir(SESSIONS_DIR)
     except OSError:
         return out
+    entries = []
     for fn in files:
         if not fn.endswith(".json"):
             continue
@@ -232,10 +239,20 @@ def read_sessions():
             data = _session_cache.get(fn)   # 文件正被写入而解析失败 -> 用上次的好数据,避免闪烁
             if data is None:
                 continue
-        if data.get("spare") or data.get("parkedJobId"):   # 预热备用进程 / 已把会话移到后台的窗口,均不显示
+        entries.append((fn, data))
+    bg_job_ids = {d.get("jobId") for _, d in entries if d.get("kind") == "bg" and not d.get("spare")}
+    for fn, data in entries:
+        if data.get("spare"):   # 预热的备用后台进程,尚未接任务,不显示
+            continue
+        # 已把会话移到后台的窗口:对话在那个后台会话里显示;后台会话已不在时照常显示窗口本身
+        if data.get("parkedJobId") and data["parkedJobId"] in bg_job_ids:
             continue
         kind = data.get("kind")
         sid = data.get("sessionId") or fn[:-5]
+        key = (data.get("pid") or 0, sid)
+        present.add(key)
+        if key in _killed:
+            continue
         # Claude Code 写入的 status: busy / waiting(等授权或回答) / idle / shell 等
         status = data.get("status") or "idle"
 
@@ -270,9 +287,10 @@ def read_sessions():
 
         out.append({"id": sid, "pid": data.get("pid") or 0, "cwd": data.get("cwd") or "",
                     "name": data.get("name") or "", "name_src": data.get("nameSource"),
-                    "state": state, "bg_info": bg_info,
+                    "state": state, "bg_info": bg_info, "kind": kind, "job_id": data.get("jobId"),
                     "started": data.get("startedAt") or 0, "label": ""})
 
+    _killed.intersection_update(present)   # 会话文件已被清理的,不再记
     assign_labels(out)
     for s in out:
         # name 由 /rename、--name 等指定(nameSource 非 derived/auto)时最优先;否则优先用 transcript
@@ -360,16 +378,90 @@ class Scope:
         self.menu.add_command(label="重置大小/位置", command=self.reset_geom)
         self.menu.add_separator()
         self.menu.add_command(label="退出", command=self.quit_app)
+        self._menu_kill = False     # 菜单顶部是否插着"关闭 CHn"项(+分隔线)
+        self._kill_done = []        # 关闭线程的结果,由 poll 在主线程处理
 
         self.poll()
 
     # ---- 右键菜单 / 窗口控制 ----
     def show_menu(self, e):
-        self.menu.entryconfigure(0, label=("取消置顶" if self.pinned else "置顶"))
+        if self._menu_kill:
+            self.menu.delete(0, 1)
+            self._menu_kill = False
+        i = self._get_row_at(e.x, e.y)
+        if i is not None and i < len(self.sessions):
+            ss = self.sessions[i]
+            label = ss["label"] or "(无标题)"
+            if len(label) > 20:
+                label = label[:20] + "…"
+            self.menu.insert_command(0, label="关闭 CH%d「%s」" % (i + 1, label),
+                                     command=lambda: self.kill_session(i + 1, ss))
+            self.menu.insert_separator(1)
+            self._menu_kill = True
+        self.menu.entryconfigure(2 if self._menu_kill else 0, label=("取消置顶" if self.pinned else "置顶"))
         try:
             self.menu.tk_popup(int(e.x_root), int(e.y_root))
         finally:
             self.menu.grab_release()
+
+    def kill_session(self, ch, ss):
+        if ss.get("kind") == "bg" and ss.get("job_id"):
+            mode, how = "stop", "claude stop %s" % ss["job_id"]
+        else:
+            mode, how = "quit", "发送 Ctrl+C 正常退出(失败可选强制结束)"
+        if messagebox.askyesno("claude-scope", "关闭 CH%d「%s」?\n\nPID:%d\n方式:%s"
+                               % (ch, ss["label"] or "(无标题)", ss["pid"], how), parent=self.root):
+            threading.Thread(target=self._run_kill, args=(ss, mode), daemon=True).start()
+
+    def _run_kill(self, ss, mode):
+        """mode: stop=后台会话 claude stop;quit=交互会话注入 Ctrl+C;kill=taskkill 强杀"""
+        pid = str(ss["pid"])
+        if mode == "stop":
+            cmd = [shutil.which("claude") or "claude", "stop", ss["job_id"]]
+        elif mode == "quit":
+            cmd = [sys.executable, os.path.abspath(__file__), "--quit-session", pid]
+        else:
+            cmd = ["taskkill", "/F", "/PID", pid, "/FI", "IMAGENAME eq claude.exe"]
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, errors="replace",
+                               timeout=30, creationflags=0x08000000)   # CREATE_NO_WINDOW
+            out = (r.stdout + r.stderr).strip()
+            if mode == "quit":
+                # 正常退出时 CLI 会删自己的会话文件;不查进程,只看文件 5 秒内是否消失
+                f = os.path.join(SESSIONS_DIR, pid + ".json")
+                for _ in range(10):
+                    if not os.path.exists(f):
+                        break
+                    time.sleep(0.5)
+                ok = not os.path.exists(f)
+                out = out or "5 秒内未退出(可能停在对话框或权限确认上)"
+            else:
+                # taskkill 的镜像名过滤不匹配时也返回 0,须输出里含该 PID 才算杀掉
+                ok = r.returncode == 0 and (mode != "kill" or pid in out)
+        except Exception as ex:
+            ok, out = False, repr(ex)
+        self._kill_done.append((ss, mode, cmd, ok, out))
+
+    def _handle_kills(self):
+        while self._kill_done:
+            ss, mode, cmd, ok, out = self._kill_done.pop(0)
+            if ok:
+                _killed.add((ss["pid"], ss["id"]))
+                self._sig = None
+                continue
+            if mode == "quit":
+                if messagebox.askyesno("claude-scope", "「%s」未能正常退出(%s)。\n\n是否强制结束?终端可能残留鼠标乱码,需关闭该终端标签。"
+                                       % (ss["label"] or ss["pid"], out), parent=self.root):
+                    threading.Thread(target=self._run_kill, args=(ss, "kill"), daemon=True).start()
+                continue
+            try:
+                os.makedirs(RUNTIME_DIR, exist_ok=True)
+                with open(ERROR_LOG, "a", encoding="utf-8") as f:
+                    f.write("%s [kill] %s\n%s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), " ".join(cmd), out))
+            except OSError:
+                pass
+            messagebox.showerror("claude-scope", "关闭「%s」失败:\n%s" % (ss["label"] or ss["pid"], out or "(无输出)"),
+                                 parent=self.root)
 
     def toggle_pin(self):
         self.pinned = not self.pinned
@@ -434,6 +526,7 @@ class Scope:
     # ---- 轮询 ----
     def poll(self):
         try:
+            self._handle_kills()
             sessions = read_sessions()
             sig = tuple((s["id"], s["state"], s["label"], s.get("bg_info")) for s in sessions) + (self.W, round(self.s, 2))
             if sig != self._sig:
@@ -736,6 +829,46 @@ def configure_winapi():
     u.RedrawWindow.argtypes = [wt.HWND, ctypes.c_void_p, wt.HANDLE, wt.UINT]
 
 
+def quit_session_main(pid):
+    """`scope.pyw --quit-session <pid>`:挂到该交互会话的控制台,注入 3 次 Ctrl+C 按键,让 Claude Code
+    正常退出并恢复终端(直接发 CTRL_C_EVENT 信号它不理;taskkill 强杀会留下鼠标跟踪等终端模式)。
+    独立子进程执行:挂接期间若该控制台被关,不会连带浮窗。"""
+    from ctypes import wintypes as wt
+    k = ctypes.windll.kernel32
+    k.AttachConsole.argtypes = [wt.DWORD]
+    k.CreateFileW.restype = wt.HANDLE
+    k.CreateFileW.argtypes = [wt.LPCWSTR, wt.DWORD, wt.DWORD, wt.LPVOID, wt.DWORD, wt.DWORD, wt.HANDLE]
+    k.CloseHandle.argtypes = [wt.HANDLE]
+
+    class KEY(ctypes.Structure):
+        _fields_ = [("bKeyDown", wt.BOOL), ("wRepeatCount", wt.WORD), ("wVirtualKeyCode", wt.WORD),
+                    ("wVirtualScanCode", wt.WORD), ("uChar", wt.WCHAR), ("dwControlKeyState", wt.DWORD)]
+
+    class REC(ctypes.Structure):   # INPUT_RECORD,只用 KEY_EVENT
+        _fields_ = [("EventType", wt.WORD), ("_pad", wt.WORD), ("Event", KEY)]
+
+    k.WriteConsoleInputW.argtypes = [wt.HANDLE, ctypes.POINTER(REC), wt.DWORD, ctypes.POINTER(wt.DWORD)]
+
+    k.FreeConsole()
+    if not k.AttachConsole(pid):
+        return 1
+    k.SetConsoleCtrlHandler(None, True)
+    h = k.CreateFileW("CONIN$", 0xC0000000, 3, None, 3, 0, None)   # 读写、共享读写、OPEN_EXISTING
+    if not h or h == ctypes.c_void_p(-1).value:
+        return 1
+    recs = (REC * 2)()
+    for i, down in enumerate((1, 0)):
+        recs[i].EventType = 1                                     # KEY_EVENT
+        recs[i].Event = KEY(down, 1, 0x43, 0x2E, "\x03", 0x0008)  # 'C' + LEFT_CTRL_PRESSED
+    n = wt.DWORD()
+    for _ in range(3):   # 第 1 次清空输入/中断任务,后 2 次连按退出
+        k.WriteConsoleInputW(h, recs, 2, ctypes.byref(n))
+        time.sleep(0.3)
+    k.CloseHandle(h)
+    k.FreeConsole()
+    return 0
+
+
 def main():
     os.makedirs(RUNTIME_DIR, exist_ok=True)
     try:
@@ -756,4 +889,6 @@ def main():
 
 
 if __name__ == "__main__":
+    if len(sys.argv) == 3 and sys.argv[1] == "--quit-session":
+        sys.exit(quit_session_main(int(sys.argv[2])))
     main()
