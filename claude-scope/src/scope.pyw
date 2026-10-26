@@ -232,7 +232,7 @@ def read_sessions():
             data = _session_cache.get(fn)   # 文件正被写入而解析失败 -> 用上次的好数据,避免闪烁
             if data is None:
                 continue
-        if data.get("spare"):   # 预热的备用后台进程,尚未接任务,不显示
+        if data.get("spare") or data.get("parkedJobId"):   # 预热备用进程 / 已把会话移到后台的窗口,均不显示
             continue
         kind = data.get("kind")
         sid = data.get("sessionId") or fn[:-5]

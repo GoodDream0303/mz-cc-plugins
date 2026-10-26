@@ -1,7 +1,7 @@
 {
   "name": "claude-scope",
   "description": "悬浮窗实时监视多个 Claude Code 会话状态(红=需授权 / 蓝=后台任务 / 绿=执行中 / 黄=待机)。只读会话状态文件,无需 hook、无需 Node;用 /claude-scope:scope-show 拉起悬浮窗。",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "author": {
     "name": "mzzhu2"
   },
