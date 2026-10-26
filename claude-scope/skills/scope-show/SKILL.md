@@ -9,7 +9,7 @@ allowed-tools: Bash
 
 本插件的悬浮窗是纯 Python(tkinter)脚本 `src/scope.pyw`(Windows,无控制台、置顶半透明),
 用系统 Python 的无窗口启动器 `pyw` 直接跑、不打包 exe。下面这条命令在插件上下文里后台启动它
-(若已在运行,再开一个也会读同一份配置/标记,通常无害):
+(若已在运行,再开一个也会读同一份配置,通常无害):
 
 !`pyw "${CLAUDE_PLUGIN_ROOT}/src/scope.pyw" & echo "claude-scope 已启动 (PID $!)"`
 
@@ -18,5 +18,4 @@ allowed-tools: Bash
 
 启动后请告诉用户:悬浮窗已拉起;红灯=需要你(等授权/回答)、蓝灯=后台任务(agent/workflow)运行中、
 绿灯=执行中、黄灯=待机。优先级红>蓝>绿>黄;悬停蓝灯行可看后台任务名与状态。
-红灯由本插件的 Notification/UserPromptSubmit hook 驱动(已随插件自动注册,标记写在 `~/.claude/.scope/attn/`)。
-蓝灯读 `~/.claude/jobs/<id>/state.json`,无需 hook。
+红/绿/黄读会话文件 `~/.claude/sessions/<PID>.json` 的 `status`,蓝灯读 `~/.claude/jobs/<id>/state.json`,无需 hook。

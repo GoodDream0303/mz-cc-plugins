@@ -4,13 +4,11 @@
 （避免 onefile 运行期解压 Python 运行时被 EDR/AV 拦导致 `failed to start embedded python interpreter`）。
 
 - `scope.pyw` — tkinter 悬浮窗（合法 UTF-8 无 BOM，可直接编辑）。**纯浮窗**：只读
-  `~/.claude/sessions/*.json`(绿/黄)和 `~/.claude/.scope/attn/*.attn`(红)，**不碰 settings.json**。
+  `~/.claude/sessions/*.json`(红/绿/黄,按 `status`)和 `~/.claude/jobs/*/state.json`(蓝)，**不碰 settings.json**；
+  窗口配置与日志写 `%LOCALAPPDATA%\claude-scope\`。
   运行期只依赖标准库 + tkinter（CPython 自带），无第三方依赖。
 - `icon.ico` — 图标源（示波屏 + 绿/黄/红波形节点）。**当前未在运行期使用**（原是打 exe 时嵌图标用）。
 - `start.vbs` — 双击静默启动器（`pythonw scope.pyw`），桌面快捷方式可用。
-
-红灯标记由插件 `../hooks/scope-attn.js`(Notification hook，经 `../hooks/hooks.json` 自动注册)写入，
-本程序只读，不负责注册 hook。
 
 ## 运行 / 调试
 

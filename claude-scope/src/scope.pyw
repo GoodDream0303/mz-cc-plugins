@@ -7,16 +7,17 @@ claude-scope (tkinter 轻量版)
   绿=思考/执行中(自己busy)
   黄=待机(idle)
 无边框 / 置顶 / 半透明(滚轮或滑块调) / 可拖动 / 可缩放(右下角缩放整体,右边缘单独调宽)。
-数据源:~/.claude/sessions/<PID>.json 的 status / name 字段;
-       ~/.claude/jobs/<id>/state.json 检测后台任务;
-       红灯来自本目录 .runtime/attn 标记(由 Claude 的 Notification hook 写入)。
+数据源:~/.claude/sessions/<PID>.json 的 status / name 字段
+       (status: waiting=等授权/回答 -> 红, idle -> 黄, busy/shell 等其余 -> 绿);
+       ~/.claude/jobs/<id>/state.json 检测后台任务。
 状态优先级:红 > 蓝 > 绿 > 黄。
+窗口配置与日志放 %LOCALAPPDATA%\\claude-scope\\(与 CLI、插件版本目录均无关,升级不丢)。
 
 **安全约束:本程序只读 ~/.claude 文件、只操作自己的窗口与光标,绝不枚举或打开其它进程**
 (早期版本用 OpenProcess/Toolhelp 查后台 shell,疑似被 EDR 拦截并连带影响 MCP/Dashboard,已彻底移除)。
 设计为极低占用:after() 每秒轮询一次,无忙循环;数据无变化不重绘;无任何持续动画。
 """
-import os, sys, json, time, ctypes, subprocess
+import os, re, sys, json, time, ctypes, subprocess
 import tkinter as tk
 import tkinter.font as tkfont
 
@@ -24,19 +25,11 @@ HOME = os.path.expanduser("~")
 SESSIONS_DIR = os.path.join(HOME, ".claude", "sessions")
 PROJECTS_DIR = os.path.join(HOME, ".claude", "projects")
 JOBS_DIR = os.path.join(HOME, ".claude", "jobs")
-if getattr(sys, "frozen", False):   # PyInstaller 打包后:以 exe 所在目录为基准(而非临时解压目录)
-    APP_DIR = os.path.dirname(os.path.abspath(sys.executable))
-else:
-    APP_DIR = os.path.dirname(os.path.abspath(__file__))
-RUNTIME_DIR = os.path.join(APP_DIR, ".runtime")
+# 配置/日志放与 CLI 无关的固定目录:插件目录带版本号(升级即重置),~/.claude 又专属 Claude
+RUNTIME_DIR = os.path.join(os.environ.get("LOCALAPPDATA") or HOME, "claude-scope")
 CONFIG_PATH = os.path.join(RUNTIME_DIR, "config.json")
-# 红灯标记放固定共享目录:由插件的 Notification hook(scope-attn.js)写入,本程序只读。
-# config/日志仍留 exe 旁(属本安装私有)。
-SCOPE_DIR = os.path.join(HOME, ".claude", ".scope")
-ATTN_DIR = os.path.join(SCOPE_DIR, "attn")
 
 POLL_MS = 1000
-ATTN_MAX_AGE = 30 * 60 * 1000  # 红灯标记过期(ms)
 
 # 调色板(磷光)
 C_KEY   = "#ff00fe"   # 透明色键(圆角与外缘透明)
@@ -84,7 +77,8 @@ def cursor_pos():
 _title_cache = {}  # sid -> (path, mtime, title)
 
 def _enc_cwd(cwd):
-    return "".join("-" if c in ":\\/" else c for c in (cwd or ""))
+    # 与 Claude Code 一致:所有非字母数字字符都换成 "-"(如 AI_Skill_Repo -> AI-Skill-Repo)
+    return re.sub(r"[^A-Za-z0-9]", "-", cwd or "")
 
 def fallback_title(sid, cwd):
     path = os.path.join(PROJECTS_DIR, _enc_cwd(cwd), sid + ".jsonl")
@@ -130,30 +124,6 @@ def fallback_title(sid, cwd):
     title = ai_title or last_prompt
     _title_cache[sid] = (path, mtime, title)
     return title
-
-
-# ---------------- 红灯标记 ----------------
-def read_attn():
-    s = set()
-    now = time.time() * 1000
-    try:
-        names = os.listdir(ATTN_DIR)
-    except OSError:
-        return s
-    for n in names:
-        if not n.endswith(".attn"):
-            continue
-        full = os.path.join(ATTN_DIR, n)
-        try:
-            with open(full, "r") as f:
-                ts = int((f.read() or "0").strip() or "0")
-            if now - ts > ATTN_MAX_AGE:
-                os.remove(full)
-                continue
-            s.add(n[:-5])
-        except (OSError, ValueError):
-            pass
-    return s
 
 
 # ---------------- 后台任务(agent/workflow) ----------------
@@ -245,7 +215,6 @@ def assign_labels(items):
 _session_cache = {}  # filename -> 上次成功解析的 json(用于读到半截写入时沿用上一帧)
 
 def read_sessions():
-    attn = read_attn()
     bg_jobs = read_bg_jobs()
     out = []
     try:
@@ -263,23 +232,19 @@ def read_sessions():
             data = _session_cache.get(fn)   # 文件正被写入而解析失败 -> 用上次的好数据,避免闪烁
             if data is None:
                 continue
+        if data.get("spare"):   # 预热的备用后台进程,尚未接任务,不显示
+            continue
         kind = data.get("kind")
         sid = data.get("sessionId") or fn[:-5]
-        status = "busy" if data.get("status") == "busy" else "idle"
+        # Claude Code 写入的 status: busy / waiting(等授权或回答) / idle / shell 等
+        status = data.get("status") or "idle"
         updated_at = data.get("updatedAt", 0)
         now = time.time() * 1000
 
-        if status == "busy" and sid in attn:
-            try:
-                os.remove(os.path.join(ATTN_DIR, sid + ".attn"))
-            except OSError:
-                pass
-            attn.discard(sid)
-
-        # 状态优先级: 红(attn) > 蓝(纯后台任务) > 绿(busy) > 黄(idle)
+        # 状态优先级: 红(waiting) > 蓝(纯后台任务) > 绿(busy/shell 等) > 黄(idle)
         # 转换态交互会话(左键切走的)按普通会话显示(绿/黄),蓝灯只给纯后台任务
         bg_info = None
-        if sid in attn:
+        if status == "waiting":
             state = "attn"
         elif kind == "bg":
             # 读 jobs/<id>/state.json 获取完整字段,用于判别转换态
@@ -295,43 +260,36 @@ def read_sessions():
             # 判别:转换态当普通会话(绿/黄),纯后台任务才显示蓝灯
             if full_bg_info and _is_converted_interactive(full_bg_info):
                 # 转换态交互会话 → 按 status 显示绿/黄
-                state = "run" if status == "busy" else "stby"
+                state = "stby" if status == "idle" else "run"
             else:
                 # 纯后台任务 → 蓝灯
                 state = "bg"
                 bg_info = bg_jobs.get(sid, {"name": data.get("name", ""), "state": status, "tempo": ""})
-        elif status == "busy":
-            state = "run"
-        else:
+        elif status == "idle":
             state = "stby"
+        else:
+            state = "run"
 
         out.append({"id": sid, "pid": data.get("pid") or 0, "cwd": data.get("cwd") or "",
-                    "name": data.get("name") or "", "state": state, "bg_info": bg_info,
+                    "name": data.get("name") or "", "name_src": data.get("nameSource"),
+                    "state": state, "bg_info": bg_info,
                     "started": data.get("startedAt") or 0, "label": ""})
 
     assign_labels(out)
     for s in out:
-        # 优先用 transcript 的 ai-title(可含中文);sessions.json 的 name 是 ASCII slug,
-        # 中文标题会退化成"目录名-编号"占位串,故仅作次选,路径名(assign_labels)兜底。
-        title = fallback_title(s["id"], s["cwd"]) or s["name"]
+        # name 由 /rename、--name 等指定(nameSource 非 derived/auto)时最优先;否则优先用 transcript
+        # 的 ai-title(可含中文):自动 name 是 ASCII slug,中文标题会退化成"目录名-编号"占位串。
+        # 路径名(assign_labels)兜底。
+        if s["name"] and s["name_src"] not in (None, "derived", "auto"):
+            title = s["name"]
+        else:
+            title = fallback_title(s["id"], s["cwd"]) or s["name"]
         if title:
             s["label"] = title
 
     out.sort(key=lambda s: (s["started"], s["pid"]))   # 稳定顺序,行不随状态跳动
 
-    # 调试日志：记录所有会话
-    try:
-        log_path = os.path.join(RUNTIME_DIR, "sessions.log")
-        with open(log_path, "w", encoding="utf-8") as log:
-            log.write(f"=== {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
-            log.write(f"读取到 {len(out)} 个会话（去重前）:\n")
-            for s in out:
-                log.write(f"  PID:{s['pid']} SID:{s['id'][:8]} State:{s['state']} Name:{s['name']} Label:{s['label']}\n")
-    except:
-        pass
-
     # 去重:同一个 sessionId 只保留最新的一条(解决缓存导致的重复显示)
-    before_count = len(out)
     seen = {}
     for s in out:
         sid = s["id"]
@@ -340,18 +298,6 @@ def read_sessions():
             seen[sid] = s
     out = list(seen.values())
     out.sort(key=lambda s: (s["started"], s["pid"]))   # 去重后重新排序
-
-    # 调试日志
-    try:
-        log_path = os.path.join(RUNTIME_DIR, "sessions.log")
-        with open(log_path, "a", encoding="utf-8") as log:
-            if before_count != len(out):
-                log.write(f"去重: {before_count} -> {len(out)}\n")
-            log.write(f"最终返回 {len(out)} 个会话:\n")
-            for s in out:
-                log.write(f"  PID:{s['pid']} SID:{s['id'][:8]} State:{s['state']} Label:{s['label']}\n")
-    except:
-        pass
 
     return out
 
@@ -661,22 +607,24 @@ class Scope:
         return None
 
     def show_tooltip(self, x, y, text):
-        """在鼠标位置显示 tooltip"""
-        self.hide_tooltip()
+        """在鼠标位置显示 tooltip(内容不变时只移动,不重建窗口)"""
         if not text:
+            self.hide_tooltip()
             return
-        self.tooltip = tk.Toplevel(self.root)
-        self.tooltip.overrideredirect(True)
-        self.tooltip.attributes("-topmost", True)
-        try:
-            self.tooltip.attributes("-transparentcolor", C_KEY)
-        except tk.TclError:
-            pass
-        self.tooltip_label = tk.Label(self.tooltip, text=text,
-                                      bg="#1a2f22", fg="#cfeede",
-                                      font=("Microsoft YaHei UI", 8),
-                                      bd=1, relief="solid", padx=6, pady=3)
-        self.tooltip_label.pack()
+        if not self.tooltip or self.tooltip_label.cget("text") != text:
+            self.hide_tooltip()
+            self.tooltip = tk.Toplevel(self.root)
+            self.tooltip.overrideredirect(True)
+            self.tooltip.attributes("-topmost", True)
+            try:
+                self.tooltip.attributes("-transparentcolor", C_KEY)
+            except tk.TclError:
+                pass
+            self.tooltip_label = tk.Label(self.tooltip, text=text,
+                                          bg="#1a2f22", fg="#cfeede",
+                                          font=("Microsoft YaHei UI", 8),
+                                          bd=1, relief="solid", padx=6, pady=3)
+            self.tooltip_label.pack()
         # 定位到鼠标右下方
         cx, cy = cursor_pos()
         self.tooltip.geometry("+%d+%d" % (cx + 12, cy + 12))
@@ -794,7 +742,7 @@ def configure_winapi():
 
 
 def main():
-    os.makedirs(ATTN_DIR, exist_ok=True)
+    os.makedirs(RUNTIME_DIR, exist_ok=True)
     try:
         import faulthandler
         faulthandler.enable(file=open(os.path.join(RUNTIME_DIR, "fault.log"), "a", buffering=1))

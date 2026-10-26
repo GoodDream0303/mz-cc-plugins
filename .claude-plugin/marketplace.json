@@ -11,7 +11,7 @@
     {
       "name": "claude-scope",
       "source": "./claude-scope",
-      "description": "悬浮窗实时监视多个 Claude Code 会话状态(红=需要你 / 蓝=后台任务 / 绿=执行中 / 黄=待机);红灯 hook 装上即自动注册。",
+      "description": "悬浮窗实时监视多个 Claude Code 会话状态(红=需要你 / 蓝=后台任务 / 绿=执行中 / 黄=待机);只读会话状态文件,无需 hook。",
       "category": "monitoring",
       "tags": ["overlay", "monitoring", "sessions", "notifications", "agent", "workflow"]
     },
