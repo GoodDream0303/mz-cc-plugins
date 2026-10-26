@@ -27,14 +27,15 @@ argument-hint: [任务名]
 - 否则 `$ARGUMENTS` 非空 → 用它。
 - 否则向用户确认任务名(可据当前 git 分支名推断)。
 
-### 2. 确保数据根是 git 仓库
-`git -C "<root>" rev-parse --is-inside-work-tree`;失败则:
+### 2. 确保数据根是独立 git 仓库
+`git -C "<root>" rev-parse --show-toplevel` 的输出必须就是 `<root>` 自身(按规范化绝对路径比较)。
+输出为空(不是仓库),或指向上层目录(数据根嵌在别的仓库里,例如 `~/.claude` 或 `~` 本身是 dotfiles 仓库)→ 在 `<root>` 内建**独立**仓库,绝不把上层仓库当数据根:
 ```
 git -C "<root>" init
-git -C "<root>" add -A
+git -C "<root>" add -A -- .
 git -C "<root>" commit -m "init: task-handoff v2 数据根入库"
 ```
-并在回显里告知用户"数据根已初始化为 git 仓库"。若 `git` 不可用,记下警告,后续步骤照做,仅跳过提交。
+并在回显里告知用户"数据根已初始化为 git 仓库"。**所有 `git add` 一律带 `-- .`**,只暂存数据根自身,防止在嵌套场景把上层仓库整棵树提交进去。若 `git` 不可用,记下警告,后续步骤照做,仅跳过提交与零丢失兜底。
 若 `git config user.name` 为空,仅对本仓库设:`git -C "<root>" config user.name task-handoff` 与 `git -C "<root>" config user.email task-handoff@local`。
 
 ### 3. 定位/新建任务文件夹
@@ -52,6 +53,9 @@ git -C "<root>" commit -m "init: task-handoff v2 数据根入库"
 - **头部**:刷新"最近更新";据实更新状态;`> 落盘记录:` 行前置本次 `YYYY-MM-DD session ${CLAUDE_SESSION_ID}`,只留最近 3 条(全量在 log.md);状态为 ⬜阻塞 时必须有 `> 阻塞:<原因;解除条件;等谁>` 行,其它状态删该行。
 - 九节必须齐全、按 1~9 顺序,无内容写"无"。非模板标题只允许出现在 §9 之后(附录)。
 - 写完跑:`python -I "${CLAUDE_PLUGIN_ROOT}/scripts/handoff_check.py" sections "<handoff.md>"`,不过则修到过。
+- **零丢失兜底**(第 5 步 log 写完后立刻跑,任务已在 git 历史里时必做;新任务脚本会自动跳过并 WARN):
+  `python -I "${CLAUDE_PLUGIN_ROOT}/scripts/handoff_check.py" zero-loss git:HEAD "<handoff.md>" "<log.md>"`
+  —— 旧版本直接取自 git 历史,不落临时文件。报"丢失行"→ 把那行原文补进本次 log 条目(或留回 handoff),重跑直到通过;只有逐字重复的删除可向用户说明后放行。
 
 ### 5. 追加 log.md(历史层)
 在文件末尾追加一条:
@@ -74,11 +78,15 @@ git -C "<root>" commit -m "init: task-handoff v2 数据根入库"
 - 状态未变 → 原地更新"一句话状态"与"最近更新"。
 - 状态变了 → 从原区删行、原区重排序号、追加到目标区取该区 `max+1`。分区不存在则新建带表头。
 - INDEX 不存在 → 按主表表头新建。
+- **INDEX 仍是 v1 六列**(表头 `序号 | 任务 | 状态 | TaskId | 文件夹 | 最近更新`)→ 先整体迁移,再写本次的行:
+  1. 对**每一行**(含已完成区):把其"任务"列原文插到该任务 handoff `## 3.` 标题下第一行 `> INDEX 迁移摘要(YYYY-MM-DD):<原文>`(handoff 还是 v1 也照插,不改其它内容);任务名取简名 ≤30 字;一句话状态从原文压 ≤60 字。
+  2. 换成四区七列:🔄 留主表重排 `1..N`,⬜ 移入 `## 阻塞` 取 `B1..`,✅ 留 `## 已完成` 重排 `C1..`,已归档行序号 `-`。
+  3. 旧摘要一字不丢的依据就是第 1 步;没做第 1 步不得改表头。
 - 写完跑:`python -I "${CLAUDE_PLUGIN_ROOT}/scripts/handoff_check.py" index "<root>"`,有 ERROR 则修到无。
 
 ### 7. git 提交
 ```
-git -C "<root>" add -A
+git -C "<root>" add -A -- .
 git -C "<root>" commit -m "save: <任务名> YYYY-MM-DD"
 ```
 提交信息不加任何署名行。失败不阻断,回显警告。
@@ -127,10 +135,11 @@ log.md:
 ```
 
 ## 迁移 v1 → v2(handoff 已存在但非 v2 时,save 内嵌执行)
-1. `copy "<handoff.md>" "<同目录>/handoff.v1.tmp"` 留作校验对照。
-2. 新建 `log.md`(标题 `# <任务名> 历史日志`),首条 `## YYYY-MM-DD  迁移自 v1(session ${CLAUDE_SESSION_ID})`。
+1. 对照副本不落文件:第 2 步已保证数据根是 git 仓库且 v1 版本已在 HEAD 里(若本次刚 init,init 提交即含它);零丢失校验用 `git:HEAD` 取旧版本。
+2. 新建 `log.md`(标题 `# <任务名> 历史日志`,次行 `> 只追加,不删改既有条目。`),首条 `## YYYY-MM-DD  迁移自 v1(session ${CLAUDE_SESSION_ID})`。
 3. 九节补齐、按序:`## 3. 当前进度` 改 `## 3. 当前状态`,`## 4. 关键决策与权衡` 改 `## 4. 有效决策`;缺的节写"无";非模板标题整体移到 §9 之后作附录,不删。标题后原有的说明文字保留。
 4. §3 里已完成的历史条目、§7 里已完成条目、§8 里已解决条目、§4 里被取代决策 → 按原文搬到迁移条目的"从 handoff 搬出"。拿不准的留在原处。
 5. 头部加 `> 落盘记录:` 行;⬜ 任务补 `> 阻塞:` 行(原因从正文取,取不到问用户)。TaskId / 分支 / 关键路径的值原样保留。
-6. 校验:`python -I "${CLAUDE_PLUGIN_ROOT}/scripts/handoff_check.py" zero-loss "<handoff.v1.tmp>" "<handoff.md>" "<log.md>"` 与 `sections "<handoff.md>"`。不通过则修到通过;通过后删 `handoff.v1.tmp`。
+6. 校验:`python -I "${CLAUDE_PLUGIN_ROOT}/scripts/handoff_check.py" zero-loss git:HEAD "<handoff.md>" "<log.md>"` 与 `sections "<handoff.md>"`。不通过则修到通过。
 7. 该任务目录下 `*.bak` 删除(git 历史已有)。
+8. INDEX 该行若仍是 v1 六列,按第 6 步"INDEX 仍是 v1 六列"的规则处理(旧"任务"列原文先写入 §3 下第一行,再重写行)。

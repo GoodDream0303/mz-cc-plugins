@@ -134,6 +134,71 @@ class ZeroLoss(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertIn("头部字段未保留 > 分支:feature_1", out)
 
+    def test_custom_header_line_must_survive(self):
+        with tempfile.TemporaryDirectory() as t:
+            old = os.path.join(t, "old.md")
+            new = os.path.join(t, "new.md")
+            log = os.path.join(t, "log.md")
+            w(old, V2.replace("> 分支:feature_1", "> 分支:feature_1\n> 负责人:张三"))
+            w(new, V2)
+            w(log, "# 日志\n")
+            code, out = run(hc.zero_loss, old, new, log)
+            self.assertEqual(code, 1)
+            self.assertIn("丢失行: > 负责人:张三", out)
+
+    def test_status_suffix_and_block_reason_must_survive(self):
+        with tempfile.TemporaryDirectory() as t:
+            old = os.path.join(t, "old.md")
+            new = os.path.join(t, "new.md")
+            log = os.path.join(t, "log.md")
+            w(old, V2.replace("> 状态:🔄进行中", "> 状态:⬜阻塞(等硬件 X 到货)\n> 阻塞:等硬件 X 到货;到货后复测;等采购"))
+            w(new, V2)
+            w(log, "# 日志\n")
+            code, out = run(hc.zero_loss, old, new, log)
+            self.assertEqual(code, 1)
+            self.assertIn("等硬件 X 到货)", out)
+            self.assertIn("头部字段未保留 > 阻塞:等硬件 X 到货;到货后复测;等采购", out)
+            # 补进 log 后应通过
+            w(log, "# 日志\n- [头部] > 状态:⬜阻塞(等硬件 X 到货)(原因:已解除)\n- [头部] > 阻塞:等硬件 X 到货;到货后复测;等采购(原因:已解除)\n")
+            code, out = run(hc.zero_loss, old, new, log)
+            self.assertEqual(code, 0, out)
+
+
+class ZeroLossGit(unittest.TestCase):
+    """old 参数写成 git:<rev> 时,从 git 历史取旧版本,不落临时文件。"""
+
+    def _repo(self, t):
+        import subprocess
+        d = os.path.join(t, "任务甲_20260101")
+        w(os.path.join(d, "handoff.md"), V2.replace("状态B", "状态B\n历史一行"))
+        w(os.path.join(d, "log.md"), "# 日志\n")
+        subprocess.run(["git", "-C", t, "init", "-q"], check=True)
+        subprocess.run(["git", "-C", t, "config", "core.fsmonitor", "false"], check=True)  # Windows 下避免守护进程占用临时目录
+        subprocess.run(["git", "-C", t, "-c", "user.name=t", "-c", "user.email=t@t", "add", "-A", "--", "."], check=True)
+        subprocess.run(["git", "-C", t, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init"], check=True)
+        return d
+
+    def test_git_head_as_old_detects_loss_and_passes_when_moved(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as t:
+            d = self._repo(t)
+            w(os.path.join(d, "handoff.md"), V2)  # 删掉"历史一行"但没搬 log
+            code, out = run(hc.zero_loss, "git:HEAD", os.path.join(d, "handoff.md"), os.path.join(d, "log.md"))
+            self.assertEqual(code, 1)
+            self.assertIn("丢失行: 历史一行", out)
+            w(os.path.join(d, "log.md"), "# 日志\n- [§3] 历史一行(原因:已完成)\n")
+            code, out = run(hc.zero_loss, "git:HEAD", os.path.join(d, "handoff.md"), os.path.join(d, "log.md"))
+            self.assertEqual(code, 0, out)
+
+    def test_git_head_missing_history_is_skipped_with_warning(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as t:
+            self._repo(t)
+            d2 = os.path.join(t, "新任务_20260102")
+            w(os.path.join(d2, "handoff.md"), V2)
+            w(os.path.join(d2, "log.md"), "# 日志\n")
+            code, out = run(hc.zero_loss, "git:HEAD", os.path.join(d2, "handoff.md"), os.path.join(d2, "log.md"))
+            self.assertEqual(code, 0, out)
+            self.assertIn("WARN: git 里没有旧版本", out)
+
 
 class Sections(unittest.TestCase):
     def test_pass(self):

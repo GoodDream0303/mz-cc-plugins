@@ -49,8 +49,10 @@ v2 的核心承诺:**重要信息一字不丢**——内容只搬不删、状态
 
 ## 从 v1 升级
 
-- INDEX 需改成四区七列(任务名 / 一句话状态拆开);旧 handoff 可照常 resume,下次 save 自动迁移,或 `/task-handoff:task-manage` 选"迁移"。
-- 迁移会做零丢失校验:旧文档每一行都能在新 handoff.md 或 log.md 里逐字找到,否则不落盘。
+- 什么都不用手改。旧 handoff 可照常 resume;对某任务第一次 save 时自动迁移该任务,或 `/task-handoff:task-manage` 选"handoff 维护 → 迁移"批量迁。
+- INDEX 由 v1 六列换成四区七列时,每一行旧"任务"列的原文会先写进该任务 handoff §3 下第一行(`> INDEX 迁移摘要(日期):…`),再拆成任务名 + 一句话状态——旧摘要不丢。
+- 每次迁移和每次 save 都跑零丢失校验(旧版本直接取自 git 历史):旧文档每一行都能在新 handoff.md 或 log.md 里逐字找到,否则不落盘。
+- 数据根若在别的 git 仓库之内(如 dotfiles),插件会在数据根里另建独立仓库,所有 `git add` 只暂存数据根自身。
 
 ## 许可
 

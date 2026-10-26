@@ -3,9 +3,10 @@
 """task-handoff v2 校验脚本(仅标准库,Python 3.8+)。
 
 用法:
-  handoff_check.py zero-loss <旧handoff.md> <新handoff.md> <log.md>
+  handoff_check.py zero-loss <旧handoff.md | git:<rev>> <新handoff.md> <log.md>
   handoff_check.py sections  <handoff.md>
   handoff_check.py index     <handoff_root>
+旧文件写 git:HEAD 时直接从 git 历史取新 handoff.md 的上一版本,不落临时文件;历史里没有(新任务)则跳过并 WARN。
 退出码:0 通过;1 有 ERROR;2 用法错误。WARN 不影响退出码。
 """
 import os
@@ -42,10 +43,49 @@ def section_prefix(line):
     return None
 
 
+TEMPLATE_HEAD_KEYS = ("状态", "创建", "分支", "关键路径", "落盘记录", "阻塞")
+STATUS_TOKENS = ("🔄进行中", "⬜阻塞", "✅已完成", "🔄", "⬜", "✅")
+
+
+def head_line_payload(s):
+    """头部 '> 键:值' 行:模板键的行允许按模板改写,返回必须保留的附加信息(可能为空);
+    非模板键的行当正文看待,整行必须保留。"""
+    body = s[1:].strip()
+    key, sep, val = body.partition(":")
+    key = key.strip()
+    if not sep or key not in TEMPLATE_HEAD_KEYS:
+        return s  # 自定义头部行,整行检查
+    if key == "状态":
+        rest = val.strip()
+        for tok in STATUS_TOKENS:
+            rest = rest.replace(tok, "")
+        rest = rest.strip(" /、,，;；")
+        return rest  # 状态后的补充说明(如括号注记)必须保留
+    return ""  # 创建/分支/关键路径/落盘记录/阻塞:值由键校验单独核对
+
+
+def load_old_text(old_path, new_path):
+    """old_path 为普通文件路径,或 'git:<rev>' 表示取 new_path 在 git 历史 <rev> 中的版本(不落临时文件)。
+    git 里没有旧版本(新任务)时返回 None。"""
+    if not old_path.startswith("git:"):
+        return read_text(old_path)
+    import subprocess
+    rev = old_path[4:] or "HEAD"
+    d, name = os.path.split(os.path.abspath(new_path))
+    r = subprocess.run(["git", "-C", d, "show", "%s:./%s" % (rev, name)], capture_output=True)
+    if r.returncode != 0:
+        return None
+    return r.stdout.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
+
+
 def zero_loss(old_path, new_path, log_path):
     """旧文件每一有效行(去首尾空白)必须作为子串出现在新 handoff 或 log 的文本里。
     用子串而非整行比对,因为 log 条目把原文包在 '- [§3] <原文>(原因:...)' 里。"""
-    old_lines = read_text(old_path).split("\n")
+    old_text = load_old_text(old_path, new_path)
+    if old_text is None:
+        print("WARN: git 里没有旧版本(%s),跳过零丢失校验" % old_path)
+        return 0
+    old_lines = old_text.split("\n")
     new_text = read_text(new_path)
     pool_text = new_text + "\n" + read_text(log_path)
     missing, checked, seen_section = [], 0, False
@@ -56,18 +96,24 @@ def zero_loss(old_path, new_path, log_path):
         if s.startswith("## "):
             seen_section = True
             continue
-        if s.startswith("# ") or (s.startswith(">") and not seen_section):
+        if s.startswith("# "):
             continue
+        if s.startswith(">") and not seen_section:
+            s = head_line_payload(s)
+            if not s:
+                continue
         checked += 1
         if s not in pool_text:
             missing.append(s)
     errors = len(missing)
     old_head = "\n".join(l for l in old_lines if l.startswith(">") or l.startswith("# "))
-    for key in ("TaskId:", "> 分支:", "> 关键路径:"):
+    for key in ("TaskId:", "> 分支:", "> 关键路径:", "> 阻塞:"):
         m = re.search(re.escape(key) + r"\s*([^|\n]+)", old_head)
         if m:
             val = m.group(1).strip()
-            if val and val not in new_text:
+            # TaskId/分支/关键路径 必须留在新 handoff 头部;阻塞原因在解除后允许搬进 log
+            target = pool_text if key == "> 阻塞:" else new_text
+            if val and val not in target:
                 print("ERROR: 头部字段未保留 %s%s" % (key, val))
                 errors += 1
     for s in missing:
