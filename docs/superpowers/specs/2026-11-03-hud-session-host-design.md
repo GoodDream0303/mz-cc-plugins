@@ -18,6 +18,12 @@
 - 已核对本机当前 `codex` 来自 npm 的官方 `codex.ps1` / `codex.cmd`；未修改这些文件。当前工具进程可通过 Win32_Process 父进程链找到真正的 `codex.exe`，无需读取命令行或对话内容。
 - 本机 `startup.enabled=false`；开发与验收期间保持关闭，不能用旧全局 link 执行默认 start。
 
+### 本轮只读可行性核对
+
+当前工具所在 PowerShell 的管理员权限检查为 true；这只是当前进程事实，不推断其它窗口或用户今后的权限选择。官方 0.166.0 的 `tui/src/startup_orchestration.rs:28-35` 与 `tui/src/daemon_startup.rs:1-7` 明确：本地管理员 Windows 启动由官方代码选择进程内服务。因此，当前工具能沿父进程链找到真正的交互 Codex，与这个行为一致；插件无需也不得为此添加 `--no-daemon`。
+
+普通权限窗口可能使用共享服务，不能套用上述结论。已查阅的 `RemoteAppServerConnectArgs`、`thread_start_params_with_reviewer` 和 resume 参数构造没有提供可直接使用的前端 origin 字段；这不足以证明其它传递通道不存在，但足以说明“任意继承 nonce 即可信”没有依据。普通权限下的真实并发与按会话传播验证仍是前置可行性门槛，不能降格为仅返回拒绝就算完成。
+
 ## 3. 方案选择
 
 仅让旧 WT 后端拒绝不明目标，不能满足“每个同时运行的 Codex 都有 HUD”；继续用 MRU、焦点、标题、最新日志也不能满足准确归属。要求用户每次手动进入 psmux 或切换到特殊 WT profile，同样不符合这次确认的使用方式。
@@ -102,6 +108,7 @@
 - [psmux 固定版本配置](https://raw.githubusercontent.com/psmux/psmux/v3.4.0/docs/configuration.md)
 - [共享服务器环境串用问题 #895](https://github.com/psmux/psmux/issues/895)
 - [OpenAI 官方 hooks 文档](https://learn.chatgpt.com/docs/hooks)：原生信任仍需用户审阅，transcript 格式不是稳定公共接口。
+- 官方固定版本源码：[`startup_orchestration.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/startup_orchestration.rs#L28)、[`daemon_startup.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/daemon_startup.rs#L1)、[`app_server_session.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/app_server_session.rs#L2287)、[`remote.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/app-server-client/src/remote.rs#L86)。
 - 本任务归档：`E:/Ai_Process_Folder/A_Markdown/Codex_HUD插件开发_20261102/artifacts/psmux-validation-20261103`。
 
 本方案尚未证明真实 Codex 的完整 hook 继承、共享服务的 per-session origin 传递、同步事件顺序、入口参数兼容和 psmux TUI 体验；这些属于实现及验收要解决的问题，而非本设计已经成立的结论。
