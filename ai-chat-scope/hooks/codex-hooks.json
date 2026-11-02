@@ -5,8 +5,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -B \"${PLUGIN_ROOT}/src/codex_hooks.py\"",
-            "commandWindows": "python -B \"$env:PLUGIN_ROOT/src/codex_hooks.py\"",
+            "command": "python3 -B -c \"import os,sys,runpy;r=os.environ.get('PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT');r or (print('{}'),sys.exit(0));p=os.path.join(r,'src');sys.path.insert(0,p);runpy.run_path(os.path.join(p,'codex_hooks.py'),run_name='__main__')\"",
+            "commandWindows": "python -B -c \"import os,sys,runpy;r=os.environ.get('PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT');r or (print('{}'),sys.exit(0));p=os.path.join(r,'src');sys.path.insert(0,p);runpy.run_path(os.path.join(p,'codex_hooks.py'),run_name='__main__')\"",
             "timeout": 3
           }
         ]
@@ -17,8 +17,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -B \"${PLUGIN_ROOT}/src/codex_hooks.py\"",
-            "commandWindows": "python -B \"$env:PLUGIN_ROOT/src/codex_hooks.py\"",
+            "command": "python3 -B -c \"import os,sys,runpy;r=os.environ.get('PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT');r or (print('{}'),sys.exit(0));p=os.path.join(r,'src');sys.path.insert(0,p);runpy.run_path(os.path.join(p,'codex_hooks.py'),run_name='__main__')\"",
+            "commandWindows": "python -B -c \"import os,sys,runpy;r=os.environ.get('PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT');r or (print('{}'),sys.exit(0));p=os.path.join(r,'src');sys.path.insert(0,p);runpy.run_path(os.path.join(p,'codex_hooks.py'),run_name='__main__')\"",
             "timeout": 3
           }
         ]
@@ -29,8 +29,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -B \"${PLUGIN_ROOT}/src/codex_hooks.py\"",
-            "commandWindows": "python -B \"$env:PLUGIN_ROOT/src/codex_hooks.py\"",
+            "command": "python3 -B -c \"import os,sys,runpy;r=os.environ.get('PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT');r or (print('{}'),sys.exit(0));p=os.path.join(r,'src');sys.path.insert(0,p);runpy.run_path(os.path.join(p,'codex_hooks.py'),run_name='__main__')\"",
+            "commandWindows": "python -B -c \"import os,sys,runpy;r=os.environ.get('PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT');r or (print('{}'),sys.exit(0));p=os.path.join(r,'src');sys.path.insert(0,p);runpy.run_path(os.path.join(p,'codex_hooks.py'),run_name='__main__')\"",
             "timeout": 3
           }
         ]
@@ -41,8 +41,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -B \"${PLUGIN_ROOT}/src/codex_hooks.py\"",
-            "commandWindows": "python -B \"$env:PLUGIN_ROOT/src/codex_hooks.py\"",
+            "command": "python3 -B -c \"import os,sys,runpy;r=os.environ.get('PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT');r or (print('{}'),sys.exit(0));p=os.path.join(r,'src');sys.path.insert(0,p);runpy.run_path(os.path.join(p,'codex_hooks.py'),run_name='__main__')\"",
+            "commandWindows": "python -B -c \"import os,sys,runpy;r=os.environ.get('PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT');r or (print('{}'),sys.exit(0));p=os.path.join(r,'src');sys.path.insert(0,p);runpy.run_path(os.path.join(p,'codex_hooks.py'),run_name='__main__')\"",
             "timeout": 3
           }
         ]
@@ -53,8 +53,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -B \"${PLUGIN_ROOT}/src/codex_hooks.py\"",
-            "commandWindows": "python -B \"$env:PLUGIN_ROOT/src/codex_hooks.py\"",
+            "command": "python3 -B -c \"import os,sys,runpy;r=os.environ.get('PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT');r or (print('{}'),sys.exit(0));p=os.path.join(r,'src');sys.path.insert(0,p);runpy.run_path(os.path.join(p,'codex_hooks.py'),run_name='__main__')\"",
+            "commandWindows": "python -B -c \"import os,sys,runpy;r=os.environ.get('PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT');r or (print('{}'),sys.exit(0));p=os.path.join(r,'src');sys.path.insert(0,p);runpy.run_path(os.path.join(p,'codex_hooks.py'),run_name='__main__')\"",
             "timeout": 3
           }
         ]

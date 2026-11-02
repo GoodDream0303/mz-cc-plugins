@@ -1,7 +1,7 @@
 # AI Chat Scope：Claude Code 与 Codex CLI 多会话浮窗
 
 日期：2026-11-02
-状态：用户已批准设计（2026-11-02）；实现和整分支审阅完成，阻断问题已有回归修复，未发布。
+状态：用户已批准设计（2026-11-02）；实现和审阅完成，按新增明确要求发布到官方 main 并从正式市场安装。
 工作区：`E:\Ai_Process_Folder\mz-cc-plugins\.worktrees\ai-chat-scope`
 分支：`feat/ai-chat-scope`；创建时基线：`a0fe36e`。
 
