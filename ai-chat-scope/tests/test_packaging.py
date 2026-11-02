@@ -17,7 +17,7 @@ class PackagingTests(unittest.TestCase):
             path=PLUGIN/host/'plugin.json'
             self.assertTrue(path.exists(),'Missing '+host+' manifest')
             data=json.loads(path.read_text(encoding='utf-8'))
-            self.assertEqual((data['name'],data['version']),('ai-chat-scope','2.0.0'))
+            self.assertEqual((data['name'],data['version']),('ai-chat-scope','2.0.1'))
             self.assertTrue((PLUGIN/'skills/scope-show/SKILL.md').is_file())
 
     def test_codex_hooks_are_explicit_and_not_auto_loaded_by_claude(self):

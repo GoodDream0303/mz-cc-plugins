@@ -96,7 +96,10 @@ class CodexSource:
         root = self.home / "sessions"
         if not root.is_dir() or not safe_path(root, self.home):
             return
-        if self._scan_iter is None and not self._scan_dirs and time.monotonic() >= self._scan_due:
+        if self._scan_iter is None and not self._scan_dirs:
+            # Waiting polls must not move the next scan deadline forward.
+            if time.monotonic() < self._scan_due:
+                return
             preferred = []
             for sid in self._active:
                 identity = uuid.UUID(sid)

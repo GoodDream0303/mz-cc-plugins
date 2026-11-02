@@ -42,6 +42,39 @@ class CodexSourceTests(unittest.TestCase):
         self.locks[sid] = 'released'
         self.assertEqual(source.poll(), [])
 
+    def test_new_session_is_discovered_during_continuous_polling(self):
+        first, _ = self.session(1)
+        source = self.source()
+        self.addCleanup(source.close)
+        with patch('codex_source.time.monotonic', return_value=100):
+            self.assertEqual([row.session_id for row in source.poll()], [first])
+        second, _ = self.session(2)
+        # Poll every second, as the running monitor does, including the cooldown.
+        for tick in range(101, 116):
+            with patch('codex_source.time.monotonic', return_value=tick):
+                rows = source.poll()
+        self.assertEqual({row.session_id for row in rows}, {first, second})
+
+    def test_rotated_recording_is_discovered_during_continuous_polling(self):
+        sid, _ = self.session(1)
+        source = self.source()
+        self.addCleanup(source.close)
+        with patch('codex_source.time.monotonic', return_value=100):
+            self.assertEqual(source.poll()[0].state, 'stby')
+        latest = self.home/'sessions'/('rollout-test-'+sid+'_'+str(uuid.UUID(int=2))+'.jsonl')
+        records = [
+            {'type': 'session_meta', 'payload': {
+                'id': sid, 'source': 'cli', 'thread_source': 'user',
+                'history_base': {'thread_id': sid, 'end_ordinal_exclusive': 100}}},
+            {'type': 'event_msg', 'payload': {'type': 'task_started', 'turn_id': 'new'}},
+        ]
+        latest.write_text(''.join(json.dumps(record)+'\n' for record in records), encoding='utf-8')
+        os.utime(latest, ns=(1, 1))
+        for tick in range(101, 116):
+            with patch('codex_source.time.monotonic', return_value=tick):
+                rows = source.poll()
+        self.assertEqual([(row.session_id, row.state) for row in rows], [(sid, 'run')])
+
     def test_access_denied_is_not_held(self):
         sid, _ = self.session(1)
         self.locks[sid] = 'unavailable'
