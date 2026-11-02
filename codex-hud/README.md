@@ -3,7 +3,7 @@
 A configurable multiline companion pane for **native Windows Terminal**.
 It attaches to an existing Codex session. The native statusline stays intact.
 
-**Automatically opens on main Codex startup/resume through a minimal hook.**
+**Automatically opens for each main Codex conversation through a minimal hook.**
 No replacement statusline, new Codex session, daemon override or model request.
 
 UI labels, menus and diagnostics default to English. Task/session names retain
@@ -46,7 +46,7 @@ a Codex plugin does not add a global command to PATH.
 
 After installing the plugin, open Codex `/hooks` and review/trust its SessionStart
 hook. Exit and open Codex again after the first trust review.
-Future main-session startups and resumes automatically add the companion pane
+Future main-session startups, resumes, new conversations and forks add the companion pane
 when Codex dispatches SessionStart. In Codex 0.166.0 this is on the first turn
 path, so do not expect an idle, never-used TUI to split immediately on opening.
 
@@ -54,6 +54,18 @@ The hook is asynchronous and emits no stdout or model/developer context. It
 uses the supplied transcript metadata, skips subagents/non-CLI/compact events,
 and does not create a second display for an already open or pending session.
 Manual attachment remains available without trusting hooks.
+
+Each different conversation gets its own HUD, including conversations in the
+same directory and Codex home. Deduplication applies only to that exact
+conversation; another conversation's HUD never suppresses its launch. Version
+0.3.4 covers all main `SessionStart` sources: `startup`, `resume`, `clear`, `fork`.
+Subagents remain excluded by event and transcript identity checks.
+
+Existing Codex instances opened before the plugin was installed do not replay
+past start events. Invoke `$hud-start` once inside each such conversation, or
+restart/resume it after loading and trusting the plugin. Run attachment from
+the conversation being displayed so its Codex-provided identity is used.
+As with other plugin upgrades, review changed hooks in native `/hooks`.
 
 ```powershell
 mz-codex-hud.cmd config set startup.enabled false
@@ -126,7 +138,7 @@ codex plugin add codex-hud@mz-cc-plugins
 The Codex marketplace is `.agents/plugins/marketplace.json`, separate from the
 original Claude marketplace. Both retain the market name `mz-cc-plugins`; the
 Codex catalog lists task-handoff and codex-hud. The HUD registers one asynchronous SessionStart
-hook for startup/resume only. Skills: `$hud-start`, `$hud-configure`, `$hud-doctor`.
+hook for main conversation starts. Skills: `$hud-start`, `$hud-configure`, `$hud-doctor`.
 Published Git packages include `dist/` and do not need a build in the cache.
 
 For source development, run `npm ci --ignore-scripts` and `npm run build` in

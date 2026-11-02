@@ -52,7 +52,7 @@ function activeDisplay(root, id, home) {
     }
 }
 export async function autoStart(event, options = {}) {
-    if (event.hook_event_name !== 'SessionStart' || !['startup', 'resume'].includes(String(event.source)) || event.agent_id || event.subagent_id || event.agent_transcript_path)
+    if (event.hook_event_name !== 'SessionStart' || !['startup', 'resume', 'clear', 'fork'].includes(String(event.source)) || event.agent_id || event.subagent_id || event.agent_transcript_path)
         return { status: 'ignored', reason: 'not-main-start' };
     if (process.platform !== 'win32')
         return { status: 'ignored', reason: 'not-windows' };

@@ -11,6 +11,17 @@ test('autostart applies content sizing before launching the exact selected sessi
  assert.equal(launched.initialSizing.mode,'content');assert.ok(launched.paneSize<0.22);
  assert.equal(launched.sessionId,'current-thread');assert.equal(launched.initialSizing.parentRows,40);
 });
+test('different main conversations in the same directory each own a HUD across all start sources',async t=>{
+ const f=fixture(t),launched=[];
+ const events=['startup','resume','clear','fork'].map((source,i)=>{
+  const id='separate-thread-'+i,file=path.join(f.root,id+'.jsonl');fs.writeFileSync(file,JSON.stringify({type:'session_meta',payload:{id,cwd:f.root,source:'cli'}})+'\n');
+  return {hook_event_name:'SessionStart',source,session_id:id,transcript_path:file};
+ });
+ const results=await Promise.all(events.map(event=>autoStart(event,{...f.options,launch:d=>{launched.push(d.sessionId);}})));
+ assert.deepEqual(results.map(r=>r.status),['opened','opened','opened','opened']);assert.equal(new Set(launched).size,4);assert.equal(descriptors(f.runtime).length,4);
+ for(const event of events)assert.equal((await autoStart(event,f.options)).status,'already-open');
+ assert.equal((await autoStart({...events[3],agent_id:'child'},f.options)).status,'ignored');
+});
 test('autostart skips disabled config, compact, subagents, non-CLI and mismatched transcripts',async t=>{
  const f=fixture(t);saveConfig(f.config,set(defaultConfig(),'startup.enabled',false));assert.equal((await autoStart(f.event,f.options)).status,'disabled');saveConfig(f.config,defaultConfig());
  for(const event of [{...f.event,source:'compact'},{...f.event,agent_id:'worker'}])assert.equal((await autoStart(event,f.options)).status,'ignored');

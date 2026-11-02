@@ -35,7 +35,7 @@ function activeDisplay(root:string,id:string,home:string):LaunchDescriptor|undef
  }
 }
 export async function autoStart(event:HookEvent,options:AutostartOptions={}):Promise<AutostartResult>{
- if(event.hook_event_name!=='SessionStart'||!['startup','resume'].includes(String(event.source))||event.agent_id||event.subagent_id||event.agent_transcript_path)return {status:'ignored',reason:'not-main-start'};
+ if(event.hook_event_name!=='SessionStart'||!['startup','resume','clear','fork'].includes(String(event.source))||event.agent_id||event.subagent_id||event.agent_transcript_path)return {status:'ignored',reason:'not-main-start'};
  if(process.platform!=='win32')return {status:'ignored',reason:'not-windows'};
  const file=options.configFile??configPath(),config=loadConfig(file);if(!get(config,'startup.enabled'))return {status:'disabled'};
  if(typeof event.session_id!=='string'||!idPattern.test(event.session_id)||typeof event.transcript_path!=='string'||!path.isAbsolute(event.transcript_path))return {status:'ignored',reason:'missing-transcript'};

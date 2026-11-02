@@ -1,7 +1,7 @@
 {
   "hooks": {
     "SessionStart": [{
-      "matcher": "^(startup|resume)$",
+      "matcher": "^(startup|resume|clear|fork)$",
       "hooks": [{
         "type": "command",
         "command": "node -e \"import(require('node:url').pathToFileURL(require('node:path').join(process.env.PLUGIN_ROOT,'hooks','session-start.mjs')).href)\"",

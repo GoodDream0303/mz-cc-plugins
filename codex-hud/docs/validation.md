@@ -1,5 +1,26 @@
 # Validation: companion HUD with minimal autostart
 
+## 0.3.4 independent conversations
+
+The user clarified that multiple distinct conversations must each have a HUD.
+Deduplication already uses Codex home plus the exact thread identity, not a global
+flag or working directory. Regression now checks four different conversations
+in one directory/shared runtime, all opening independently and deduplicating only
+their own repeated events. The missing `clear` and main-CLI `fork` source paths
+were reproduced as ignored, then enabled in both the hook matcher and runtime.
+Compact events and subagents remain excluded.
+
+All 61 tests pass. `node scripts/smoke-multi-session.mjs` also passed with two
+simultaneous synthetic Terminal windows, shared home/cwd/runtime, distinct exact
+transcripts and viewer processes, same-conversation deduplication, and continued
+second-HUD heartbeats after closing the first. The smoke uses explicit window
+names to isolate its own windows; it does not claim the existing `last` default
+can resolve arbitrary inactive tabs or focus changes. No Codex/model was started.
+
+Codex processes started before plugin installation need one manual attachment
+inside each existing conversation, or a restart/resume after loading and trusting
+the hook. Startup hooks do not retrospectively replay those earlier start events.
+
 ## 0.3.3 content-aware initial height
 
 The user selected initial fitting rather than ongoing pane resize. The exact
