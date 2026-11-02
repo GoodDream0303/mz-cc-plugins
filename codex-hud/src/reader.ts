@@ -1,5 +1,6 @@
-import fs from 'node:fs/promises';
+import fs, {type FileHandle} from 'node:fs/promises';
 import {StringDecoder} from 'node:string_decoder';
+import {createHash} from 'node:crypto';
 import {emptySnapshot,type HudSnapshot,type Tokens} from './types.js';
 const MAX_LINE=2*1024*1024;
 const safe=(v:unknown):v is Record<string,any>=>!!v&&typeof v==='object'&&!Array.isArray(v);
@@ -7,18 +8,31 @@ function count(v:unknown):number{return typeof v==='number'&&Number.isFinite(v)&
 function tokens(v:any):Tokens{return {input:count(v.input_tokens),cached:count(v.cached_input_tokens),output:count(v.output_tokens),reasoning:count(v.reasoning_output_tokens),total:typeof v.total_tokens==='number'?count(v.total_tokens):count(v.input_tokens)+count(v.output_tokens)};}
 function text(v:unknown,max=200):string|undefined{return typeof v==='string'?v.slice(0,max):undefined;}
 function parse(v:unknown):any{if(typeof v!=='string'||v.length>MAX_LINE)return null;try{return JSON.parse(v);}catch{return null;}}
+interface Checkpoint {start:number;length:number;digest:string}
+async function fingerprint(handle:FileHandle,start:number,length:number):Promise<string>{
+ const bytes=Buffer.alloc(length);let used=0;
+ while(used<length){const {bytesRead}=await handle.read(bytes,used,length-used,start+used);if(!bytesRead)break;used+=bytesRead;}
+ return used+':'+createHash('sha256').update(bytes.subarray(0,used)).digest('hex');
+}
 
 export class SessionReader {
  private offset=0;private identity='';private mtime=0;private carry='';private decoder=new StringDecoder('utf8');
- private snapshot:HudSnapshot;private mismatch=false;private absolute=false;private discard=false;
+ private snapshot:HudSnapshot;private mismatch=false;private absolute=false;private discard=false;private canonicalCompleted=new Set<string>();
+ private prefix?:Checkpoint;private checkpoint?:Checkpoint;
  constructor(public readonly file:string,public readonly sessionId:string){this.snapshot=emptySnapshot(sessionId);}
- private reset(){this.offset=0;this.carry='';this.decoder=new StringDecoder('utf8');this.snapshot=emptySnapshot(this.sessionId);this.mismatch=false;this.absolute=false;this.discard=false;}
+ private reset(){this.offset=0;this.carry='';this.decoder=new StringDecoder('utf8');this.snapshot=emptySnapshot(this.sessionId);this.mismatch=false;this.absolute=false;this.discard=false;this.canonicalCompleted.clear();this.prefix=undefined;this.checkpoint=undefined;}
+ private async unchanged(handle:FileHandle):Promise<boolean>{
+  for(const point of [this.prefix,this.checkpoint])if(point&&await fingerprint(handle,point.start,point.length)!==point.digest)return false;
+  return true;
+ }
  async read():Promise<HudSnapshot>{
   const handle=await fs.open(this.file,'r');
   try {
    const stat=await handle.stat();const identity=stat.dev+':'+stat.ino+':'+stat.birthtimeMs;
    if(identity!==this.identity||stat.size<this.offset||(stat.mtimeMs!==this.mtime&&stat.size===this.offset&&this.offset>0))this.reset();
+   if(this.offset&&!await this.unchanged(handle))this.reset();
    this.identity=identity;this.mtime=stat.mtimeMs;
+   const prefixLength=Math.min(stat.size,4096),before=await fingerprint(handle,0,prefixLength);
    const buffer=Buffer.alloc(64*1024);
    while(this.offset<stat.size){
     const {bytesRead}=await handle.read(buffer,0,Math.min(buffer.length,stat.size-this.offset),this.offset);if(!bytesRead)break;
@@ -30,6 +44,13 @@ export class SessionReader {
     }
     if(this.carry.length>MAX_LINE){this.carry='';this.discard=true;this.error('oversized record ignored');}
    }
+   // Hash anchors, not raw log text, are retained. Revalidate across the read too.
+   if(await fingerprint(handle,0,prefixLength)!==before||!await this.unchanged(handle)){
+    this.reset();this.error('Session log changed during read; retrying');return structuredClone(this.snapshot);
+   }
+   const length=Math.min(this.offset,4096),start=this.offset-length;
+   this.prefix={start:0,length:prefixLength,digest:before};
+   this.checkpoint={start,length,digest:await fingerprint(handle,start,length)};
    return structuredClone(this.snapshot);
   }finally{await handle.close();}
  }
@@ -69,7 +90,8 @@ export class SessionReader {
    case 'task_complete':this.snapshot.status='idle';this.snapshot.lastResponseAt=text(p.completed_at??record.timestamp);return;
    case 'turn_aborted':this.snapshot.status='interrupted';for(const t of this.snapshot.tools)if(t.status==='running')t.status='failed';return;
    case 'context_compacted':case 'compact_boundary':this.snapshot.compactions++;return;
-   case 'item_completed':if(safe(p.item))this.item(p.item,record.timestamp);return;
+   case 'item_started':if(safe(p.item))this.item(p.item,record.timestamp);return;
+   case 'item_completed':if(safe(p.item))this.item(p.item,record.timestamp,true);return;
    case 'subagent_started':case 'agent_started':{
     const id=text(p.agent_id??p.thread_id);if(id)this.agent(id,text(p.name??p.agent_name)??id,'unknown');return;
    }
@@ -77,18 +99,32 @@ export class SessionReader {
   }
  }
  private agent(id:string,name:string,status:string){const existing=this.snapshot.agents.find(a=>a.id===id);if(existing)existing.status=status;else this.snapshot.agents.push({id,name,status});this.snapshot.agents=this.snapshot.agents.slice(-64);}
- private item(p:any,timestamp:unknown){
+ private tool(id:string,name:string,status:'running'|'done'|'failed',canonical=false){
+  const previous=this.snapshot.tools.find(t=>t.id===id);
+  if(previous){if(!this.canonicalCompleted.has(id)&&(canonical||previous.status==='running')){previous.name=name;previous.status=status;}}
+  else this.snapshot.tools.push({id,name,status});
+  if(canonical&&status!=='running')this.canonicalCompleted.add(id);
+  this.snapshot.tools=this.snapshot.tools.slice(-64);const retained=new Set(this.snapshot.tools.map(t=>t.id));for(const key of this.canonicalCompleted)if(!retained.has(key))this.canonicalCompleted.delete(key);
+ }
+ private item(p:any,timestamp:unknown,completed=false){
   if(!safe(p))return;
+  if(p.type==='McpToolCall'||p.type==='CommandExecution'){
+   const id=text(p.id??p.call_id);if(!id)return;
+   let name='exec_command';
+   if(p.type==='McpToolCall'){const server=text(p.server),tool=text(p.tool);if(!server||!tool)return;name='mcp__'+server+'__'+tool;if(!this.snapshot.mcpUsed.includes(server))this.snapshot.mcpUsed.push(server);}
+   const failed=['failed','cancelled','aborted'].includes(p.status)||!!p.error||typeof p.exit_code==='number'&&p.exit_code!==0;
+   this.tool(id,name,failed?'failed':completed||p.status==='completed'?'done':'running',true);return;
+  }
   if(['function_call','custom_tool_call'].includes(p.type)){
    const id=text(p.call_id??p.id);const name=text(p.name);if(!id||!name||this.snapshot.tools.some(t=>t.id===id))return;
-   this.snapshot.tools.push({id,name,status:'running'});this.snapshot.tools=this.snapshot.tools.slice(-64);
+   this.tool(id,name,'running');
    const m=name.match(/^mcp__([^_].*?)__/);if(m&&!this.snapshot.mcpUsed.includes(m[1]))this.snapshot.mcpUsed.push(m[1]);
    const leaf=name.split('.').at(-1);
    if(leaf==='update_plan'){const args=parse(p.arguments??p.input);if(Array.isArray(args?.plan))this.snapshot.todos=args.plan.filter(safe).filter((x:any)=>typeof x.step==='string'&&['pending','in_progress','completed'].includes(x.status)).slice(0,200).map((x:any)=>({step:x.step.slice(0,200),status:x.status}));}
    if(leaf==='spawn_agent'){const args=parse(p.arguments??p.input);this.agent(id,text(args?.task_name)??text(args?.agent_type)??'agent','unknown');}
   }
   if(['function_call_output','custom_tool_call_output'].includes(p.type)){
-   const id=text(p.call_id);const tool=this.snapshot.tools.find(t=>t.id===id);if(tool){const output=typeof p.output==='string'?parse(p.output):p.output;tool.status=p.is_error||output?.isError||output?.error||typeof output?.exit_code==='number'&&output.exit_code!==0?'failed':'done';}
+   const id=text(p.call_id);const tool=this.snapshot.tools.find(t=>t.id===id);if(tool&&!this.canonicalCompleted.has(tool.id)){const output=typeof p.output==='string'?parse(p.output):p.output;tool.status=p.is_error||output?.isError||output?.error||typeof output?.exit_code==='number'&&output.exit_code!==0?'failed':'done';}
   }
   if(p.type==='compaction')this.snapshot.compactions++;
   if(p.type==='message'&&p.role==='assistant')this.snapshot.lastResponseAt=text(timestamp);

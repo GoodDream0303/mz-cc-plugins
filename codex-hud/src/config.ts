@@ -121,10 +121,13 @@ export function loadConfig(file=configPath()):Config {
  catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')return defaultConfig();throw e;}
 }
 export function saveConfig(file:string,config:Config):void {
- const valid=validateConfig(config);fs.mkdirSync(path.dirname(file),{recursive:true});
+ const valid=validateConfig(config);let serialized=JSON.stringify(valid,null,2)+'\n';
+ if(Buffer.byteLength(serialized)>65536)serialized=JSON.stringify(valid)+'\n';
+ if(Buffer.byteLength(serialized)>65536)throw new Error('Configuration exceeds 64 KiB after normalization');
+ fs.mkdirSync(path.dirname(file),{recursive:true});
  if(fs.existsSync(file)&&!fs.existsSync(file+'.bak'))fs.copyFileSync(file,file+'.bak',fs.constants.COPYFILE_EXCL);
  const temp=file+'.'+randomUUID()+'.tmp';
- try{fs.writeFileSync(temp,JSON.stringify(valid,null,2)+'\n',{mode:0o600,flag:'wx'});fs.renameSync(temp,file);}
+ try{fs.writeFileSync(temp,serialized,{mode:0o600,flag:'wx'});fs.renameSync(temp,file);}
  finally{try{fs.unlinkSync(temp);}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}}
 }
 export function preset(name:string,base=defaultConfig()):Config {

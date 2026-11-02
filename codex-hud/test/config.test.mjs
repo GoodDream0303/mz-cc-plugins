@@ -46,3 +46,11 @@ test('config presets are independent and preserve unknown advanced settings',()=
   assert.equal(get(minimal,'display.showModel'),false);assert.equal(get(minimal,'display.showContextBar'),true);assert.equal(get(minimal,'display.showTools'),false);
   assert.deepEqual(minimal.extra,{v:1});assert.equal(get(preset('full',base),'display.showTools'),true);assert.equal(get(preset('full',base),'display.showCost'),false);
 });
+test('accepted near-limit config saves within the physical byte limit and reloads losslessly',t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'hud-size-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));const file=path.join(dir,'config.json');const config=defaultConfig();config.future='';config.future='x'.repeat(65504-Buffer.byteLength(JSON.stringify(config)));assert.equal(Buffer.byteLength(JSON.stringify(config)),65504);assert.ok(Buffer.byteLength(JSON.stringify(config,null,2)+'\n')>65536);
+ saveConfig(file,config);assert.ok(fs.statSync(file).size<=65536);assert.equal(loadConfig(file).future,config.future);
+});
+test('normalized config that exceeds the byte limit cannot replace an existing file',t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'hud-oversize-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));const file=path.join(dir,'config.json');saveConfig(file,defaultConfig());const before=fs.readFileSync(file,'utf8');
+ assert.throws(()=>saveConfig(file,{future:'x'.repeat(64000)}),/64 KiB/);assert.equal(fs.readFileSync(file,'utf8'),before);assert.ok(!fs.existsSync(file+'.bak'));
+});

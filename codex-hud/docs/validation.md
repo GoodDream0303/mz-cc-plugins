@@ -28,3 +28,13 @@ verified reading the same existing session in an added pane, preservation of
 the original owner pane, and independent HUD closure. Independent review found
 a session-name fallback leaking an ID and an undocumented window override;
 both were reproduced and corrected with regression tests.
+
+## 0.2.1 audit fixes
+
+All three audit findings were reproduced before changes. Canonical McpToolCall
+and CommandExecution lifecycle events now update metadata-only activity and
+deduplicate response records. Incremental reads validate hashed prefix/tail
+checkpoints before retaining their offset, including growing in-place rewrites.
+Config saves validate their exact serialized bytes before any replacement;
+near-limit configs use compact JSON when needed, and oversized normalized
+configs leave the original and backup state untouched. The suite passes 38 tests.
