@@ -2,7 +2,7 @@
 
 日期：2026-11-02；版本：本机 `codex-cli 0.166.0`、Python 3.13。
 
-状态：**用户已选择继续验证只读实时协议；真实授权恢复、拒绝/中断和关闭测试窗口已取得证据，完整兼容性关口尚未通过，产品实现未开始**。同步提问尚待实测；异步提问需要单独汇总日志信号。
+状态：**基本信号契约已验证，进入产品实现**。真实 CLI 已验证授权恢复、取消/中断、关闭与异步输入事件；同步问答通过隔离的实际 Codex 后端测试。同步 CLI 选择界面的人工点测及完整混合浮窗体验仍列入最终验收，不以后台测试冒充 UI 验收。
 
 ## 已取得的证据
 
@@ -83,6 +83,23 @@
 ### 自动验证
 
 `python -B -m unittest discover -s tests -p 'test_codex*_probe.py' -v`：16 项通过。新增实时探测器的 8 项测试经历缺少实现时全部失败的 RED 阶段，覆盖等待标志、只读 RPC 白名单、不回答服务端请求、不 fetch turns、帧掩码、截断/超长帧以及仅允许 loopback 端点。真实状态证据来自上面的实际 CLI，不由单元测试替代。
+
+### 同步后端与异步汇总补充验证
+
+同步场景使用临时 CODEX_HOME、本地固定 Responses 测试响应及真实 codex-cli 0.166.0 app-server；没有调用外部模型服务。测试的所有进程与数据目录均独立创建并已清理。步骤为：
+
+1. 测试拥有者创建 ephemeral 线程，用 plan collaborationMode 开始本地固定响应回合。
+2. 固定响应仅要求调用 request_user_input，实际后端发出 item/tool/requestUserInput。
+3. 独立的只读 Observer 查询到 active + waitingOnUserInput。
+4. 测试拥有者对自己的固定 A/B 问题提交 A，Observer 再查询确认等待标志清除。
+
+自动观测结果为 `before_answer state=attn, activeFlags=[waitingOnUserInput]`、`question_cleared_after_answer=True`。这验证后台状态契约，未宣称实际 CLI 交互选择界面已人工点测。
+
+异步使用本次真实 CLI 日志回放：12:00:43.568 的 AgentMessage.questions 使 attention=true；12:01:14.031 的同回合真实 UserMessage 使 attention=false。工具为 tools/codex_async_contract.py；6 项测试先失败后通过，覆盖回合结束仍待输入、真实输入、重复输入、过期回合、accepted/rejected steering 和取消后迟到题卡。与前两组一起运行的根 tests 共 22 项通过。
+
+异步状态的明确语义是**等待用户消息**：真实用户消息表示用户已参与并让模型继续处理，不宣称每一道问题的语义答案均已解决。普通 task_complete 不等同于用户已答复；仅发送成功也不清除等待。题目/选项/回答正文不保留在跟踪状态中。
+
+实施调整：以文件事件读取常规状态与异步待输入；显式配置的、已经由 CLI 初始化且专供 CLI 的实时端点提供授权/同步等待状态。未连接实时服务的普通 CLI 仍可显示常规与异步状态，但不得宣称授权红灯完整可用；以能力提示说明这一前提，不采用延迟红灯的隐式降级。不自动启动服务或抢占首个 initialize。
 
 ## 本地协议摘录
 
