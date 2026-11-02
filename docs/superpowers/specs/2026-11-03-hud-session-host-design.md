@@ -1,6 +1,6 @@
 # 每个同时运行的 Codex 都有独立 HUD
 
-日期：2026-11-03。状态：待用户审阅；本文件不是已完成或已部署的声明。
+日期：2026-11-03。状态：用户已明确同意开始实现；尚未部署或完成验收。
 
 ## 1. 已确认的使用方式与验收目标
 
@@ -46,6 +46,8 @@
 入口以 argv 调用程序，不拼接用户 shell 命令。需要跨 PowerShell/Node 传参时使用内存中的编码参数，不把提示、命令参数或环境全集写入 launch/绑定/诊断文件。官方 `.ps1` / 原生 `.exe` 从明确解析的原路径调用，不能再次通过 function 名递归调用。
 
 每次用户交互启动建立唯一 psmux namespace/session，在当前标签页或当前 PowerShell 窗口里运行；不使用 `wt -w`，不打开或挑选另一个 WT 标签页。外层 PowerShell在 Codex/宿主结束后恢复原提示符。继承原 CODEX_HOME、工作目录与环境，不设置 approval/sandbox/daemon/profile 覆盖，也不传 ExecutionPolicy bypass。
+
+bootstrap 先创建只属于来源 pane 的 HUD；官方会话元数据尚不可得时显示等待状态，不挑选其它会话。原生 SessionStart 到达并核实后更新该 HUD 的数据身份，不能为了显示真实数据而暗中发模型提示。
 
 产品配置可指定经过验证的 psmux 绝对路径。初次交付固定 3.4.0、官方 ZIP SHA256 `a66b6be7c13c6fa0dc3660a267b9e34eaa91a4eb7f07fbd55a0468018bd0f721`。不把旧 Temp 路径、二进制或私有 key 放进源码。开发使用隔离目录和便携包；未获部署授权前不全局安装、不改 PATH 或 WT settings。
 
