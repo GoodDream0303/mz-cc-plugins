@@ -5,8 +5,9 @@ import {randomUUID} from 'node:crypto';
 import {spawn,execFileSync} from 'node:child_process';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import net from 'node:net';
-import {get,configPath,type Config} from './config.js';
+import {get,configPath,loadConfig,type Config} from './config.js';
 import {codexHome} from './sessions.js';
+import {inspectHookSetup,type HookSetup} from './doctor.js';
 export interface LaunchDescriptor {
  kind:'mz-codex-hud/1';id:string;file:string;cwd:string;codexHome:string;configFile:string;createdAt:string;
  state:'created'|'running'|'exited';sessionId?:string;transcriptPath?:string;heartbeat?:number;pid?:number;
@@ -63,8 +64,9 @@ export function buildTerminalArgs(d:LaunchDescriptor,args:string[]):string[]{
  const command=['-w','mz-codex-hud-'+d.id,'new-tab','--title',d.demo?'Codex HUD Preview '+d.id.slice(0,8):'Codex','--suppressApplicationTitle',...shared,'runner','--launch64',launch64,'--argv',Buffer.from(JSON.stringify(args)).toString('base64'),';','split-pane','--horizontal','--size',String(d.paneSize),'--title','Codex HUD','--suppressApplicationTitle',...shared,'watch','--launch64',launch64,';','focus-pane','-t','0'];
  if(command.join(' ').length>28000)throw new Error('Command arguments too long for Windows Terminal');return command;
 }
-export function resolveCodex():Command{
- const dirs=(process.env.PATH??'').split(path.delimiter);
+export function resolveCodex(environment:NodeJS.ProcessEnv=process.env,cwd=process.cwd()):Command{
+ const pathKey=Object.keys(environment).find(key=>key.toUpperCase()==='PATH');
+ const dirs=(pathKey?environment[pathKey]??'':'').split(path.delimiter).filter(Boolean).map(dir=>path.resolve(cwd,dir));
  for(const dir of dirs){
   const script=path.join(dir,'node_modules','@openai','codex','bin','codex.js');
   if(fs.existsSync(script))return {command:process.execPath,args:[script]};
@@ -97,23 +99,25 @@ export async function receiveEnvironment(d:LaunchDescriptor):Promise<NodeJS.Proc
   socket.on('error',reject);socket.on('end',()=>{try{const env=JSON.parse(data);if(!env||typeof env!=='object'||Array.isArray(env)||!Object.values(env).every(v=>typeof v==='string'))throw new Error('Invalid launch environment');resolve(env);}catch(e){reject(e);}});
  });
 }
-export async function runCodex(d:LaunchDescriptor,args:string[],command=resolveCodex(),environment:NodeJS.ProcessEnv=process.env):Promise<number>{
+export async function runCodex(d:LaunchDescriptor,args:string[],command:Command|undefined=undefined,environment:NodeJS.ProcessEnv=process.env):Promise<number>{
  validateCodexArgs(args);
  updateLaunch(d.file,value=>{value.state='running';value.pid=process.pid;value.heartbeat=Date.now();});
  const heartbeat=setInterval(()=>{try{updateLaunch(d.file,v=>{v.heartbeat=Date.now();});}catch{}},2000);
  const ignoreInterrupt=()=>{};process.on('SIGINT',ignoreInterrupt);
  try{
+  const selectedCommand=command??resolveCodex(environment,d.cwd);
   const code=await new Promise<number>((resolve,reject)=>{
-   const child=spawn(command.command,[...command.args,...(command.isolated===false?[]:['--no-daemon']),...args],{cwd:d.cwd,env:{...environment,CODEX_HOME:d.codexHome,MZ_CODEX_HUD_LAUNCH:d.file},stdio:'inherit',windowsHide:false,shell:false});
+   const child=spawn(selectedCommand.command,[...selectedCommand.args,...(selectedCommand.isolated===false?[]:['--no-daemon']),...args],{cwd:d.cwd,env:{...environment,CODEX_HOME:d.codexHome,MZ_CODEX_HUD_LAUNCH:d.file},stdio:'inherit',windowsHide:false,shell:false});
    child.once('error',reject);child.once('exit',(code,signal)=>resolve(code??(signal?130:1)));
   });updateLaunch(d.file,v=>{v.state='exited';v.exitCode=code;v.heartbeat=Date.now();});return code;
  }catch(e){updateLaunch(d.file,v=>{v.state='exited';v.exitCode=1;});throw e;}
  finally{clearInterval(heartbeat);process.off('SIGINT',ignoreInterrupt);}
 }
-export interface DoctorReport {node:string;terminal:boolean;codex:boolean;hooks:string;notes:string[]}
-export function checkRuntime():DoctorReport{
+export interface DoctorReport {node:string;terminal:boolean;codex:boolean;hooks:string;plugin:HookSetup;configuration:{status:string;path:string};binding:{status:string;sessionId?:string};notes:string[]}
+export function checkRuntime(options:{home?:string;configFile?:string;launchFile?:string}={}):DoctorReport{
  let terminal=false,codex=false;try{execFileSync('where.exe',['wt.exe'],{stdio:'ignore',windowsHide:true,timeout:1500});terminal=true;}catch{}
  try{resolveCodex();codex=true;}catch{}
- return {node:process.version,terminal,codex,hooks:'Review plugin hooks using /hooks in Codex; trust is never assumed',notes:process.platform==='win32'?[]:['Automatic split launch requires native Windows Terminal']};
+ const file=options.configFile??configPath();let status=fs.existsSync(file)?'valid':'defaults';try{loadConfig(file);}catch{status='invalid';}
+ let binding:DoctorReport['binding']={status:'not-selected'};if(options.launchFile){try{const launch=readLaunch(options.launchFile);binding={status:launch.state==='exited'?'exited':launch.sessionId?'bound':'pending',sessionId:launch.sessionId};if(launch.state==='running'&&launch.heartbeat&&Date.now()-launch.heartbeat>15000)binding.status='stale-runner';}catch{binding={status:'invalid-launch'};}}
+ return {node:process.version,terminal,codex,hooks:'Review plugin hooks using /hooks in Codex; trust is never assumed',plugin:inspectHookSetup(options.home??codexHome()),configuration:{status,path:file},binding,notes:process.platform==='win32'?[]:['Automatic split launch requires native Windows Terminal']};
 }
-

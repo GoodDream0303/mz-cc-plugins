@@ -23,4 +23,3 @@ export async function findSession(root:string,id:string):Promise<SessionInfo|nul
  const all=await listSessions(root);const exact=all.filter(s=>s.id===id);
  if(exact.length)return exact[0];const matches=all.filter(s=>s.id.startsWith(id));if(matches.length>1)throw new Error('Ambiguous session ID; use the full ID');return matches[0]??null;
 }
-

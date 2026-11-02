@@ -8,4 +8,3 @@ Copyright (c) 2026 Jarrod Watts, distributed under the MIT License.
 The Codex adapter, launch lifecycle, Windows Terminal integration, and plugin
 implementation are maintained in mz-cc-plugins. This project is not affiliated
 with OpenAI or Anthropic.
-

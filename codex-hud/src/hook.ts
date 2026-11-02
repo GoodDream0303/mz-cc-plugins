@@ -6,4 +6,3 @@ export async function handleHook():Promise<void>{
  if(event.hook_event_name&&event.hook_event_name!=='SessionStart')return;
  bindLaunch(launch,event);
 }
-

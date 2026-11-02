@@ -68,6 +68,9 @@ Open `/hooks` and review/trust the SessionStart hook. The HUD never automaticall
 trusts hooks or uses a bypass flag. An untrusted hook leaves a clear pending
 binding message instead of choosing another session.
 
+After the first trust review, exit that Codex session and launch the HUD again
+so the next SessionStart event can establish the exact binding.
+
 ## Configuration
 
 ```powershell
@@ -104,6 +107,7 @@ node .\bin\hud.mjs once --session FULL_SESSION_ID
 node .\bin\hud.mjs once --session FULL_SESSION_ID --json
 node .\bin\hud.mjs watch --session FULL_SESSION_ID
 node .\bin\hud.mjs stop --launch LAUNCH_ID
+node .\bin\hud.mjs doctor --launch LAUNCH_ID
 ```
 
 Interactive watch can ask you to select a session. It never follows the newest
@@ -117,6 +121,10 @@ window is not mislabeled 5h). MCP displays configured/called/unknown facts, not
 a guessed online count. Missing billing, cache expiry, speed, and Skills data
 is not fabricated.
 
+Doctor distinguishes missing/disabled plugins, disabled hooks, missing cached
+build files, invalid configuration, and an explicitly selected launch's binding
+state. Hook trust is always reported as unknown until reviewed by the user.
+
 ## Validation and removal
 
 ```powershell
@@ -124,9 +132,10 @@ npm test
 powershell -NoProfile -File .\scripts\smoke-terminal.ps1
 ```
 
+See [validation results and remaining boundaries](docs/validation.md).
+
 Remove the plugin with `codex plugin remove codex-hud@mz-codex-plugins`.
 If a global CLI link was explicitly installed, remove it with
 `npm uninstall -g mz-codex-hud`. User configuration is retained.
 No cleanup command deletes Codex logs, changes credentials, or edits other
 plugins, PowerShell profiles, or Windows Terminal settings.
-

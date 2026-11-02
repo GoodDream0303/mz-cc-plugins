@@ -8,4 +8,3 @@ try {
     : 'Codex HUD: '+error.message);
   process.exitCode=1;
 }
-

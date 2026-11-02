@@ -12,4 +12,3 @@ Run `node "<plugin-root>/bin/hud.mjs" doctor`, then `node "<plugin-root>/bin/hud
 The launcher opens a dedicated Windows Terminal window with Codex above and HUD below. Original `codex` is unchanged. Exact session binding uses the plugin SessionStart hook and an isolated `--no-daemon` CLI process. If binding is pending, direct the user to review/trust this hook in Codex `/hooks`; never trust it by editing hashes or using bypass flags.
 
 Use `demo` for a nonbillable layout preview. For an existing session, use `list` and `watch --session <full-ID>`; never silently follow the latest log or start a replacement chat.
-

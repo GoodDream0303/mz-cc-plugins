@@ -12,4 +12,3 @@ For a browsable menu, run `configure` in an interactive Windows Terminal, not a 
 For import, run `import-claude --path "<claude-hud-config.json>"` to show the mapping report; use `--yes` only when importing has been requested. Never import Claude settings.json, its env, statusLine shell commands, or credentials.
 
 Default labels are English. Keep task/session names exactly as written. Some Claude-only fields have no Codex data: explain their unavailable status instead of inventing metrics. See [compatibility](../../docs/compatibility.md) for supported options.
-

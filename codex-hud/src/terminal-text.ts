@@ -42,4 +42,3 @@ export function colorize(value:string,color:unknown,enabled:boolean):string{
  }
  return code?'\x1b['+code+'m'+safe+'\x1b[0m':safe;
 }
-

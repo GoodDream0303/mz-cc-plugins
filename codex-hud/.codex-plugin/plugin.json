@@ -5,4 +5,3 @@
   "skills": "./skills/", "hooks": "./hooks/hooks.json",
   "interface": {"displayName": "Codex HUD", "shortDescription": "Multiline Windows Terminal status", "category": "Developer Tools"}
 }
-

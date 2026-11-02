@@ -107,4 +107,3 @@ export function render(s:HudSnapshot,c:Config,o:RenderOptions={}):RenderResult {
  if(pages>1)lines.push(ink(truncate('['+(page+1)+'/'+pages+'] '+label('←/→ page · q close','←/→ 翻页 · q 关闭','←/→ 翻頁 · q 關閉'),width),'label'));
  return {lines,totalLines:all.length,pages};
 }
-

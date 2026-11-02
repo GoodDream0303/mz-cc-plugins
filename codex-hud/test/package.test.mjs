@@ -1,5 +1,8 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import path from 'node:path';import {spawnSync} from 'node:child_process';import os from 'node:os';
 const root=path.resolve(import.meta.dirname,'..');
+test('CLI help exposes commands on separate readable lines',()=>{
+ const result=spawnSync(process.execPath,['bin/hud.mjs','help'],{cwd:root,encoding:'utf8'});assert.equal(result.status,0);assert.match(result.stdout,/\n  start /);assert.match(result.stdout,/\n  configure\n/);
+});
 test('package marketplace resolves its plugin and the hook can bind a launch without a model call',t=>{
  const marketplace=JSON.parse(fs.readFileSync(path.join(root,'..','.agents','plugins','marketplace.json'),'utf8'));const entry=marketplace.plugins.find(p=>p.name==='codex-hud');assert.ok(entry);assert.equal(path.resolve(root,'..',entry.source.path),root);
  const manifest=JSON.parse(fs.readFileSync(path.join(root,'.codex-plugin','plugin.json'),'utf8'));const hooks=JSON.parse(fs.readFileSync(path.join(root,manifest.hooks),'utf8'));assert.ok(hooks.hooks.SessionStart.length>0);

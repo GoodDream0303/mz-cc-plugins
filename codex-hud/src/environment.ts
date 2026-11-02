@@ -17,4 +17,3 @@ export function readEnvironment(cwd:string,home:string):EnvironmentFacts{
  catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')facts.errors.push('Failed to read user MCP configuration');}
  cache.set(key,{time:Date.now(),value:facts});if(cache.size>32)cache.delete(cache.keys().next().value!);return facts;
 }
-

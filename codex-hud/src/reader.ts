@@ -94,4 +94,3 @@ export class SessionReader {
   if(p.type==='message'&&p.role==='assistant')this.snapshot.lastResponseAt=text(timestamp);
  }
 }
-

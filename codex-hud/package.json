@@ -7,4 +7,3 @@
   "dependencies": {"smol-toml": "1.9.1"},
   "devDependencies": {"@types/node": "24.10.1", "typescript": "7.0.2"}
 }
-

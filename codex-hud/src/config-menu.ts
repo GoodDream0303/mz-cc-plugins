@@ -25,4 +25,3 @@ export async function configure(file:string,preview:(config:Config)=>string[]=()
   }
  }finally{rl.close();}
 }
-

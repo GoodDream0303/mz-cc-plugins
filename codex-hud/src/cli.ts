@@ -32,7 +32,7 @@ async function watch(args:string[],once=false):Promise<void>{
  const ownedFile=launchFile(args);let descriptor=ownedFile?readLaunch(ownedFile):undefined;
  const home=descriptor?.codexHome??codexHome();const root=option(args,'--sessions-root')??path.join(home,'sessions');
  let selected=option(args,'--session');if(!descriptor&&!selected)selected=await chooseSession(root);
- let cfgFile=descriptor?.configFile??configFile(args),config=loadConfig(cfgFile);let page=0,quit=false,reader:SessionReader|undefined,nextDiscover=0,knownPath='',statusMessage='';
+ let cfgFile=descriptor?.configFile??configFile(args),config=loadConfig(cfgFile);let page=0,quit=false,reader:SessionReader|undefined,nextDiscover=0,knownPath='',statusMessage='';let lastSnapshot=emptySnapshot(selected??'pending');
  const onKey=(_:unknown,key:{name?:string;ctrl?:boolean})=>{if(key?.name==='q'||key?.name==='c'&&key.ctrl)quit=true;else if(key?.name==='right'||key?.name==='n')page++;else if(key?.name==='left'||key?.name==='p')page=Math.max(0,page-1);};
  const interactive=!once&&!!process.stdin.isTTY;
  if(interactive){emitKeypressEvents(process.stdin);process.stdin.setRawMode(true);process.stdin.on('keypress',onKey);process.stdin.resume();}
@@ -45,9 +45,9 @@ async function watch(args:string[],once=false):Promise<void>{
    if(selected){
     if(Date.now()>=nextDiscover||!reader){
      const session=await findSession(root,selected);nextDiscover=Date.now()+5000;
-     if(session&&session.path!==knownPath){knownPath=session.path;reader=new SessionReader(session.path,session.id);selected=session.id;}
+      if(session&&(!reader||session.path!==knownPath)){knownPath=session.path;reader=new SessionReader(session.path,session.id);selected=session.id;}
     }
-    if(reader){try{snapshot=await reader.read();}catch(e){snapshot=emptySnapshot(selected);snapshot.errors.push('Session log unavailable; waiting for recovery');reader=undefined;}}
+     if(reader){try{snapshot=await reader.read();lastSnapshot=structuredClone(snapshot);}catch(e){snapshot=structuredClone(lastSnapshot);snapshot.errors.push('Session log unavailable; showing stale telemetry and retrying');}}
     else snapshot.errors.push('Waiting for the selected session log');
    }else snapshot.errors.push('Waiting for SessionStart binding; open /hooks in Codex to review and trust this plugin hook');
    if(snapshot.cwd)snapshot.environment=readEnvironment(snapshot.cwd,home);
@@ -82,6 +82,7 @@ async function demoRunner(d:LaunchDescriptor):Promise<void>{
 async function start(args:string[],demo=false):Promise<void>{
  if(process.platform!=='win32')throw new Error('Automatic split launch requires native Windows Terminal; use watch manually elsewhere');
  const report=checkRuntime();if(!report.terminal||!report.codex&&!demo)throw new Error('Windows Terminal or Codex is missing; run doctor');
+ if(!demo&&report.plugin.status!=='available')throw new Error(report.plugin.message+'; run doctor for details');
  const separator=args.indexOf('--');const codexArgs=separator<0?[]:args.slice(separator+1);const hudArgs=separator<0?args:args.slice(0,separator);
  const d=createLaunch(option(hudArgs,'--cwd')??process.cwd(),loadConfig(configFile(hudArgs)),runtimeRoot(),configFile(hudArgs));
  if(demo)updateLaunch(d.file,v=>{v.demo=true;v.demoDurationMs=Number(option(hudArgs,'--duration'))||120000;v.codexHome=path.join(path.dirname(v.file),'demo-home-'+v.id);});
@@ -116,11 +117,13 @@ export async function main(args=process.argv.slice(2)):Promise<void>{
    let yes=rest.includes('--yes');if(!yes&&process.stdin.isTTY){const rl=createInterface({input:process.stdin,output:process.stdout});try{yes=(await rl.question('Save imported configuration? [y/N] ')).toLowerCase()==='y';}finally{rl.close();}}
    if(yes){saveConfig(file,config);console.log('Imported '+file);}else console.log('Preview only; use --yes to save the import');return;
   }
-  case 'doctor':console.log(JSON.stringify(checkRuntime(),null,2));return;
+  case 'doctor':{
+   const id=option(rest,'--launch');if(id&&!/^[a-f0-9-]{36}$/i.test(id))throw new Error('doctor --launch <launch ID>');
+   console.log(JSON.stringify(checkRuntime({configFile:configFile(rest),launchFile:id?path.join(runtimeRoot(),id+'.json'):undefined}),null,2));return;
+  }
   case 'stop':{const id=option(rest,'--launch');if(!id||!/^[a-f0-9-]{36}$/i.test(id))throw new Error('stop --launch <launch ID>');requestStop(path.join(runtimeRoot(),id+'.json'));console.log('HUD stop requested; Codex keeps running');return;}
   case 'help':case '--help':case '-h':
-   console.log('mz-codex-hud\\n  start [--cwd DIR] [-- Codex args...]\\n  watch|once --session ID [--json] [--width N]\\n  list\\n  configure\\n  config show | config set KEY VALUE\\n  import-claude [--path CONFIG] [--yes]\\n  doctor\\n  demo [--duration MILLISECONDS]\\n  stop --launch ID\\nAll commands accept --config FILE.');return;
+   console.log('mz-codex-hud\n  start [--cwd DIR] [-- Codex args...]\n  watch|once --session ID [--json] [--width N]\n  list\n  configure\n  config show | config set KEY VALUE\n  import-claude [--path CONFIG] [--yes]\n  doctor\n  demo [--duration MILLISECONDS]\n  stop --launch ID\nAll commands accept --config FILE.');return;
   default:throw new Error('Unknown command: '+command);
  }
 }
-

@@ -29,3 +29,8 @@ test('runner preserves literal argument boundaries, exit code and private launch
  fs.writeFileSync(script,"import fs from 'node:fs';fs.writeFileSync(process.argv[2],JSON.stringify({args:process.argv.slice(3),launch:process.env.MZ_CODEX_HUD_LAUNCH}));process.exitCode=7;");
  const code=await runCodex(d,['one;two','空 格','"quoted"'],{command:process.execPath,args:[script,result],isolated:false});assert.equal(code,7);const received=JSON.parse(fs.readFileSync(result,'utf8'));assert.deepEqual(received.args,['one;two','空 格','"quoted"']);assert.equal(received.launch,d.file);assert.equal(readLaunch(d.file).state,'exited');assert.equal(readLaunch(d.file).exitCode,7);
 });
+test('runner resolves Codex from the received invoking-shell PATH rather than the Terminal PATH',async t=>{
+ const root=temp(t),d=createLaunch(process.cwd(),defaultConfig(),root);const caller=path.join(root,'caller'),terminal=path.join(root,'terminal'),out=path.join(root,'selected.txt');
+ for(const [dir,label]of [[caller,'caller'],[terminal,'terminal']]){const script=path.join(dir,'node_modules/@openai/codex/bin/codex.js');fs.mkdirSync(path.dirname(script),{recursive:true});fs.writeFileSync(script,"require('node:fs').writeFileSync("+JSON.stringify(out)+","+JSON.stringify(label)+");");}
+ const old=process.env.PATH;process.env.PATH=terminal;try{const code=await runCodex(d,[],undefined,{Path:caller});assert.equal(code,0);assert.equal(fs.readFileSync(out,'utf8'),'caller');}finally{process.env.PATH=old;}
+});

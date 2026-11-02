@@ -10,4 +10,3 @@ Distinguish dependency detection from live binding. Finding Node, Codex and wt.e
 Use `once --session <full-ID>` for read-only telemetry inspection and `demo` for a nonbillable Terminal preview. Preserve the session ID when investigating stale data. MCP configured/called/unknown indicators are not online counts.
 
 Never kill Codex to close its HUD. `stop --launch <ID>` only stops the HUD display. Do not send a model request just to test readiness.
-

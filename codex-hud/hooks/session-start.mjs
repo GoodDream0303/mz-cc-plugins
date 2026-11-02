@@ -8,4 +8,3 @@ if (process.env.MZ_CODEX_HUD_LAUNCH) {
     process.exitCode=1;
   }
 }
-

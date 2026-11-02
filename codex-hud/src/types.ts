@@ -16,4 +16,3 @@ export interface EnvironmentFacts {
 }
 export interface SessionInfo {id:string;cwd:string;path:string;startedAt?:string;parentId?:string;modified:number}
 export function emptySnapshot(sessionId:string):HudSnapshot{return {sessionId,quotas:[],tools:[],agents:[],todos:[],mcpUsed:[],compactions:0,errors:[],status:'unknown'};}
-
