@@ -37,7 +37,6 @@ export function render(s:HudSnapshot,c:Config,o:RenderOptions={}):RenderResult {
  }
  if(projectText)identity.project=projectText;
  if(on('showSessionName'))identity.sessionName=ink(label('Session: ','会话: ','會話: ')+(s.sessionName??s.sessionId.slice(0,12)),'label');
- if(on('showSessionId'))identity.sessionName=(identity.sessionName?identity.sessionName+' ':'')+ink('ID:'+s.sessionId,'label');
  if(on('showCodexVersion'))identity.version=ink('Codex '+(s.version??unknown),'label');
  if(on('showAuth')&&s.plan)identity.auth=ink(s.plan,'label');
  function timestamp(value:string|number):string {

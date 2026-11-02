@@ -13,5 +13,5 @@ async function menu(file,action){
 }
 for(const action of ['q','s'])test('interactive menu previews an English toggle and '+(action==='q'?'cancel preserves the file':'save persists the selected value'),async t=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'hud-menu-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));const file=path.join(root,'config.json');saveConfig(file,defaultConfig());const before=fs.readFileSync(file,'utf8');const output=await menu(file,action);assert.match(output,/Context/);assert.ok(!/[\u3400-\u9fff]/.test(output));
- if(action==='q')assert.equal(fs.readFileSync(file,'utf8'),before);else assert.equal(get(loadConfig(file),'display.showModel'),false);
+ if(action==='q')assert.equal(fs.readFileSync(file,'utf8'),before);else assert.equal(get(loadConfig(file),'display.showModel'),true);
 });

@@ -1,14 +1,21 @@
 ---
 name: hud-start
-description: Use when the user wants to open Codex with the configurable multiline Windows Terminal HUD.
+description: Use when the user wants the configurable multiline HUD beside an existing Codex session in Windows Terminal.
 ---
 
-Resolve the plugin root two directories above this skill folder. The CLI is `bin/hud.mjs`.
+Resolve the plugin root two directories above this skill folder. The entry is
+`bin/hud.mjs`. If unbuilt, run `npm ci --ignore-scripts` then `npm run build`
+in that plugin root once.
 
-Ensure it is built once: if `dist/cli.js` or its dependencies are missing, run `npm ci --ignore-scripts` and `npm run build` in the plugin root. Do not reinstall dependencies on every invocation.
+Run `node "<plugin-root>/bin/hud.mjs" start` from the current Codex tool
+environment. It consumes CODEX_THREAD_ID (or CODEX_SESSION_ID) and adds only
+the HUD pane. Never start another Codex, modify statusline, install hooks,
+or request hook trust.
 
-Run `node "<plugin-root>/bin/hud.mjs" doctor`, then `node "<plugin-root>/bin/hud.mjs" start --cwd "<requested-project>"`. Preserve explicitly requested Codex arguments after `--`; do not add approval/sandbox bypasses.
+For an explicit existing session use `start --session <ID>`. If there is no
+current ID, ask the user to select one; never guess the latest log. For multiple
+Terminal windows use an explicit `--window <ID-or-name>` when known; otherwise
+Windows Terminal targets its most recently active window.
 
-The launcher opens a dedicated Windows Terminal window with Codex above and HUD below. Original `codex` is unchanged. Exact session binding uses the plugin SessionStart hook and an isolated `--no-daemon` CLI process. If binding is pending, direct the user to review/trust this hook in Codex `/hooks`; never trust it by editing hashes or using bypass flags.
-
-Use `demo` for a nonbillable layout preview. For an existing session, use `list` and `watch --session <full-ID>`; never silently follow the latest log or start a replacement chat.
+Model/effort/directory/session-name fields are off by default. Preserve the
+original language of task names and use English for normal UI labels.

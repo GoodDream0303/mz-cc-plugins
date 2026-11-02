@@ -35,11 +35,11 @@ try {
     if ($item.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern,[ref]$pattern)) { $parts += $pattern.DocumentRange.GetText(10000) }
    }
    $text = $parts -join "`n"
-   if ($text.Contains('Codex HUD Demo') -and $text.Contains('Context')) { break }
+   if ($text.Contains('22.5%') -and $text.Contains('Context')) { break }
   }
   Start-Sleep -Milliseconds 200
  }
- if (-not $text.Contains('Codex HUD Demo') -or -not $text.Contains('Context')) { throw 'Telemetry did not appear in the Terminal preview.' }
+ if (-not $text.Contains('22.5%') -or -not $text.Contains('Context')) { throw 'Telemetry did not appear in the Terminal preview.' }
  if ($text -match 'ReferenceError|SyntaxError|Waiting for SessionStart') { throw 'Terminal preview contains a startup error.' }
  if ($ScreenshotPath) {
   $resolved = [System.IO.Path]::GetFullPath($ScreenshotPath)

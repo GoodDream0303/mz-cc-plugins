@@ -1,6 +1,6 @@
 # Configuration compatibility
 
-Labels default to English; task/session names are never translated. This interface follows claude-hud 0.8.0. Supported means a setting has a Codex display mapping; data may still be unavailable in a particular session.
+Companion HUD: native Codex statusline is unchanged. Default model, effort, project and session-name fields are off. Explicit Full preset/import can enable them. No hooks or session-ID display are provided.
 
 | Key | Default | Availability |
 |---|---|---|
@@ -9,7 +9,7 @@ Labels default to English; task/session names are never translated. This interfa
 | showSeparators | false | Supported |
 | pathLevels | 1 | Supported |
 | maxWidth | 0 | Supported |
-| forceMaxWidth | false | Reserved: actual viewport width is always respected |
+| forceMaxWidth | false | Reserved: rendering always respects the actual viewport width |
 | elementOrder | ["project","addedDirs","context","usage","promptCache","memory","environment","tools","skills","mcp","agents","todos","sessionTime"] | Supported |
 | projectLineOrder | [] | Supported |
 | display.mergeGroups | [["context","usage"]] | Supported |
@@ -21,8 +21,8 @@ Labels default to English; task/session names are never translated. This interfa
 | gitStatus.branchOverflow | "truncate" | Supported |
 | gitStatus.pushWarningThreshold | 0 | Supported |
 | gitStatus.pushCriticalThreshold | 0 | Supported |
-| display.showModel | true | Supported |
-| display.showProject | true | Supported |
+| display.showModel | false | Supported |
+| display.showProject | false | Supported |
 | display.showAddedDirs | false | Additional work directories are not reported |
 | display.showContextBar | true | Supported |
 | display.showConfigCounts | false | Loaded configuration counts are not reported |
@@ -43,7 +43,6 @@ Labels default to English; task/session names are never translated. This interfa
 | display.showAgents | false | Supported |
 | display.showTodos | false | Supported |
 | display.showSessionName | false | Supported |
-| display.showSessionId | false | Supported |
 | display.showAuth | false | Supported |
 | display.showAuthUser | false | Authentication credentials are not read |
 | display.showCodexVersion | false | Supported |
@@ -97,10 +96,6 @@ Labels default to English; task/session names are never translated. This interfa
 | terminal.refreshMs | 1000 | Supported |
 | terminal.margin | 4 | Supported |
 
-## Import-only and unavailable values
+Unknown imported keys are preserved without executing behavior. showClaudeCodeVersion maps to showCodexVersion. Legacy showSessionId is retained but ignored. Claude-specific jjStatus, modelSource, autocompactBuffer, autoCompactWindow, promptCacheTtlSeconds, advisor and external-usage settings have no active mapping. Credentials and statusLine shell commands are not imported.
 
-showClaudeCodeVersion maps to showCodexVersion. Unknown keys, jjStatus, modelSource, autocompactBuffer, autoCompactWindow, promptCacheTtlSeconds, advisor settings, and external usage settings are retained but do not activate unsupported behavior. No credentials or statusLine commands are imported.
-
-MCP reports user-configured servers and observed calls; it does not claim connectivity. Skills activity, accurate cost, cache expiry, per-model quotas, process memory, and pure-generation speed are unavailable. Context has no Claude-specific autocompact buffer deduction.
-
-forceMaxWidth is retained; viewport width always limits rendering. CLI configuration menus use English; the language setting controls optional HUD translations only.
+MCP reports configured/called/unknown facts. Skills activity, cost, cache expiry, per-model quotas, process memory and generation-only speed remain unavailable.

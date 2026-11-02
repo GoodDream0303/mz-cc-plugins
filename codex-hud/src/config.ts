@@ -36,11 +36,11 @@ const unavailable:Record<string,string>={
  showConfigCounts:'Loaded configuration counts are not reported'
 };
 const flags:Record<string,boolean>={
- showModel:true,showProject:true,showAddedDirs:false,showContextBar:true,showConfigCounts:false,
+ showModel:false,showProject:false,showAddedDirs:false,showContextBar:true,showConfigCounts:false,
  showCost:false,showRoutedCost:false,showDailyCost:false,showDuration:false,showSpeed:false,
  showTokenBreakdown:true,showUsage:true,usageBarEnabled:true,showResetLabel:true,usageCompact:false,
  showModelScopedUsage:false,showTools:false,showSkills:false,showMcp:false,showAgents:false,showTodos:false,
- showSessionName:false,showSessionId:false,showAuth:false,showAuthUser:false,showCodexVersion:false,
+ showSessionName:false,showAuth:false,showAuthUser:false,showCodexVersion:false,
  showEffortLevel:false,showMemoryUsage:false,showPromptCache:false,showSessionTokens:false,
  showOutputStyle:false,showSessionStartDate:false,showLastResponseAt:false,showCompactions:false,
  showProvider:false,showClockSeconds:false,showAdvisor:false
@@ -131,7 +131,7 @@ export function preset(name:string,base=defaultConfig()):Config {
  if(!['full','essential','minimal'].includes(name))throw new Error('Unknown preset: '+name);
  const config=structuredClone(base);
  for(const d of defs.filter(d=>d.key.startsWith('display.show')&&d.kind==='boolean'))
-  put(config,d.key,!d.reason&&(name==='full'||['display.showModel','display.showContextBar',...(name==='essential'?['display.showProject','display.showUsage','display.showEffortLevel','display.showSessionTokens']:[])].includes(d.key)));
+  put(config,d.key,!d.reason&&(name==='full'||['display.showContextBar',...(name==='essential'?['display.showUsage','display.showSessionTokens']:[])].includes(d.key)));
  return validateConfig(config);
 }
 export interface ImportRow {key:string;status:'mapped'|'unavailable'|'unknown';reason?:string}

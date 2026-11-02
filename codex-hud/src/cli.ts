@@ -13,8 +13,7 @@ import {render} from './render.js';
 import {readEnvironment} from './environment.js';
 import {sanitize} from './terminal-text.js';
 import {emptySnapshot,type HudSnapshot} from './types.js';
-import {bindLaunch,buildTerminalArgs,checkRuntime,createLaunch,decodeArgs,readLaunch,receiveEnvironment,requestStop,runCodex,runtimeRoot,serveEnvironment,updateLaunch,type LaunchDescriptor} from './runtime.js';
-import {handleHook} from './hook.js';
+import {buildTerminalArgs,checkRuntime,createLaunch,readLaunch,requestStop,runtimeRoot,selectSessionId,updateLaunch,type LaunchDescriptor} from './runtime.js';
 
 function option(args:string[],key:string):string|undefined{const i=args.indexOf(key);return i>=0?args[i+1]:args.find(v=>v.startsWith(key+'='))?.slice(key.length+1);}
 function launchFile(args:string[]):string|undefined{const encoded=option(args,'--launch64');return encoded?Buffer.from(encoded,'base64').toString('utf8'):option(args,'--launch');}
@@ -30,13 +29,14 @@ async function chooseSession(root:string):Promise<string>{
 }
 async function watch(args:string[],once=false):Promise<void>{
  const ownedFile=launchFile(args);let descriptor=ownedFile?readLaunch(ownedFile):undefined;
- const home=descriptor?.codexHome??codexHome();const root=option(args,'--sessions-root')??path.join(home,'sessions');
- let selected=option(args,'--session');if(!descriptor&&!selected)selected=await chooseSession(root);
+ const home=descriptor?.codexHome??codexHome();const root=option(args,'--sessions-root')??descriptor?.sessionsRoot??path.join(home,'sessions');
+ let selected=descriptor?.sessionId??selectSessionId(option(args,'--session'));if(!selected)selected=await chooseSession(root);
  let cfgFile=descriptor?.configFile??configFile(args),config=loadConfig(cfgFile);let page=0,quit=false,reader:SessionReader|undefined,nextDiscover=0,knownPath='',statusMessage='';let lastSnapshot=emptySnapshot(selected??'pending');
  const onKey=(_:unknown,key:{name?:string;ctrl?:boolean})=>{if(key?.name==='q'||key?.name==='c'&&key.ctrl)quit=true;else if(key?.name==='right'||key?.name==='n')page++;else if(key?.name==='left'||key?.name==='p')page=Math.max(0,page-1);};
  const interactive=!once&&!!process.stdin.isTTY;
  if(interactive){emitKeypressEvents(process.stdin);process.stdin.setRawMode(true);process.stdin.on('keypress',onKey);process.stdin.resume();}
  if(!once&&process.stdout.isTTY)process.stdout.write('\x1b[?1049h\x1b[?25l');
+ if(descriptor&&!descriptor.demo)updateLaunch(ownedFile!,d=>{d.state='running';d.pid=process.pid;d.heartbeat=Date.now();});
  try{
   do{
    if(descriptor){descriptor=readLaunch(ownedFile!);if(descriptor.hudStop||descriptor.state==='exited')break;selected=descriptor.sessionId;}
@@ -49,10 +49,10 @@ async function watch(args:string[],once=false):Promise<void>{
     }
      if(reader){try{snapshot=await reader.read();lastSnapshot=structuredClone(snapshot);}catch(e){snapshot=structuredClone(lastSnapshot);snapshot.errors.push('Session log unavailable; showing stale telemetry and retrying');}}
     else snapshot.errors.push('Waiting for the selected session log');
-   }else snapshot.errors.push('Waiting for SessionStart binding; open /hooks in Codex to review and trust this plugin hook');
+   }else snapshot.errors.push('Select the existing Codex session to display');
    if(snapshot.cwd)snapshot.environment=readEnvironment(snapshot.cwd,home);
    if(statusMessage)snapshot.errors.push(statusMessage);
-   if(descriptor?.state==='running'&&descriptor.heartbeat&&Date.now()-descriptor.heartbeat>15000)snapshot.errors.push('Runner heartbeat is stale; session binding remains unchanged');
+   if(descriptor&&!descriptor.demo)updateLaunch(ownedFile!,d=>{d.heartbeat=Date.now();});
    const result=render(snapshot,config,{width:Number(option(args,'--width'))||process.stdout.columns||100,height:once?1000:process.stdout.rows||12,page,color:!args.includes('--no-color')&&!!process.stdout.isTTY});
    if(args.includes('--json'))console.log(JSON.stringify(snapshot));else{
     if(!once&&process.stdout.isTTY)process.stdout.write('\x1b[H\x1b[2J'+result.lines.join('\r\n'));
@@ -65,6 +65,7 @@ async function watch(args:string[],once=false):Promise<void>{
  }finally{
   if(interactive){process.stdin.off('keypress',onKey);process.stdin.setRawMode(false);process.stdin.pause();}
   if(!once&&process.stdout.isTTY)process.stdout.write('\x1b[0m\x1b[?25h\x1b[?1049l');
+  if(descriptor&&!descriptor.demo)updateLaunch(ownedFile!,d=>{d.state='exited';d.exitCode=0;});
  }
 }
 async function demoRunner(d:LaunchDescriptor):Promise<void>{
@@ -74,35 +75,36 @@ async function demoRunner(d:LaunchDescriptor):Promise<void>{
  fs.appendFileSync(file,row('response_item',{type:'function_call',call_id:'demo-plan',name:'update_plan',arguments:JSON.stringify({plan:[{step:'列出 Codex 常用插件',status:'in_progress'},{step:'Verify configuration',status:'pending'}]})})+row('response_item',{type:'function_call_output',call_id:'demo-plan',output:'{}'}));
  // Demo is a user-facing layout preview, never a model invocation.
  updateLaunch(d.file,v=>{v.state='running';v.heartbeat=Date.now();});
- const newHome=readLaunch(d.file).codexHome;fs.mkdirSync(path.join(newHome,'sessions'),{recursive:true});fs.copyFileSync(file,path.join(newHome,'sessions',id+'.jsonl'));bindLaunch(d.file,{session_id:id,cwd:d.cwd});
+ const newHome=readLaunch(d.file).codexHome;fs.mkdirSync(path.join(newHome,'sessions'),{recursive:true});fs.copyFileSync(file,path.join(newHome,'sessions',id+'.jsonl'));
  console.log('Codex HUD Preview - no model request; Codex was not started.\nThe HUD is below. Drag the divider to resize.');
  const timer=setInterval(()=>updateLaunch(d.file,v=>{v.heartbeat=Date.now();}),2000);
  try{await delay(d.demoDurationMs??120000);}finally{clearInterval(timer);updateLaunch(d.file,v=>{v.state='exited';v.exitCode=0;});}
 }
 async function start(args:string[],demo=false):Promise<void>{
  if(process.platform!=='win32')throw new Error('Automatic split launch requires native Windows Terminal; use watch manually elsewhere');
- const report=checkRuntime();if(!report.terminal||!report.codex&&!demo)throw new Error('Windows Terminal or Codex is missing; run doctor');
- if(!demo&&report.plugin.status!=='available')throw new Error(report.plugin.message+'; run doctor for details');
- const separator=args.indexOf('--');const codexArgs=separator<0?[]:args.slice(separator+1);const hudArgs=separator<0?args:args.slice(0,separator);
- const d=createLaunch(option(hudArgs,'--cwd')??process.cwd(),loadConfig(configFile(hudArgs)),runtimeRoot(),configFile(hudArgs));
- if(demo)updateLaunch(d.file,v=>{v.demo=true;v.demoDurationMs=Number(option(hudArgs,'--duration'))||120000;v.codexHome=path.join(path.dirname(v.file),'demo-home-'+v.id);});
- const command=buildTerminalArgs(readLaunch(d.file),codexArgs);
- if(args.includes('--dry-run')){console.log(JSON.stringify({window:'mz-codex-hud-'+d.id,cwd:d.cwd,paneSize:d.paneSize,launch:d.file,argumentCount:codexArgs.length}));return;}
- const bridge=await serveEnvironment(d);try{
-  execFileSync('wt.exe',command,{windowsHide:false,stdio:'ignore',timeout:10000});
-  await bridge.delivered;console.log('HUD opened. Launch ID: '+d.id);
- }finally{bridge.close();}
+ const report=checkRuntime();if(!report.terminal)throw new Error('Windows Terminal is missing; run doctor');
+ if(args.includes('--')||option(args,'--cwd'))throw new Error('HUD attaches an existing session; no Codex launch arguments are accepted');
+ const home=codexHome(),sessionsRoot=option(args,'--sessions-root')??path.join(home,'sessions');let selected=demo?undefined:selectSessionId(option(args,'--session'));
+ if(!demo&&!selected)selected=await chooseSession(sessionsRoot);
+ const session=selected?await findSession(sessionsRoot,selected):null;if(session)selected=session.id;
+ const d=createLaunch(session?.cwd||process.cwd(),loadConfig(configFile(args)),runtimeRoot(),configFile(args));
+ updateLaunch(d.file,v=>{
+  if(demo){v.demo=true;v.demoDurationMs=Number(option(args,'--duration'))||120000;v.codexHome=path.join(path.dirname(v.file),'demo-home-'+v.id);v.sessionId='demo-'+v.id;}
+  else{v.sessionId=selected;v.sessionsRoot=path.resolve(sessionsRoot);}
+ });
+ const descriptor=readLaunch(d.file),window=option(args,'--window')??process.env.WT_WINDOW_ID??'last';const command=buildTerminalArgs(descriptor,window);
+ if(args.includes('--dry-run')){console.log(JSON.stringify({mode:demo?'demo':'attach',hooksRequired:false,window:demo?'mz-codex-hud-'+d.id:window,sessionId:descriptor.sessionId,paneSize:d.paneSize,launch:d.file}));return;}
+ execFileSync('wt.exe',command,{windowsHide:false,stdio:'ignore',timeout:10000});console.log('HUD opened. Launch ID: '+d.id);
 }
 export async function main(args=process.argv.slice(2)):Promise<void>{
  const command=args[0]??'help',rest=args.slice(1);
  switch(command){
   case 'start':return start(rest);
   case 'demo':return start(rest,true);
-  case 'runner':{
-   const file=launchFile(rest);if(!file)throw new Error('Missing launch descriptor');const d=readLaunch(file);const environment=await receiveEnvironment(d);
-   if(d.demo)return demoRunner(d);process.exitCode=await runCodex(d,decodeArgs(option(rest,'--argv')??'W10='),undefined,environment);return;
+  case 'demo-runner':{
+   const file=launchFile(rest);if(!file)throw new Error('Missing launch descriptor');const d=readLaunch(file);
+   if(!d.demo)throw new Error('The demo runner cannot control a Codex session');return demoRunner(d);
   }
-  case 'hook':return handleHook();
   case 'watch':return watch(rest);
   case 'once':return watch(rest,true);
   case 'list':{const sessions=await listSessions(option(rest,'--sessions-root')??path.join(codexHome(),'sessions'));for(const s of sessions)if(!s.parentId)console.log(s.id+'  '+sanitize(s.cwd));return;}
@@ -123,7 +125,7 @@ export async function main(args=process.argv.slice(2)):Promise<void>{
   }
   case 'stop':{const id=option(rest,'--launch');if(!id||!/^[a-f0-9-]{36}$/i.test(id))throw new Error('stop --launch <launch ID>');requestStop(path.join(runtimeRoot(),id+'.json'));console.log('HUD stop requested; Codex keeps running');return;}
   case 'help':case '--help':case '-h':
-   console.log('mz-codex-hud\n  start [--cwd DIR] [-- Codex args...]\n  watch|once --session ID [--json] [--width N]\n  list\n  configure\n  config show | config set KEY VALUE\n  import-claude [--path CONFIG] [--yes]\n  doctor\n  demo [--duration MILLISECONDS]\n  stop --launch ID\nAll commands accept --config FILE.');return;
+   console.log('mz-codex-hud\n  start [--session ID] [--window ID_OR_NAME]\n  watch|once [--session ID] [--json] [--width N]\n  list\n  configure\n  config show | config set KEY VALUE\n  import-claude [--path CONFIG] [--yes]\n  doctor\n  demo [--duration MILLISECONDS]\n  stop --launch ID\nAttaches existing Codex; no hooks and no statusline replacement.\nAll commands accept --config FILE.');return;
   default:throw new Error('Unknown command: '+command);
  }
 }

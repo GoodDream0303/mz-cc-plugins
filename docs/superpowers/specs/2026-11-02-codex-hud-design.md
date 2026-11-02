@@ -1,5 +1,7 @@
 # Codex HUD 设计：Windows Terminal 多行面板
 
+> Superseded in part by the user-approved passive-attachment revision: see `../plans/2026-11-02-hud-passive-attachment.md`. Version 0.2 removes Codex launching, hooks, trust review, daemon overrides and session-ID display.
+
 日期：2026-11-02。状态：用户已批准；实现已完成、本地集成并通过自动检查。首次原生 hook 信任仍由用户在 /hooks 审阅。
 
 ## 1. 用户目标与已确认范围

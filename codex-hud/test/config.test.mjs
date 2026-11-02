@@ -43,6 +43,6 @@ test('config invalid JSON is reported without changing the original file',t=>{
 });
 test('config presets are independent and preserve unknown advanced settings',()=>{
   const base=defaultConfig();base.extra={v:1};const minimal=preset('minimal',base);
-  assert.equal(get(minimal,'display.showModel'),true);assert.equal(get(minimal,'display.showContextBar'),true);assert.equal(get(minimal,'display.showTools'),false);
+  assert.equal(get(minimal,'display.showModel'),false);assert.equal(get(minimal,'display.showContextBar'),true);assert.equal(get(minimal,'display.showTools'),false);
   assert.deepEqual(minimal.extra,{v:1});assert.equal(get(preset('full',base),'display.showTools'),true);assert.equal(get(preset('full',base),'display.showCost'),false);
 });

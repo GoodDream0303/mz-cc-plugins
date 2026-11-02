@@ -19,7 +19,7 @@ export async function listSessions(root=path.join(codexHome(),'sessions')):Promi
  return sessions.sort((a,b)=>b.modified-a.modified);
 }
 export async function findSession(root:string,id:string):Promise<SessionInfo|null>{
- if(!/^[a-zA-Z0-9-]{3,100}$/.test(id))throw new Error('Invalid session ID');
+ if(!/^[a-zA-Z0-9_-]{3,100}$/.test(id))throw new Error('Invalid session ID');
  const all=await listSessions(root);const exact=all.filter(s=>s.id===id);
  if(exact.length)return exact[0];const matches=all.filter(s=>s.id.startsWith(id));if(matches.length>1)throw new Error('Ambiguous session ID; use the full ID');return matches[0]??null;
 }
