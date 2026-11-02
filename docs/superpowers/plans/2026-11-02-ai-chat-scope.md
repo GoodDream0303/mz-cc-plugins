@@ -61,10 +61,10 @@
 
 **Interfaces:** `sanitize_hook(payload: dict, observed_ns: int) -> dict`；`summarize_records(records: list[dict]) -> dict`。只保留设计允许的元数据、字段名和时间；报告不得保留真实正文。产品 hook 的最终事件选择必须来自本项结论。
 
-- [ ] 写失败测试 `test_probe_drops_prompt_arguments_and_response`、`test_probe_rejects_oversized_input`、`test_report_does_not_treat_tool_completion_as_approval`：输入包含 `prompt/tool_input/last_assistant_message` 与标记秘密的 JSON，序列化结果中均不出现；上限 1 MiB；只有 PermissionRequest+工具完成时，报告必须为 `approval_resume_proven == False`。
-- [ ] 运行 `python -B -m unittest discover -s tests -p test_codex_scope_probe.py -v`，确认测试因缺少探测模块失败。
-- [ ] 实现有界、只存白名单的探测器；`--prepare <临时工作目录>` 仅生成该目录下的项目 hook 测试配置，`--hook` 采集到同一测试目录，`--report` 输出字段/事件时间线。不修改用户全局配置、不自动启动模型请求、不替用户操作授权。需要查看 CLI 对应源实现时使用官方资料或已安装本机程序，并在证据中注明版本。
-- [ ] 重跑上述测试通过；用独立临时文件验证半行和超过 1 MiB 输入不会泄露正文或崩溃。
+- [x] 写失败测试 `test_probe_drops_prompt_arguments_and_response`、`test_probe_rejects_oversized_input`、`test_report_does_not_treat_tool_completion_as_approval`：输入包含 `prompt/tool_input/last_assistant_message` 与标记秘密的 JSON，序列化结果中均不出现；上限 1 MiB；只有 PermissionRequest+工具完成时，报告必须为 `approval_resume_proven == False`。
+- [x] 运行 `python -B -m unittest discover -s tests -p test_codex_scope_probe.py -v`，确认测试因缺少探测模块失败。
+- [x] 实现有界、只存白名单的探测器；`--prepare <临时工作目录>` 仅生成该目录下的项目 hook 测试配置，`--hook` 采集到同一测试目录，`--report` 输出字段/事件时间线。不修改用户全局配置、不自动启动模型请求、不替用户操作授权。需要查看 CLI 对应源实现时使用官方资料或已安装本机程序，并在证据中注明版本。
+- [x] 重跑上述测试通过；用独立临时文件验证半行和超过 1 MiB 输入不会泄露正文或崩溃。
 - [ ] 提供隔离测试入口，让用户在明确的测试 CLI 中完成：批准后执行数秒命令、拒绝授权、取消/中断、同步提问、异步提问、并发工具及会话正常退出。实时观察实际事件，不把手工捏造样本当作 CLI 证据；正常结束测试会话，不批量终止其他会话。
 - [ ] 写证据报告：每种情景的可用信号、因果关联字段、出现时间、解除等待的证据、失败/不支持情景。若不能证明批准后的及时恢复，停在本项，向用户报告具体缺口并确定降级后再修订计划；不能将以下产品项标为完成。
 - [ ] 过关时固化脱敏事件形状为测试样本，提交探测器、测试及证据：`test(scope): verify Codex lifecycle signal contract`。临时 hook 仅在核对绝对路径仍位于本次测试根后清理；不操作用户原始日志。
@@ -140,4 +140,4 @@
 - 设计 §1–3 的范围/约束：Global Constraints 与 Task 1 关口；§4 数据与接口：Task 2–3；§5 hook：Task 1、4；§6 UI/配置/关闭：Task 5；§7 分发：Task 6；§8–10 验收/风险/依据：各测试与证据报告。
 - Review Focus 五项均分配了行为测试，不依赖源码文本匹配；公共类型与下游函数名一致。
 - Task 1 信号尚未证实，后续任务明确依赖其契约，不把探索结论写成已实现能力；需要降级时必须带证据回到用户。
-- 执行方式待用户选择。建议本会话由主代理实施、完成后独立审阅：任务之间接口依赖较强，第一项又存在兼容性关口，连续上下文更便于控制范围。
+- 用户已确认 native 执行：本会话由主代理实施、完成后独立审阅。当前停留在 Task 1 真实场景验证，Task 2–6 尚未开始。
