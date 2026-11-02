@@ -14,16 +14,23 @@ export function truncate(value:string,max:number):string{
  for(const {segment}of segmenter.segment(plain)){const size=cellWidth(segment);if(width+size>Math.max(0,max-1))break;out+=segment;width+=size;}return out+'…';
 }
 export function wrapAnsi(value:string,max:number):string[]{
- const width=Math.max(1,max);let line='',used=0,active='';const lines:string[]=[];
+ const width=Math.max(1,max);let active='';const lines:string[]=[];
+ type Cell={text:string;width:number;style:string};let line:Cell[]=[];let used=0;
+ const emit=(cells:Cell[])=>{while(cells.at(-1)?.text===' ')cells.pop();let out='',style='';for(const cell of cells){if(cell.style!==style){if(style)out+='\x1b[0m';if(cell.style)out+=cell.style;style=cell.style;}out+=cell.text;}if(style)out+='\x1b[0m';if(out)lines.push(out);};
  for(const part of value.split(ANSI)){
-  if(/^\x1b\[[0-9;]*m$/.test(part)){line+=part;active=part==='\x1b[0m'?'':part;continue;}
+  if(/^\x1b\[[0-9;]*m$/.test(part)){active=part==='\x1b[0m'?'':part;continue;}
   for(const {segment}of segmenter.segment(part)){
    const size=cellWidth(segment);if(size>width)continue;
-   if(used+size>width){lines.push(line+(active?'\x1b[0m':''));line=active;used=0;}
-   line+=segment;used+=size;
+   if(used+size>width){
+    let cut=-1;for(let i=line.length-1;i>=0;i--)if(line[i].text===' '){cut=i;break;}
+    if(cut>0){emit(line.slice(0,cut));line=line.slice(cut+1);used=line.reduce((sum,cell)=>sum+cell.width,0);}
+    else{emit(line);line=[];used=0;}
+   }
+   if(segment===' '&&!line.length)continue;
+   line.push({text:segment,width:size,style:active});used+=size;
   }
  }
- if(line)lines.push(line+(active?'\x1b[0m':''));return lines;
+ emit(line);return lines;
 }
 const colorNames:Record<string,number>={dim:2,red:31,green:32,yellow:33,magenta:35,cyan:36,brightBlue:94,brightMagenta:95};
 export function colorize(value:string,color:unknown,enabled:boolean):string{

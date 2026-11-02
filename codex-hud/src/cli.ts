@@ -70,7 +70,8 @@ async function watch(args:string[],once=false):Promise<void>{
 async function demoRunner(d:LaunchDescriptor):Promise<void>{
  const id='demo-'+d.id;const root=path.join(path.dirname(d.file),'demo-sessions',d.id);fs.mkdirSync(root,{recursive:true});const file=path.join(root,id+'.jsonl');
  const row=(type:string,payload:unknown)=>JSON.stringify({timestamp:new Date().toISOString(),type,payload})+'\n';
- fs.writeFileSync(file,row('session_meta',{id,cwd:d.cwd,timestamp:new Date().toISOString(),cli_version:'preview'})+row('turn_context',{model:'Codex HUD Demo',effort:'high',cwd:d.cwd})+row('event_msg',{type:'token_count',info:{last_token_usage:{input_tokens:40000,cached_input_tokens:30000,output_tokens:5000,total_tokens:45000},total_token_usage:{input_tokens:120000,cached_input_tokens:90000,output_tokens:10000,total_tokens:130000},model_context_window:200000},rate_limits:{primary:{used_percent:25,window_minutes:300,resets_at:Math.floor(Date.now()/1000)+3600},secondary:{used_percent:10,window_minutes:10080,resets_at:Math.floor(Date.now()/1000)+86400}}}));
+ fs.writeFileSync(file,row('session_meta',{id,cwd:d.cwd,title:'List commonly used Codex plugins',timestamp:new Date().toISOString(),cli_version:'preview'})+row('turn_context',{model:'Codex HUD Demo',effort:'high',cwd:d.cwd})+row('event_msg',{type:'token_count',info:{last_token_usage:{input_tokens:40000,cached_input_tokens:30000,output_tokens:5000,total_tokens:45000},total_token_usage:{input_tokens:120000,cached_input_tokens:90000,output_tokens:10000,total_tokens:130000},model_context_window:200000},rate_limits:{primary:{used_percent:25,window_minutes:300,resets_at:Math.floor(Date.now()/1000)+3600},secondary:{used_percent:10,window_minutes:10080,resets_at:Math.floor(Date.now()/1000)+86400}}}));
+ fs.appendFileSync(file,row('response_item',{type:'function_call',call_id:'demo-plan',name:'update_plan',arguments:JSON.stringify({plan:[{step:'列出 Codex 常用插件',status:'in_progress'},{step:'Verify configuration',status:'pending'}]})})+row('response_item',{type:'function_call_output',call_id:'demo-plan',output:'{}'}));
  // Demo is a user-facing layout preview, never a model invocation.
  updateLaunch(d.file,v=>{v.state='running';v.heartbeat=Date.now();});
  const newHome=readLaunch(d.file).codexHome;fs.mkdirSync(path.join(newHome,'sessions'),{recursive:true});fs.copyFileSync(file,path.join(newHome,'sessions',id+'.jsonl'));bindLaunch(d.file,{session_id:id,cwd:d.cwd});
@@ -81,9 +82,9 @@ async function demoRunner(d:LaunchDescriptor):Promise<void>{
 async function start(args:string[],demo=false):Promise<void>{
  if(process.platform!=='win32')throw new Error('Automatic split launch requires native Windows Terminal; use watch manually elsewhere');
  const report=checkRuntime();if(!report.terminal||!report.codex&&!demo)throw new Error('Windows Terminal or Codex is missing; run doctor');
- const separator=args.indexOf('--');const codexArgs=separator<0?[]:args.slice(separator+1);
- const d=createLaunch(option(args,'--cwd')??process.cwd(),loadConfig(configFile(args)),runtimeRoot(),configFile(args));
- if(demo)updateLaunch(d.file,v=>{v.demo=true;v.demoDurationMs=Number(option(args,'--duration'))||120000;v.codexHome=path.join(path.dirname(v.file),'demo-home-'+v.id);});
+ const separator=args.indexOf('--');const codexArgs=separator<0?[]:args.slice(separator+1);const hudArgs=separator<0?args:args.slice(0,separator);
+ const d=createLaunch(option(hudArgs,'--cwd')??process.cwd(),loadConfig(configFile(hudArgs)),runtimeRoot(),configFile(hudArgs));
+ if(demo)updateLaunch(d.file,v=>{v.demo=true;v.demoDurationMs=Number(option(hudArgs,'--duration'))||120000;v.codexHome=path.join(path.dirname(v.file),'demo-home-'+v.id);});
  const command=buildTerminalArgs(readLaunch(d.file),codexArgs);
  if(args.includes('--dry-run')){console.log(JSON.stringify({window:'mz-codex-hud-'+d.id,cwd:d.cwd,paneSize:d.paneSize,launch:d.file,argumentCount:codexArgs.length}));return;}
  const bridge=await serveEnvironment(d);try{

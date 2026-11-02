@@ -60,7 +60,7 @@ export function buildTerminalArgs(d:LaunchDescriptor,args:string[]):string[]{
  const boot="import(Buffer.from(process.argv[1],'base64').toString()).then(m=>m.main(process.argv.slice(2))).catch(e=>{console.error(e.message),process.exitCode=1})";
  const shared=[process.execPath,'-e',boot,Buffer.from(entry).toString('base64')];
  const launch64=Buffer.from(d.file).toString('base64');
- const command=['-w','mz-codex-hud-'+d.id,'new-tab','--title',d.demo?'Codex HUD Preview':'Codex','--suppressApplicationTitle',...shared,'runner','--launch64',launch64,'--argv',Buffer.from(JSON.stringify(args)).toString('base64'),';','split-pane','--horizontal','--size',String(d.paneSize),'--title','Codex HUD','--suppressApplicationTitle',...shared,'watch','--launch64',launch64,';','focus-pane','-t','0'];
+ const command=['-w','mz-codex-hud-'+d.id,'new-tab','--title',d.demo?'Codex HUD Preview '+d.id.slice(0,8):'Codex','--suppressApplicationTitle',...shared,'runner','--launch64',launch64,'--argv',Buffer.from(JSON.stringify(args)).toString('base64'),';','split-pane','--horizontal','--size',String(d.paneSize),'--title','Codex HUD','--suppressApplicationTitle',...shared,'watch','--launch64',launch64,';','focus-pane','-t','0'];
  if(command.join(' ').length>28000)throw new Error('Command arguments too long for Windows Terminal');return command;
 }
 export function resolveCodex():Command{

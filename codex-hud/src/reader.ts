@@ -38,7 +38,7 @@ export class SessionReader {
   if(!safe(record)||!safe(record.payload))return;const p=record.payload;const type=record.type;
   if(type==='session_meta'){
    const id=p.id??p.session_id;if(id&&id!==this.sessionId){this.mismatch=true;this.snapshot=emptySnapshot(this.sessionId);this.error('session identity mismatch');return;}
-   this.snapshot.cwd=text(p.cwd,32768);this.snapshot.startedAt=text(p.timestamp??record.timestamp);this.snapshot.version=text(p.cli_version);return;
+   this.snapshot.cwd=text(p.cwd,32768);this.snapshot.startedAt=text(p.timestamp??record.timestamp);this.snapshot.version=text(p.cli_version);this.snapshot.sessionName=text(p.title??p.name??p.slug);return;
   }
   if(this.mismatch)return;
   if((p.session_id&&p.session_id!==this.sessionId)||(p.thread_id&&p.thread_id!==this.sessionId))return;
@@ -88,7 +88,7 @@ export class SessionReader {
    if(leaf==='spawn_agent'){const args=parse(p.arguments??p.input);this.agent(id,text(args?.task_name)??text(args?.agent_type)??'agent','unknown');}
   }
   if(['function_call_output','custom_tool_call_output'].includes(p.type)){
-   const id=text(p.call_id);const tool=this.snapshot.tools.find(t=>t.id===id);if(tool){const output=typeof p.output==='string'?parse(p.output):p.output;tool.status=p.is_error||output?.isError||output?.error?'failed':'done';}
+   const id=text(p.call_id);const tool=this.snapshot.tools.find(t=>t.id===id);if(tool){const output=typeof p.output==='string'?parse(p.output):p.output;tool.status=p.is_error||output?.isError||output?.error||typeof output?.exit_code==='number'&&output.exit_code!==0?'failed':'done';}
   }
   if(p.type==='compaction')this.snapshot.compactions++;
   if(p.type==='message'&&p.role==='assistant')this.snapshot.lastResponseAt=text(timestamp);

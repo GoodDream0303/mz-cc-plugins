@@ -20,3 +20,9 @@ mzzhu2 的 Claude Code 插件市场。**只需 add 一次 marketplace**，即可
 claude-scope/                     插件：会话状态悬浮窗
 task-handoff/                     插件：跨会话任务接力
 ```
+
+## Codex HUD
+
+[Codex HUD](codex-hud/README.md) is a separate, configurable multiline HUD for
+native Windows Terminal. Its Codex marketplace is `.agents/plugins/marketplace.json`;
+it does not change the Claude marketplace or either existing plugin.

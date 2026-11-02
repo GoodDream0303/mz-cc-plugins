@@ -1,0 +1,11 @@
+mz-codex-hud
+
+Configuration naming, display concepts, color conventions, and Unicode terminal
+layout were informed by claude-hud 0.8.0:
+https://github.com/jarrodwatts/claude-hud
+Copyright (c) 2026 Jarrod Watts, distributed under the MIT License.
+
+The Codex adapter, launch lifecycle, Windows Terminal integration, and plugin
+implementation are maintained in mz-cc-plugins. This project is not affiliated
+with OpenAI or Anthropic.
+

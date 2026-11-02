@@ -22,3 +22,6 @@ test('reader pairs tools by call ID, extracts structured plans and never retains
 test('session discovery reads metadata and requires exact or unique session IDs',async t=>{
  const {dir,file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'abc-one',cwd:'C:/相同'}));fs.writeFileSync(path.join(dir,'rollout-b.jsonl'),record('session_meta',{id:'abc-two',cwd:'C:/相同'}));const list=await listSessions(dir);assert.equal(list.length,2);assert.equal((await findSession(dir,'abc-one')).id,'abc-one');await assert.rejects(()=>findSession(dir,'abc'),/ambiguous/i);
 });
+test('reader preserves a supplied session title and recognizes nonzero tool exit codes',async t=>{
+ const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'abc',title:'列出 Codex 常用插件'})+record('response_item',{type:'function_call',call_id:'bad',name:'exec_command',arguments:'{}'})+record('response_item',{type:'function_call_output',call_id:'bad',output:JSON.stringify({exit_code:2,output:'not retained'})}));const s=await new SessionReader(file,'abc').read();assert.equal(s.sessionName,'列出 Codex 常用插件');assert.equal(s.tools[0].status,'failed');
+});
