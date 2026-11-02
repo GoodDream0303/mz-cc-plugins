@@ -15,7 +15,7 @@ Claude Code 宿主注入（保留原版技能正文插值入口）：
 - Claude 会话 ID：`${CLAUDE_SESSION_ID}`
 这两项在 Claude 中按下面的初始化规则传入脚本；Codex 忽略这两项，使用自己的配置与会话信息。未展开的占位符不得作为实际参数传入。
 
-先阅读并执行 [运行环境初始化](../../references/runtime.md)，取得 `<root>`、`<check_script>`、`<session_ref>`。总账为 `<root>/INDEX.md`。
+先阅读并执行 [运行环境初始化](../../references/runtime.md)，取得 `<root>`、`<check_script>`、`<session_ref>`。总账为 `<root>/INDEX.md`。Codex 若返回 `needs_setup: true`，先按运行环境说明询问并保存用户选定的目录，再执行后续步骤。
 任务名:`$ARGUMENTS`;为空则按第 1 步判定。
 
 ## 铁律

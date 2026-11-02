@@ -11,8 +11,13 @@ from handoff_runtime import resolve_context
 
 
 class RuntimeTests(unittest.TestCase):
+    def setUp(self):
+        self.profile = tempfile.TemporaryDirectory(prefix='handoff-profile-')
+        self.addCleanup(self.profile.cleanup)
+
     def resolve(self, host, env=None, root=None, session_id=None):
         home_vars = {key: os.environ[key] for key in ('HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH') if key in os.environ}
+        home_vars['CODEX_HOME'] = self.profile.name
         home_vars.update(env or {})
         with patch.dict(os.environ, home_vars, clear=True):
             return resolve_context(host, root, session_id)
@@ -20,7 +25,8 @@ class RuntimeTests(unittest.TestCase):
     def test_codex_uses_own_session_even_with_claude_environment(self):
         result = self.resolve('codex', {'CODEX_THREAD_ID': 'cx', 'CLAUDE_CODE_SESSION_ID': 'cl'})
         self.assertEqual(result['session_ref'], 'codex:cx')
-        self.assertEqual(result['root'], str(Path.home() / '.codex' / 'task-handoff'))
+        self.assertIsNone(result['root'])
+        self.assertTrue(result['needs_setup'])
 
     def test_codex_home_and_shared_root_precedence(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -29,7 +35,51 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(self.resolve('codex', env)['root'], str(base / 'shared'))
             self.assertEqual(self.resolve('codex', env, str(base / 'explicit'))['root'], str(base / 'explicit'))
             del env['TASK_HANDOFF_ROOT']
-            self.assertEqual(self.resolve('codex', env)['root'], str(base / 'profile' / 'task-handoff'))
+            self.assertTrue(self.resolve('codex', env)['needs_setup'])
+
+    def test_first_use_does_not_choose_or_create_a_data_root(self):
+        result = self.resolve('codex')
+        self.assertIsNone(result['root'])
+        self.assertIsNone(result['index'])
+        self.assertTrue(result['needs_setup'])
+        self.assertFalse(Path(result['config_path']).exists())
+
+    def test_saved_directory_survives_new_process_and_temporary_overrides(self):
+        script = Path(__file__).with_name('handoff_runtime.py')
+        env = os.environ.copy()
+        env['CODEX_HOME'] = self.profile.name
+        env.pop('TASK_HANDOFF_ROOT', None)
+        target = str(Path(self.profile.name) / '正式 交接')
+        base = [sys.executable, '-I', str(script), '--host', 'codex']
+        subprocess.run(base + ['--root', target, '--save-root'], env=env, capture_output=True, check=True)
+        config = Path(self.profile.name) / 'task-handoff-config.json'
+        original = config.read_bytes()
+        self.assertFalse(Path(target).exists())
+        result = subprocess.run(base, env=env, capture_output=True, encoding='utf-8', check=True)
+        self.assertEqual(json.loads(result.stdout)['root'], target)
+        self.assertFalse(json.loads(result.stdout)['needs_setup'])
+        other = str(Path(self.profile.name) / '临时测试')
+        self.assertEqual(self.resolve('codex', root=other)['root'], other)
+        self.assertEqual(self.resolve('codex', {'TASK_HANDOFF_ROOT': other})['root'], other)
+        self.assertEqual(config.read_bytes(), original)
+        self.assertEqual(self.resolve('codex')['root'], target)
+
+    def test_invalid_saved_config_is_reported_not_silently_replaced(self):
+        config = Path(self.profile.name) / 'task-handoff-config.json'
+        for content in ('{broken', '[]', '{}', '{"handoff_root":"relative"}'):
+            config.write_text(content, encoding='utf-8')
+            with self.assertRaises(ValueError):
+                self.resolve('codex')
+            self.assertEqual(config.read_text(encoding='utf-8'), content)
+
+    def test_save_root_requires_codex_and_explicit_root(self):
+        script = Path(__file__).with_name('handoff_runtime.py')
+        env = os.environ.copy()
+        env['CODEX_HOME'] = self.profile.name
+        for args in (['--host', 'codex', '--save-root'], ['--host', 'claude', '--save-root', '--root', self.profile.name]):
+            result = subprocess.run([sys.executable, '-I', str(script)] + args, env=env, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((Path(self.profile.name) / 'task-handoff-config.json').exists())
 
     def test_claude_compatibility(self):
         result = self.resolve('claude', {'CLAUDE_CODE_SESSION_ID': 'cl', 'CODEX_THREAD_ID': 'cx'})

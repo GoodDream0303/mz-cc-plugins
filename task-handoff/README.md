@@ -46,19 +46,13 @@ codex plugin add task-handoff@mz-cc-plugins
 
 依赖：Git、Python 3.8+，运行脚本只用标准库。保留 `.claude-plugin/plugin.json` 供现有市场分发；Codex 的三个技能共用同一份实现，task-manage 另有 `agents/openai.yaml` 保持只能显式调用。
 
-数据目录选择：当前任务已确定或用户明确指定的根目录优先，其次 `TASK_HANDOFF_ROOT`，再其次 Claude 技能正文注入的真实 `handoff_root` 配置，最后使用宿主默认值：
+Codex 首次调用 save/resume/manage 时，如果尚未指定或保存交接目录，会询问目录放在哪里。用户选择后保存到 `$CODEX_HOME/task-handoff-config.json`（未设 CODEX_HOME 则 `~/.codex/task-handoff-config.json`），以后新会话直接读取，插件升级也保留配置。
 
-- Codex：`$CODEX_HOME/task-handoff`，未设置 CODEX_HOME 时为 `~/.codex/task-handoff`。
-- Claude：保留 `~/.claude/task-handoff` 默认值和原有 `handoff_root` 配置。
+目录优先级：本次明确指定的目录 → `TASK_HANDOFF_ROOT` → 已保存配置。首次没有配置时必须询问，不再静默选用默认目录。配置只保存 `handoff_root`，不写入任务内容。
 
-要共用已有任务，在两端启动环境中设置同一个 `TASK_HANDOFF_ROOT`，或在请求中明确指出原来的数据根。例如在 PowerShell 中启动 Codex：
+如果已有 Claude 交接目录，可以在首次询问时选择同一路径。Claude 继续使用原安装流程的 `handoff_root` 配置及技能正文插值；Codex 的首次询问发生在技能调用时，而不是 `codex plugin add` 安装时。
 
-```powershell
-$env:TASK_HANDOFF_ROOT = 'E:\Ai_Process_Folder\handoff-data'
-codex
-```
-
-不会自动搬迁旧数据。Claude 保留原来的 `handoff_root` 与会话 ID 技能正文插值入口；Codex 使用独立的配置和会话信息，不依赖这些插值、CLAUDE_PLUGIN_ROOT 或 Claude 专用提问工具。路径和会话信息由只读脚本 `scripts/handoff_runtime.py` 解析，详细规则见 [运行环境说明](references/runtime.md)。
+临时测试可直接在请求中指定测试目录，不影响已保存的正式目录。明确更改默认目录时，技能在确认后用 `--save-root` 更新配置。普通运行环境解析保持只读；只有此选项会写插件配置，不会创建或搬迁任务数据。详细规则见 [运行环境说明](references/runtime.md)。
 
 ## 用法
 
@@ -86,7 +80,7 @@ python -B -m unittest discover -s task-handoff/scripts -p "test_*.py"
 python -I task-handoff/scripts/handoff_runtime.py --host codex
 ```
 
-测试覆盖两端会话来源、Claude 真实子进程变量和三个技能入口的配置插值传参（模拟宿主渲染）、数据目录优先级、缺失 ID、未展开配置拒绝、只读解析、中文空格路径，以及原有章节/总账/零丢失校验。测试使用临时目录，不改真实任务数据。
+测试覆盖首次无配置提示、新进程复用配置、临时目录不覆盖正式配置、无效配置报错、两端会话来源、Claude 真实子进程变量和三个技能入口的配置插值传参（模拟宿主渲染）、数据目录优先级、缺失 ID、未展开配置拒绝、只读解析、中文空格路径，以及原有章节/总账/零丢失校验。测试使用临时目录，不改真实任务数据。
 
 ## 从 v1 升级
 
