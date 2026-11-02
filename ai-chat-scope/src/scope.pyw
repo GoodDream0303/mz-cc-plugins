@@ -188,7 +188,7 @@ class Scope:
             mode, how = "stop", "claude stop %s" % ss["job_id"]
         else:
             mode, how = "quit", "发送 Ctrl+C 正常退出(失败可选强制结束)"
-        if messagebox.askyesno("AI Chat Scope", "关闭 CH%d「%s」?\n\nPID:%d\n方式:%s"
+        if messagebox.askyesno("AI Chat Scope", "关闭 CC%d「%s」?\n\nPID:%d\n方式:%s"
                                % (ch, ss["label"] or "(无标题)", ss["pid"], how), parent=self.root):
             threading.Thread(target=self._run_kill, args=(ss, mode), daemon=True).start()
 
@@ -435,7 +435,8 @@ class Scope:
             cy = hdr + row * i + row // 2
             col = STATE_COLOR[ss["state"]]
             badge = "CC" if ss["provider"] == "claude" else "CX"
-            cv.create_text(pad, cy, anchor="w", text="%s%d" % (badge, i + 1), fill=C_DIM, font=self.f_ch)
+            badge_color = C_STBY if ss["provider"] == "claude" else C_BG
+            cv.create_text(pad, cy, anchor="w", text="%s%d" % (badge, i + 1), fill=badge_color, font=self.f_ch)
             self.draw_led(led_x, cy, col, s)
             label = self.fit_text(ss["label"] or "(无标题)", name_max)
             nm = C_NAME if ss["state"] != "stby" else "#9ec4b3"

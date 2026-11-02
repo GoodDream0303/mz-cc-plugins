@@ -4,7 +4,7 @@ Windows 上的轻量置顶悬浮窗，在一个列表里查看多个 **Claude Co
 
 | 显示 | 含义 |
 | --- | --- |
-| CC / CX | Claude Code / Codex CLI |
+| 黄色 CC / 蓝色 CX | Claude Code / Codex CLI，会话来源标记 |
 | 红 / ATTN | 需要用户：授权、回答或等待用户消息 |
 | 绿 / RUN | 执行中 |
 | 黄 / STBY | 待机 |
