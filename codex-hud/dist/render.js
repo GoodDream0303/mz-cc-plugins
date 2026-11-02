@@ -1,5 +1,5 @@
 import { get, unsupported } from './config.js';
-import { colorize, displayWidth, sanitize, truncate, wrapAnsi } from './terminal-text.js';
+import { colorize, displayWidth, sanitize, truncate, wrapAnsi, wrapFields } from './terminal-text.js';
 function num(n) { return n >= 1000000 ? (n / 1000000).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(Math.round(n)); }
 function percent(n) { return Number.isInteger(n) ? String(n) : n.toFixed(1); }
 function windowLabel(minutes) { return minutes % 1440 === 0 ? minutes / 1440 + 'd' : minutes % 60 === 0 ? minutes / 60 + 'h' : minutes + 'm'; }
@@ -16,6 +16,7 @@ export function render(s, c, o = {}) {
     const ink = (text, key) => colorize(text, get(c, 'colors.' + key), !!o.color && !process.env.NO_COLOR);
     const bar = (p) => { const n = Math.round(Math.max(0, Math.min(100, p)) / 10); return sanitize(get(c, 'colors.barFilled')).repeat(n) + sanitize(get(c, 'colors.barEmpty')).repeat(10 - n); };
     const groups = new Map();
+    const fields = new Map();
     const model = sanitize(get(c, 'display.modelOverride') || s.model || unknown);
     const formattedModel = get(c, 'display.modelFormat') === 'full' ? model : model.replace(/\s*\([^)]*context[^)]*\)/gi, '');
     let effort = '';
@@ -89,8 +90,10 @@ export function render(s, c, o = {}) {
         tokenParts.push(ink('in:' + num(s.latest.input) + ' cache:' + num(s.latest.cached) + ' out:' + num(s.latest.output), 'label'));
     if (on('showSessionTokens') && s.totals)
         tokenParts.push(ink(label('Session tokens ', '会话 Token ', '會話 Token ') + num(s.totals.total) + ' (in:' + num(s.totals.input) + ' cache:' + num(s.totals.cached) + ' out:' + num(s.totals.output) + ')', 'label'));
-    if (tokenParts.length)
+    if (tokenParts.length) {
         groups.set('context', tokenParts.join(' | '));
+        fields.set('context', tokenParts);
+    }
     if (on('showUsage')) {
         const quotas = s.quotas.filter(q => q.usedPercent >= (q.minutes >= 10080 ? get(c, 'display.sevenDayThreshold') : get(c, 'display.usageThreshold'))).map((q) => {
             const remaining = get(c, 'display.usageValue') === 'remaining';
@@ -103,8 +106,10 @@ export function render(s, c, o = {}) {
             }
             return ink(windowLabel(q.minutes) + ': ' + progress + percent(p) + '%' + (remaining ? ' ' + label('left', '剩余', '剩餘') : '') + reset, q.usedPercent >= 90 ? 'critical' : 'usage');
         });
-        if (quotas.length)
+        if (quotas.length) {
             groups.set('usage', quotas.join(' | '));
+            fields.set('usage', quotas);
+        }
         else if (!s.quotas.length)
             groups.set('usage', ink(label('Quota: ', '额度: ', '額度: ') + unknown, 'label'));
     }
@@ -118,15 +123,17 @@ export function render(s, c, o = {}) {
             facts.push(label('disabled ', '禁用 ') + disabled);
         if (s.mcpUsed.length)
             facts.push(label('called ', '已调用 ', '已調用 ') + s.mcpUsed.map(sanitize).join(','));
-        facts.push(label('connection ', '连接 ', '連線 ') + unknown);
-        groups.set('mcp', ink('MCP: ' + facts.join(' | '), 'label'));
+        if (facts.length)
+            groups.set('mcp', ink('MCP: ' + facts.join(' | '), 'label'));
     }
     if (on('showTools') && s.tools.length)
         groups.set('tools', s.tools.slice(-get(c, 'display.toolsMaxVisible')).map(t => ink((t.status === 'running' ? '◐ ' : t.status === 'failed' ? '✗ ' : '✓ ') + (get(c, 'display.toolNameMaxLength') ? truncate(t.name, get(c, 'display.toolNameMaxLength')) : sanitize(t.name)), t.status === 'failed' ? 'critical' : 'label')).join(' | '));
-    if (on('showAgents'))
-        groups.set('agents', ink(label('Agents: ', '子代理: ') + (s.agents.length ? s.agents.map(a => sanitize(a.name) + ' [' + sanitize(a.status) + ']').join(' | ') : unknown), 'label'));
-    if (on('showTodos'))
-        groups.set('todos', ink(label('Todo: ', '待办: ', '待辦: ') + (s.todos.length ? s.todos.filter(t => t.status !== 'completed').map(t => (t.status === 'in_progress' ? '▸ ' : '○ ') + sanitize(t.step)).join(' | ') + ' (' + s.todos.filter(t => t.status === 'completed').length + '/' + s.todos.length + ')' : unknown), 'label'));
+    if (on('showAgents') && s.agents.length)
+        groups.set('agents', ink(label('Agents: ', '子代理: ') + s.agents.map(a => sanitize(a.name) + ' [' + sanitize(a.status) + ']').join(' | '), 'label'));
+    if (on('showTodos') && s.todos.length) {
+        const pending = s.todos.filter(t => t.status !== 'completed'), done = s.todos.length - pending.length;
+        groups.set('todos', ink(label('Todo: ', '待办: ', '待辦: ') + (pending.length ? pending.map(t => (t.status === 'in_progress' ? '▸ ' : '○ ') + sanitize(t.step)).join(' | ') : '✓ ' + label('All tasks complete', '全部完成')) + ' (' + done + '/' + s.todos.length + ')', 'label'));
+    }
     const sessionTime = [];
     if (on('showSessionStartDate') && s.startedAt)
         sessionTime.push(label('Started ', '开始 ', '開始 ') + timestamp(s.startedAt));
@@ -157,28 +164,34 @@ export function render(s, c, o = {}) {
             if (space >= 2)
                 text = leftText + ' '.repeat(space) + rightText;
         }
-        blocks.push({ keys, text });
+        blocks.push({ keys, text, fields: right.length ? [text] : keys.flatMap(k => fields.get(k) ?? [groups.get(k)]) });
     }
     let logical = [];
     if (custom && get(c, 'display.customLinePosition') === 'first')
-        logical.push(ink(custom, 'custom'));
+        logical.push([ink(custom, 'custom')]);
     if (get(c, 'lineLayout') === 'compact')
-        logical.push(blocks.map(b => b.text).join(' | '));
+        logical.push(blocks.flatMap(b => b.fields));
     else
         blocks.forEach((b, i) => { if (i && get(c, 'showSeparators'))
-            logical.push(ink('─'.repeat(Math.min(width, 60)), 'label')); logical.push(b.text); });
+            logical.push([ink('─'.repeat(Math.min(width, 60)), 'label')]); logical.push(b.fields); });
     if (custom && get(c, 'display.customLinePosition') === 'last')
-        logical.push(ink(custom, 'custom'));
-    for (const error of [...s.errors, ...(s.environment?.errors ?? [])])
-        logical.push(ink('! ' + sanitize(error), 'critical'));
-    const all = logical.filter(Boolean).flatMap(line => wrapAnsi(line, width));
+        logical.push([ink(custom, 'custom')]);
+    const errors = [...s.errors, ...(s.environment?.errors ?? [])];
+    const warnings = errors.flatMap(error => wrapAnsi(ink('! ' + sanitize(error), 'critical'), width));
+    const body = logical.flatMap(line => wrapFields(line, width));
+    const all = [...warnings, ...body];
     if (!all.length)
         all.push(ink(label('No visible fields', '未启用显示项'), 'label'));
-    const capacity = Math.max(1, height - 1);
-    const pages = all.length <= height ? 1 : Math.ceil(all.length / capacity);
-    const page = Math.min(pages - 1, Math.max(0, o.page ?? 0));
-    const lines = pages === 1 ? all : all.slice(page * capacity, (page + 1) * capacity).slice(0, Math.max(0, height - 1));
-    if (pages > 1)
+    if (all.length <= height)
+        return { lines: all, totalLines: all.length, pages: 1 };
+    if (height === 1 && warnings.length)
+        return { lines: [warnings[0]], totalLines: all.length, pages: 1 };
+    const pinned = warnings.length ? [warnings[0]] : [];
+    const pageable = warnings.length ? [...warnings.slice(1), ...body] : all;
+    const showPager = height >= pinned.length + 2, capacity = Math.max(1, height - pinned.length - (showPager ? 1 : 0));
+    const pages = Math.max(1, Math.ceil(pageable.length / capacity)), page = Math.min(pages - 1, Math.max(0, o.page ?? 0));
+    const lines = [...pinned, ...pageable.slice(page * capacity, (page + 1) * capacity)];
+    if (showPager && pages > 1)
         lines.push(ink(truncate('[' + (page + 1) + '/' + pages + '] ' + label('←/→ page · q close', '←/→ 翻页 · q 关闭', '←/→ 翻頁 · q 關閉'), width), 'label'));
     return { lines, totalLines: all.length, pages };
 }

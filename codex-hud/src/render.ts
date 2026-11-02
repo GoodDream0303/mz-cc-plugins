@@ -1,5 +1,5 @@
 import {get,unsupported,type Config} from './config.js';
-import {colorize,displayWidth,sanitize,truncate,wrapAnsi} from './terminal-text.js';
+import {colorize,displayWidth,sanitize,truncate,wrapAnsi,wrapFields} from './terminal-text.js';
 import type {HudSnapshot,Quota} from './types.js';
 export interface RenderResult {lines:string[];totalLines:number;pages:number}
 export interface RenderOptions {width?:number;height?:number;page?:number;color?:boolean;now?:number}
@@ -14,7 +14,7 @@ export function render(s:HudSnapshot,c:Config,o:RenderOptions={}):RenderResult {
  const unknown=label('unknown','未知');const on=(k:string)=>!!get(c,'display.'+k);
  const ink=(text:string,key:string)=>colorize(text,get(c,'colors.'+key),!!o.color&&!process.env.NO_COLOR);
  const bar=(p:number)=>{const n=Math.round(Math.max(0,Math.min(100,p))/10);return sanitize(get(c,'colors.barFilled')).repeat(n)+sanitize(get(c,'colors.barEmpty')).repeat(10-n);};
- const groups=new Map<string,string>();
+ const groups=new Map<string,string>();const fields=new Map<string,string[]>();
  const model=sanitize(get(c,'display.modelOverride')||s.model||unknown);
  const formattedModel=get(c,'display.modelFormat')==='full'?model:model.replace(/\s*\([^)]*context[^)]*\)/gi,'');
  let effort='';if(on('showEffortLevel')&&s.effort){const symbol=({low:'◔',medium:'◑',high:'◕',xhigh:'●'} as Record<string,string>)[s.effort]??'◑';const format=get(c,'display.effortFormat');effort=' '+(format==='symbol'?symbol:format==='text'?sanitize(s.effort):symbol+' '+sanitize(s.effort));}
@@ -60,31 +60,34 @@ export function render(s:HudSnapshot,c:Config,o:RenderOptions={}):RenderResult {
  }
  if(on('showTokenBreakdown')&&s.latest)tokenParts.push(ink('in:'+num(s.latest.input)+' cache:'+num(s.latest.cached)+' out:'+num(s.latest.output),'label'));
  if(on('showSessionTokens')&&s.totals)tokenParts.push(ink(label('Session tokens ','会话 Token ','會話 Token ')+num(s.totals.total)+' (in:'+num(s.totals.input)+' cache:'+num(s.totals.cached)+' out:'+num(s.totals.output)+')','label'));
- if(tokenParts.length)groups.set('context',tokenParts.join(' | '));
+ if(tokenParts.length){groups.set('context',tokenParts.join(' | '));fields.set('context',tokenParts);}
  if(on('showUsage')){
   const quotas=s.quotas.filter(q=>q.usedPercent>=(q.minutes>=10080?get(c,'display.sevenDayThreshold'):get(c,'display.usageThreshold'))).map((q:Quota)=>{
    const remaining=get(c,'display.usageValue')==='remaining';const p=remaining?100-q.usedPercent:q.usedPercent;
    const progress=get(c,'display.usageBarEnabled')&&!get(c,'display.usageCompact')?bar(p)+' ':'';
    let reset='';if(q.resetsAt){const ended=q.resetsAt*1000<=now;reset=' ('+(ended?label('awaiting refresh','待刷新'):((on('showResetLabel')?label('resets ','重置 '):'')+timestamp(q.resetsAt*1000)))+')';}
    return ink(windowLabel(q.minutes)+': '+progress+percent(p)+'%'+(remaining?' '+label('left','剩余','剩餘'):'')+reset,q.usedPercent>=90?'critical':'usage');
-  });if(quotas.length)groups.set('usage',quotas.join(' | '));else if(!s.quotas.length)groups.set('usage',ink(label('Quota: ','额度: ','額度: ')+unknown,'label'));
+  });if(quotas.length){groups.set('usage',quotas.join(' | '));fields.set('usage',quotas);}else if(!s.quotas.length)groups.set('usage',ink(label('Quota: ','额度: ','額度: ')+unknown,'label'));
  }
  if(on('showMcp')){
   const configured=s.environment?.mcp.filter(m=>m.enabled).map(m=>m.name)??[];const disabled=s.environment?.mcp.filter(m=>!m.enabled).length??0;
   const facts:string[]=[];if(configured.length)facts.push(label('configured ','配置 ')+configured.map(sanitize).join(','));
   if(disabled)facts.push(label('disabled ','禁用 ')+disabled);if(s.mcpUsed.length)facts.push(label('called ','已调用 ','已調用 ')+s.mcpUsed.map(sanitize).join(','));
-  facts.push(label('connection ','连接 ','連線 ')+unknown);groups.set('mcp',ink('MCP: '+facts.join(' | '),'label'));
+  if(facts.length)groups.set('mcp',ink('MCP: '+facts.join(' | '),'label'));
  }
  if(on('showTools')&&s.tools.length)groups.set('tools',s.tools.slice(-get(c,'display.toolsMaxVisible')).map(t=>ink((t.status==='running'?'◐ ':t.status==='failed'?'✗ ':'✓ ')+(get(c,'display.toolNameMaxLength')?truncate(t.name,get(c,'display.toolNameMaxLength')):sanitize(t.name)),t.status==='failed'?'critical':'label')).join(' | '));
- if(on('showAgents'))groups.set('agents',ink(label('Agents: ','子代理: ')+(s.agents.length?s.agents.map(a=>sanitize(a.name)+' ['+sanitize(a.status)+']').join(' | '):unknown),'label'));
- if(on('showTodos'))groups.set('todos',ink(label('Todo: ','待办: ','待辦: ')+(s.todos.length?s.todos.filter(t=>t.status!=='completed').map(t=>(t.status==='in_progress'?'▸ ':'○ ')+sanitize(t.step)).join(' | ')+' ('+s.todos.filter(t=>t.status==='completed').length+'/'+s.todos.length+')':unknown),'label'));
+ if(on('showAgents')&&s.agents.length)groups.set('agents',ink(label('Agents: ','子代理: ')+s.agents.map(a=>sanitize(a.name)+' ['+sanitize(a.status)+']').join(' | '),'label'));
+ if(on('showTodos')&&s.todos.length){
+  const pending=s.todos.filter(t=>t.status!=='completed'),done=s.todos.length-pending.length;
+  groups.set('todos',ink(label('Todo: ','待办: ','待辦: ')+(pending.length?pending.map(t=>(t.status==='in_progress'?'▸ ':'○ ')+sanitize(t.step)).join(' | '):'✓ '+label('All tasks complete','全部完成'))+' ('+done+'/'+s.todos.length+')','label'));
+ }
  const sessionTime:string[]=[];
  if(on('showSessionStartDate')&&s.startedAt)sessionTime.push(label('Started ','开始 ','開始 ')+timestamp(s.startedAt));
  if(on('showLastResponseAt')&&s.lastResponseAt)sessionTime.push(label('Last response ','最后响应 ','最後回應 ')+timestamp(s.lastResponseAt));
  if(on('showCompactions'))sessionTime.push(label('Compactions: ','压缩: ','壓縮: ')+s.compactions);
  if(sessionTime.length)groups.set('sessionTime',ink(sessionTime.join(' | '),'label'));
  for(const [flag,reason]of Object.entries(unsupported))if(on(flag))groups.set('unsupported-'+flag,ink((en?flag:reason)+': '+label('unavailable','不可用'),'label'));
- const elementOrder=[...new Set([...(get(c,'elementOrder') as string[]),...groups.keys()])];const blocks:{keys:string[];text:string}[]=[];const used=new Set<string>();
+ const elementOrder=[...new Set([...(get(c,'elementOrder') as string[]),...groups.keys()])];const blocks:{keys:string[];text:string;fields:string[]}[]=[];const used=new Set<string>();
  for(const key of elementOrder){
   if(used.has(key)||!groups.has(key))continue;
   const merge=(get(c,'display.mergeGroups') as string[][]).find(g=>g.includes(key));
@@ -92,17 +95,23 @@ export function render(s:HudSnapshot,c:Config,o:RenderOptions={}):RenderResult {
   let text=keys.map(k=>groups.get(k)).join(' | ');
   const right=(get(c,'display.rightAlign') as string[]).filter(k=>keys.includes(k));
   if(right.length&&keys.length>1){const leftText=keys.filter(k=>!right.includes(k)).map(k=>groups.get(k)).join(' | ');const rightText=right.map(k=>groups.get(k)).join(' | ');const space=width-displayWidth(leftText)-displayWidth(rightText);if(space>=2)text=leftText+' '.repeat(space)+rightText;}
-  blocks.push({keys,text});
+  blocks.push({keys,text,fields:right.length?[text]:keys.flatMap(k=>fields.get(k)??[groups.get(k)!])});
  }
- let logical:string[]=[];
- if(custom&&get(c,'display.customLinePosition')==='first')logical.push(ink(custom,'custom'));
- if(get(c,'lineLayout')==='compact')logical.push(blocks.map(b=>b.text).join(' | '));
- else blocks.forEach((b,i)=>{if(i&&get(c,'showSeparators'))logical.push(ink('─'.repeat(Math.min(width,60)),'label'));logical.push(b.text);});
- if(custom&&get(c,'display.customLinePosition')==='last')logical.push(ink(custom,'custom'));
- for(const error of [...s.errors,...(s.environment?.errors??[])])logical.push(ink('! '+sanitize(error),'critical'));
- const all=logical.filter(Boolean).flatMap(line=>wrapAnsi(line,width));if(!all.length)all.push(ink(label('No visible fields','未启用显示项'),'label'));
- const capacity=Math.max(1,height-1);const pages=all.length<=height?1:Math.ceil(all.length/capacity);const page=Math.min(pages-1,Math.max(0,o.page??0));
- const lines=pages===1?all:all.slice(page*capacity,(page+1)*capacity).slice(0,Math.max(0,height-1));
- if(pages>1)lines.push(ink(truncate('['+(page+1)+'/'+pages+'] '+label('←/→ page · q close','←/→ 翻页 · q 关闭','←/→ 翻頁 · q 關閉'),width),'label'));
+ let logical:string[][]=[];
+ if(custom&&get(c,'display.customLinePosition')==='first')logical.push([ink(custom,'custom')]);
+ if(get(c,'lineLayout')==='compact')logical.push(blocks.flatMap(b=>b.fields));
+ else blocks.forEach((b,i)=>{if(i&&get(c,'showSeparators'))logical.push([ink('─'.repeat(Math.min(width,60)),'label')]);logical.push(b.fields);});
+ if(custom&&get(c,'display.customLinePosition')==='last')logical.push([ink(custom,'custom')]);
+ const errors=[...s.errors,...(s.environment?.errors??[])];
+ const warnings=errors.flatMap(error=>wrapAnsi(ink('! '+sanitize(error),'critical'),width));
+ const body=logical.flatMap(line=>wrapFields(line,width));const all=[...warnings,...body];if(!all.length)all.push(ink(label('No visible fields','未启用显示项'),'label'));
+ if(all.length<=height)return {lines:all,totalLines:all.length,pages:1};
+ if(height===1&&warnings.length)return {lines:[warnings[0]],totalLines:all.length,pages:1};
+ const pinned=warnings.length?[warnings[0]]:[];
+ const pageable=warnings.length?[...warnings.slice(1),...body]:all;
+ const showPager=height>=pinned.length+2,capacity=Math.max(1,height-pinned.length-(showPager?1:0));
+ const pages=Math.max(1,Math.ceil(pageable.length/capacity)),page=Math.min(pages-1,Math.max(0,o.page??0));
+ const lines=[...pinned,...pageable.slice(page*capacity,(page+1)*capacity)];
+ if(showPager&&pages>1)lines.push(ink(truncate('['+(page+1)+'/'+pages+'] '+label('←/→ page · q close','←/→ 翻页 · q 关闭','←/→ 翻頁 · q 關閉'),width),'label'));
  return {lines,totalLines:all.length,pages};
 }

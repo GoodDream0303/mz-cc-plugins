@@ -75,6 +75,27 @@ The HUD uses `CODEX_THREAD_ID` supplied to Codex tool processes, falling back to
 `CODEX_SESSION_ID`. It does not parse visible statusline text or guess the newest
 conversation. No session ID is displayed by the HUD.
 
+## Initial pane height
+
+Version 0.3.3 fits the initial split to the selected session's configured content.
+It uses the real parent console width/height, counts wrapped display rows, and
+allows two rows for padding and cell rounding. `terminal.paneSize` is the maximum
+fraction in this mode; the upper pane keeps ten rows when the window permits.
+
+This runs only when opening the HUD. Later content changes use wrapping/paging,
+and manual divider adjustments are retained. Windows Terminal does not expose a
+supported command to continuously resize a specific existing pane.
+
+Set `terminal.autoHeight` to `false` to use the configured fraction directly.
+Missing console geometry or session telemetry, explicit target windows, and demo
+windows retain that fraction because their exact target size is not established.
+The viewport helper reads console geometry only; it never sends keys, moves the
+mouse, changes Terminal settings, or resizes an existing window.
+
+Empty activity rows are omitted until facts are observed. MCP shows configured
+or called servers, without claiming connectivity. Completed plans show an
+explicit completion message, and stale/error warnings remain visible when paging.
+
 From an ordinary terminal without this environment, explicitly supply the ID
 from the native statusline or use interactive selection:
 

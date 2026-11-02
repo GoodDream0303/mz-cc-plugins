@@ -1,5 +1,40 @@
 # Validation: companion HUD with minimal autostart
 
+## 0.3.3 content-aware initial height
+
+The user selected initial fitting rather than ongoing pane resize. The exact
+selected session is rendered at the verified parent console width; its wrapped
+row count determines the initial fraction, with padding allowance and an owner
+space limit. Fixed mode and unverified target geometry keep the configured ratio.
+
+All 60 tests pass, including sizing, autostart wiring, explicit-window fallback,
+field boundaries, empty activities, completed plans, and pinned warnings. The
+packaged viewport helper was checked through both Windows PowerShell 5 and
+PowerShell 7 against the actual Codex console. Independent code review found no
+blockers; its dry-run reporting finding was fixed and checked in the window smoke.
+
+`node scripts/smoke-initial-height.mjs <columns> <rows>` opens a synthetic owner
+and HUD in an isolated Terminal window, starts no Codex/model session, waits for
+the asynchronous layout to settle, checks both panes, then closes only its own
+test processes. Measured results:
+
+| Window | Content rows | HUD rows | Owner rows | Result |
+|---|---:|---:|---:|---|
+| 120 x 40 | 2 | 3 | 35 | PASS |
+| 70 x 30 | 3 | 4 | 24 | PASS |
+
+The visual UX audit used the user's screenshot and claude-hud 0.8.0 source.
+Addressed: hidden stale warnings, mechanical context/quota wrapping with dangling
+separators, and unknown-only rows / unclear completed plans. Remaining findings:
+
+- P1: agent call IDs may not be linked to returned canonical identities, leaving
+  historical agents unknown; confirm lifecycle metadata before changing status.
+- P2: low-contrast dim statistics/task names need a separate foreground-color review.
+- P2: normal-state paging/close/config help is not discoverable while Codex holds focus.
+- P2: the configuration Display section has 58 unpaged options; group common and
+  advanced controls. Claude's inline statusline layout itself cannot replace
+  Windows Terminal pane focus/lifetime behavior.
+
 ## 0.3.2 Windows shell compatibility
 
 The 0.3.1 Windows command used CMD-specific percent expansion. Replaying that

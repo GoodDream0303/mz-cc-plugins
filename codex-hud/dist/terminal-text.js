@@ -84,6 +84,27 @@ export function wrapAnsi(value, max) {
     return lines;
 }
 const colorNames = { dim: 2, red: 31, green: 32, yellow: 33, magenta: 35, cyan: 36, brightBlue: 94, brightMagenta: 95 };
+export function wrapFields(fields, width) {
+    const lines = [];
+    let current = '';
+    for (const field of fields.filter(Boolean)) {
+        const joined = current ? current + ' | ' + field : field;
+        if (displayWidth(joined) <= width) {
+            current = joined;
+            continue;
+        }
+        if (current) {
+            lines.push(current);
+            current = '';
+        }
+        const wrapped = wrapAnsi(field, width);
+        lines.push(...wrapped.slice(0, -1));
+        current = wrapped.at(-1) ?? '';
+    }
+    if (current)
+        lines.push(current);
+    return lines;
+}
 export function colorize(value, color, enabled) {
     const safe = sanitize(value);
     if (!enabled)

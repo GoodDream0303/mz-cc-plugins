@@ -7,8 +7,9 @@ import {get,loadConfig,configPath} from './config.js';
 import {codexHome} from './sessions.js';
 import {buildTerminalArgs,createLaunch,readLaunch,runtimeRoot,updateLaunch,type LaunchDescriptor} from './runtime.js';
 import {acquireStartupLock,processIsLive} from './startup-lock.js';
+import {initialPaneSize,type TerminalViewport} from './pane-size.js';
 type HookEvent=Record<string,unknown>;
-export interface AutostartOptions {configFile?:string;runtimeDir?:string;launch?:(display:LaunchDescriptor,window:string)=>void|Promise<void>}
+export interface AutostartOptions {configFile?:string;runtimeDir?:string;viewport?:()=>TerminalViewport|undefined;launch?:(display:LaunchDescriptor,window:string)=>void|Promise<void>}
 export interface AutostartResult {status:'opened'|'already-open'|'disabled'|'ignored'|'busy';reason?:string}
 const idPattern=/^[a-zA-Z0-9_-]{3,100}$/;
 async function metadata(file:string):Promise<Record<string,any>|undefined>{
@@ -50,7 +51,8 @@ export async function autoStart(event:HookEvent,options:AutostartOptions={}):Pro
  try{
   const active=activeDisplay(root,meta.id,home);
   if(active){if(active.transcriptPath!==event.transcript_path)updateLaunch(active.file,d=>{d.transcriptPath=event.transcript_path as string;});return {status:'already-open'};}
-  const d=createLaunch(meta.cwd,config,root,file);updateLaunch(d.file,value=>{value.sessionId=meta!.id;value.transcriptPath=event.transcript_path as string;});
+  const sizing=await initialPaneSize(config,{sessionId:meta.id,transcriptPath:event.transcript_path,home,window:get(config,'startup.window'),measure:options.viewport});
+  const d=createLaunch(meta.cwd,config,root,file);updateLaunch(d.file,value=>{value.sessionId=meta!.id;value.transcriptPath=event.transcript_path as string;value.paneSize=sizing.fraction;value.initialSizing=sizing;});
   const display=readLaunch(d.file);
   try{await (options.launch??((value,window)=>{execFileSync('wt.exe',buildTerminalArgs(value,window),{windowsHide:false,stdio:'ignore',timeout:10000});}))(display,get(config,'startup.window'));return {status:'opened'};}
   catch(error){updateLaunch(d.file,value=>{value.state='exited';value.exitCode=1;});throw error;}

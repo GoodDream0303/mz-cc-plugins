@@ -1,6 +1,26 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {render} from '../dist/render.js';import {displayWidth,sanitize,wrapAnsi} from '../dist/terminal-text.js';import {defaultConfig,set,importClaude,preset} from '../dist/config.js';import {emptySnapshot} from '../dist/types.js';
 function sample(){return {...emptySnapshot('abc-session'),model:'gpt-example',effort:'high',cwd:'C:/项目/固件😀',context:{used:30,window:200},totals:{input:100,cached:80,output:20,reasoning:5,total:120},latest:{input:25,cached:20,output:5,reasoning:1,total:30},quotas:[{id:'codex:primary',minutes:10080,usedPercent:15,resetsAt:2000000000}],mcpUsed:['docs'],agents:[{id:'a',name:'分析',status:'unknown'}],todos:[{step:'验证驱动',status:'in_progress'}],tools:[{id:'t',name:'secret-tool',status:'running'}]};}
+test('merged telemetry keeps a quota field together without dangling separators',()=>{
+ const config=set(set(defaultConfig(),'display.showSessionTokens',true),'display.sevenDayThreshold',0);
+ const out=render(sample(),config,{width:74,height:30,color:false,now:1999996400000}).lines;
+ const quota=out.find(line=>line.includes('7d:'));assert.match(quota,/7d:.*15%/);
+ assert.ok(out.every(line=>!/^\s*\||\|\s*$/.test(line)));
+});
+test('empty activity groups use no rows and completed plans have clear text',()=>{
+ let config=defaultConfig();for(const key of ['showMcp','showAgents','showTodos'])config=set(config,'display.'+key,true);
+ const empty=render(emptySnapshot('abc-session'),config,{width:100,height:30,color:false}).lines.join('\n');
+ assert.doesNotMatch(empty,/MCP:|Agents:|Todo:/);
+ const snapshot=emptySnapshot('abc-session');snapshot.todos=[{step:'Finished',status:'completed'}];
+ assert.match(render(snapshot,config,{width:100,height:30,color:false}).lines.join('\n'),/All tasks complete \(1\/1\)/);
+});
+test('stale telemetry warnings remain visible in short and single-row panes',()=>{
+ const snapshot=sample();snapshot.errors=['Session log unavailable; showing stale telemetry'];
+ for(const height of [1,2,3,5])for(const page of [0,1]){
+  const out=render(snapshot,set(defaultConfig(),'display.showSessionTokens',true),{width:70,height,page,color:false}).lines;
+  assert.match(out[0],/Session log unavailable/);assert.ok(out.length<=height);
+ }
+});
 test('default HUD supplements the native statusline without repeating its identity fields',()=>{
  const snapshot={...sample(),sessionName:'列出 Codex 常用插件'};const text=render(snapshot,defaultConfig(),{width:120,height:50,color:false}).lines.join('\n');assert.ok(!text.includes('gpt-example'));assert.ok(!text.includes('high'));assert.ok(!text.includes('固件'));assert.ok(!text.includes('列出 Codex 常用插件'));assert.match(text,/Context/);
 });

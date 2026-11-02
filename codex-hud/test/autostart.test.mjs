@@ -1,9 +1,15 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {spawnSync} from 'node:child_process';import {pathToFileURL} from 'node:url';
 import {autoStart} from '../dist/autostart.js';import {defaultConfig,saveConfig,set} from '../dist/config.js';import {readLaunch,updateLaunch,requestStop} from '../dist/runtime.js';
-function fixture(t,metadata={}){const root=fs.mkdtempSync(path.join(os.tmpdir(),'hud-auto-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));const file=path.join(root,'current session.jsonl'),config=path.join(root,'config.json'),runtime=path.join(root,'runtime');fs.writeFileSync(file,JSON.stringify({type:'session_meta',payload:{id:'current-thread',session_id:'tree-root',cwd:root,source:'cli',base_instructions:{text:'SECRET INSTRUCTIONS'},...metadata}})+'\n');saveConfig(config,defaultConfig());return {root,file,config,runtime,event:{hook_event_name:'SessionStart',source:'startup',session_id:'tree-root',cwd:root,transcript_path:file},options:{configFile:config,runtimeDir:runtime,launch:()=>{}}};}
+function fixture(t,metadata={}){const root=fs.mkdtempSync(path.join(os.tmpdir(),'hud-auto-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));const file=path.join(root,'current session.jsonl'),config=path.join(root,'config.json'),runtime=path.join(root,'runtime');fs.writeFileSync(file,JSON.stringify({type:'session_meta',payload:{id:'current-thread',session_id:'tree-root',cwd:root,source:'cli',base_instructions:{text:'SECRET INSTRUCTIONS'},...metadata}})+'\n');saveConfig(config,defaultConfig());return {root,file,config,runtime,event:{hook_event_name:'SessionStart',source:'startup',session_id:'tree-root',cwd:root,transcript_path:file},options:{configFile:config,runtimeDir:runtime,viewport:()=>undefined,launch:()=>{}}};}
 const descriptors=dir=>fs.existsSync(dir)?fs.readdirSync(dir).filter(n=>/^[a-f0-9-]{36}\.json$/.test(n)).map(n=>path.join(dir,n)):[];
 test('autostart attaches metadata thread identity quietly and stores no transcript content',async t=>{
  const f=fixture(t);const result=await autoStart(f.event,f.options);assert.equal(result.status,'opened');const files=descriptors(f.runtime);assert.equal(files.length,1);const d=readLaunch(files[0]);assert.equal(d.sessionId,'current-thread');assert.equal(d.transcriptPath,f.file);assert.ok(!fs.readFileSync(files[0],'utf8').includes('SECRET'));
+});
+test('autostart applies content sizing before launching the exact selected session',async t=>{
+ const f=fixture(t);let launched;
+ await autoStart(f.event,{...f.options,viewport:()=>({columns:120,rows:40}),launch:d=>{launched=d;}});
+ assert.equal(launched.initialSizing.mode,'content');assert.ok(launched.paneSize<0.22);
+ assert.equal(launched.sessionId,'current-thread');assert.equal(launched.initialSizing.parentRows,40);
 });
 test('autostart skips disabled config, compact, subagents, non-CLI and mismatched transcripts',async t=>{
  const f=fixture(t);saveConfig(f.config,set(defaultConfig(),'startup.enabled',false));assert.equal((await autoStart(f.event,f.options)).status,'disabled');saveConfig(f.config,defaultConfig());

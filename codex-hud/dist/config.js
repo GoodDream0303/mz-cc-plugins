@@ -71,6 +71,7 @@ for (const [key, value] of Object.entries({ context: 'green', usage: 'brightBlue
 def('colors.barFilled', '█', 'colors', '进度条填充');
 def('colors.barEmpty', '░', 'colors', '进度条空白');
 def('terminal.paneSize', 0.22, 'terminal', '下方面板比例', { min: 0.1, max: 0.75 });
+def('terminal.autoHeight', true, 'terminal', 'Fit initial pane to content');
 def('terminal.refreshMs', 1000, 'terminal', '刷新间隔（毫秒）', { min: 250, max: 60000 });
 def('terminal.margin', 4, 'terminal', '预留列数', { min: 0, max: 20 });
 def('startup.enabled', true, 'startup', 'Auto open HUD');

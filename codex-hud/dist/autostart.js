@@ -7,6 +7,7 @@ import { get, loadConfig, configPath } from './config.js';
 import { codexHome } from './sessions.js';
 import { buildTerminalArgs, createLaunch, readLaunch, runtimeRoot, updateLaunch } from './runtime.js';
 import { acquireStartupLock, processIsLive } from './startup-lock.js';
+import { initialPaneSize } from './pane-size.js';
 const idPattern = /^[a-zA-Z0-9_-]{3,100}$/;
 async function metadata(file) {
     let handle;
@@ -87,8 +88,9 @@ export async function autoStart(event, options = {}) {
                 updateLaunch(active.file, d => { d.transcriptPath = event.transcript_path; });
             return { status: 'already-open' };
         }
+        const sizing = await initialPaneSize(config, { sessionId: meta.id, transcriptPath: event.transcript_path, home, window: get(config, 'startup.window'), measure: options.viewport });
         const d = createLaunch(meta.cwd, config, root, file);
-        updateLaunch(d.file, value => { value.sessionId = meta.id; value.transcriptPath = event.transcript_path; });
+        updateLaunch(d.file, value => { value.sessionId = meta.id; value.transcriptPath = event.transcript_path; value.paneSize = sizing.fraction; value.initialSizing = sizing; });
         const display = readLaunch(d.file);
         try {
             await (options.launch ?? ((value, window) => { execFileSync('wt.exe', buildTerminalArgs(value, window), { windowsHide: false, stdio: 'ignore', timeout: 10000 }); }))(display, get(config, 'startup.window'));
