@@ -1,5 +1,25 @@
 # Validation: companion HUD with minimal autostart
 
+## 0.3.1 marketplace distribution
+
+The previous source-only Git package omitted dist/ and required a manual build
+inside the installed cache. The release now tracks compiled modules and copies
+the pinned smol-toml runtime with its BSD license, so a fresh installation needs
+neither node_modules nor a build. A distribution regression copies only the
+installable files to an isolated directory, runs doctor, and verifies the hook
+entry remains quiet for an ignored event. The full suite passes 50 tests.
+
+The Codex marketplace retains the repository's existing mz-cc-plugins name and
+lists task-handoff alongside codex-hud. The development-only mz-codex-plugins
+install should be removed before installing codex-hud@mz-cc-plugins from Git.
+Native /hooks discovery and first-turn autostart still require user acceptance;
+the packaging fix is not evidence that the earlier discovery issue is resolved.
+
+A staged Git-only export was registered as a marketplace in an isolated
+CODEX_HOME. Native `codex plugin add` installed 0.3.1, doctor succeeded from that
+cache with no node_modules, and the catalog still exposed task-handoff 2.1.1.
+Independent release review found no blocking issues.
+
 Version 0.3.0 adds the user-selected asynchronous startup/resume hook. Manual
 attachment stays independent of hooks. The native statusline and hidden identity
 defaults remain unchanged. The original no-hook requirement below describes the

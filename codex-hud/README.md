@@ -13,20 +13,35 @@ display settings remain configurable.
 
 ![Windows Terminal HUD preview](docs/hud-preview.png)
 
-## Build and attach
+## Install from the Git marketplace
 
-Requires Node.js 20+, npm and Windows Terminal on PATH.
+Requires Node.js 20+ and native Windows Terminal on PATH. Version 0.3.1 ships
+its compiled runtime and TOML parser; installation needs no npm install or build.
 
 ```powershell
-npm ci --ignore-scripts
-npm run build
-node ./bin/hud.mjs doctor
+codex plugin marketplace add GoodDream0303/mz-cc-plugins
+codex plugin marketplace upgrade mz-cc-plugins
+codex plugin add codex-hud@mz-cc-plugins
 ```
+
+Start a new Codex session, then inspect `/hooks` and review/trust the command
+whose source is `codex-hud@mz-cc-plugins` and event is `SessionStart`. It may be
+listed by its command path rather than the display name "Codex HUD".
+
+For the earlier development install, first remove only
+`codex-hud@mz-codex-plugins` and its local `mz-codex-plugins` marketplace using
+`codex plugin remove` and `codex plugin marketplace remove`. Then install from
+the Git marketplace above. The HUD configuration in LOCALAPPDATA is retained;
+task-handoff and the Claude marketplace retain their existing identities.
+
+Inside Codex, use `$hud-doctor`, `$hud-configure`, or `$hud-start`. The global
+`mz-codex-hud.cmd` commands below require a separate optional npm link; installing
+a Codex plugin does not add a global command to PATH.
 
 ## Automatic opening (default)
 
-After installing the plugin, open Codex `/hooks` and review/trust the **Codex HUD
-SessionStart** hook. Exit and open Codex again after the first trust review.
+After installing the plugin, open Codex `/hooks` and review/trust its SessionStart
+hook. Exit and open Codex again after the first trust review.
 Future main-session startups and resumes automatically add the companion pane
 when Codex dispatches SessionStart. In Codex 0.166.0 this is on the first turn
 path, so do not expect an idle, never-used TUI to split immediately on opening.
@@ -76,18 +91,22 @@ or the whole Terminal window normally.
 
 ## Local plugin installation
 
-Build first, then from the repository root:
+From the repository root:
 
 ```powershell
 codex plugin marketplace add .
-codex plugin add codex-hud@mz-codex-plugins
+codex plugin add codex-hud@mz-cc-plugins
 ```
 
 The Codex marketplace is `.agents/plugins/marketplace.json`, separate from the
-original Claude marketplace. The plugin registers one asynchronous SessionStart
+original Claude marketplace. Both retain the market name `mz-cc-plugins`; the
+Codex catalog lists task-handoff and codex-hud. The HUD registers one asynchronous SessionStart
 hook for startup/resume only. Skills: `$hud-start`, `$hud-configure`, `$hud-doctor`.
-If a fresh cache is unbuilt, run `npm ci --ignore-scripts` and `npm run build`
-in its plugin directory once.
+Published Git packages include `dist/` and do not need a build in the cache.
+
+For source development, run `npm ci --ignore-scripts` and `npm run build` in
+`codex-hud/`. The build also copies the pinned parser and its BSD license into
+`dist/vendor/`. Commit regenerated `dist/` files with their source changes.
 
 ## Configuration
 
@@ -126,6 +145,6 @@ powershell -NoProfile -File ./scripts/smoke-autostart.ps1
 The demo uses synthetic telemetry and makes no model request.
 See [validation](docs/validation.md).
 
-Remove the plugin with `codex plugin remove codex-hud@mz-codex-plugins`.
+Remove the plugin with `codex plugin remove codex-hud@mz-cc-plugins`.
 Remove an explicitly installed global link with `npm uninstall -g mz-codex-hud`.
 User configuration is retained.

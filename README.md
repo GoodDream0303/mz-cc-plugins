@@ -26,3 +26,13 @@ task-handoff/                     插件：跨会话任务接力
 [Codex HUD](codex-hud/README.md) is a separate, configurable multiline HUD for
 native Windows Terminal. Its Codex marketplace is `.agents/plugins/marketplace.json`;
 it does not change the Claude marketplace or either existing plugin.
+
+```powershell
+codex plugin marketplace add GoodDream0303/mz-cc-plugins
+codex plugin marketplace upgrade mz-cc-plugins
+codex plugin add codex-hud@mz-cc-plugins
+```
+
+HUD 0.3.1 includes its compiled runtime. Start a new Codex session and review its
+SessionStart command in `/hooks`. The Codex catalog also exposes task-handoff
+under its existing `task-handoff@mz-cc-plugins` identity.
