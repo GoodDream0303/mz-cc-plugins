@@ -27,7 +27,9 @@ node ./bin/hud.mjs doctor
 
 After installing the plugin, open Codex `/hooks` and review/trust the **Codex HUD
 SessionStart** hook. Exit and open Codex again after the first trust review.
-Future main-session startups and resumes automatically add the companion pane.
+Future main-session startups and resumes automatically add the companion pane
+when Codex dispatches SessionStart. In Codex 0.166.0 this is on the first turn
+path, so do not expect an idle, never-used TUI to split immediately on opening.
 
 The hook is asynchronous and emits no stdout or model/developer context. It
 uses the supplied transcript metadata, skips subagents/non-CLI/compact events,

@@ -50,6 +50,13 @@ The actual native Codex hook dispatch after trust remains the first-use boundary
 the user must review the hook in /hooks and restart. No trust hashes or bypass
 flags are changed by setup or tests.
 
+The 0.166.0 source dispatches pending SessionStart from session/turn.rs, so the
+supported timing is the first turn after startup/resume, not guaranteed idle-TUI
+opening. The request's hook_transcript_path returns the actual materialized
+rollout path. Two-process abandoned-lock and delayed-heartbeat regressions now
+pass: live owner liveness is authoritative, while immutable PID/nonce claims
+avoid replacing or deleting a shared lock pathname. The suite passes 49 tests.
+
 ## 0.2.1 audit fixes
 
 All three audit findings were reproduced before changes. Canonical McpToolCall

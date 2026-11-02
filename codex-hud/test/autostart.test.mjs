@@ -15,6 +15,9 @@ test('autostart deduplicates pending/running displays and can reopen after closu
  const f=fixture(t);await autoStart(f.event,f.options);const file=descriptors(f.runtime)[0];assert.equal((await autoStart({...f.event,source:'resume'},f.options)).status,'already-open');
  updateLaunch(file,d=>{d.state='running';d.pid=process.pid;d.heartbeat=Date.now();});assert.equal((await autoStart(f.event,f.options)).status,'already-open');requestStop(file);assert.equal((await autoStart(f.event,f.options)).status,'opened');assert.equal(descriptors(f.runtime).length,2);
 });
+test('a live HUD with a delayed heartbeat is not opened a second time',async t=>{
+ const f=fixture(t);await autoStart(f.event,f.options);const file=descriptors(f.runtime)[0];updateLaunch(file,d=>{d.state='running';d.pid=process.pid;d.heartbeat=Date.now()-60000;});assert.equal((await autoStart({...f.event,source:'resume'},f.options)).status,'already-open');assert.equal(descriptors(f.runtime).length,1);
+});
 test('an access-denied liveness probe does not create a duplicate of a recently active HUD',async t=>{
  const f=fixture(t);await autoStart(f.event,f.options);const file=descriptors(f.runtime)[0];updateLaunch(file,d=>{d.state='running';d.pid=process.pid;d.heartbeat=Date.now();});const original=process.kill;process.kill=()=>{const error=new Error('access denied');error.code='EPERM';throw error;};try{assert.equal((await autoStart(f.event,f.options)).status,'already-open');}finally{process.kill=original;}assert.equal(descriptors(f.runtime).length,1);
 });

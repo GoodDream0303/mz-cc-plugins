@@ -8,3 +8,7 @@ Copyright (c) 2026 Jarrod Watts, distributed under the MIT License.
 The Codex adapter, launch lifecycle, Windows Terminal integration, and plugin
 implementation are maintained in mz-cc-plugins. This project is not affiliated
 with OpenAI or Anthropic.
+
+Autostart owner/liveness rules were informed by the MIT-licensed oh-my-codex HUD
+runtime (Yeachan Heo and contributors). The immutable PID/nonce claim protocol
+here is implemented independently; no OMX orchestration runtime is included.
