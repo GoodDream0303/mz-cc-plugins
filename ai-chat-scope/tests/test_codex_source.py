@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import unittest
 import uuid
+from unittest.mock import patch
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SRC))
@@ -188,6 +189,40 @@ class CodexSourceTests(unittest.TestCase):
         with path.open('a') as stream:
             stream.write(json.dumps({'type':'event_msg','payload':{'type':'task_started','turn_id':'new'}})+'\n')
         self.assertEqual(source.poll()[0].state,'run')
+
+    def test_rotated_recording_filename_uses_same_thread_and_latest_history_base(self):
+        sid,old=self.session(1,events=[{'type':'event_msg','payload':{'type':'task_complete','turn_id':'old'}}])
+        source=self.source();self.assertEqual(source.poll()[0].state,'stby')
+        recording=str(uuid.UUID(int=2))
+        latest=self.home/'sessions'/('rollout-test-'+sid+'_'+recording+'.jsonl')
+        records=[{'type':'session_meta','payload':{'id':sid,'source':'cli','cwd':'C:/repo','history_base':{'thread_id':sid,'end_ordinal_exclusive':100,'end_byte_offset':50}}},
+                 {'type':'event_msg','payload':{'type':'task_started','turn_id':'new'}}]
+        latest.write_text(''.join(json.dumps(r)+'\n' for r in records))
+        # Recording order is a history cursor, not a filesystem-clock assumption.
+        os.utime(latest,ns=(1,1))
+        with patch('codex_source.time.monotonic',return_value=10**12):
+            rows=source.poll()
+        self.assertEqual(len(rows),1)
+        self.assertEqual(rows[0].state,'run')
+        self.assertEqual(source._readers[sid].path,latest)
+
+    def test_malformed_recording_header_does_not_interrupt_valid_recording(self):
+        sid,_=self.session(1,events=[{'type':'event_msg','payload':{'type':'task_started','turn_id':'active'}}])
+        recording=str(uuid.UUID(int=3))
+        (self.home/'sessions'/('rollout-test-'+sid+'_'+recording+'.jsonl')).write_text('[]\n')
+        rows=self.source().poll()
+        self.assertEqual([(r.session_id,r.state) for r in rows],[(sid,'run')])
+
+    @unittest.skipUnless(sys.platform=='win32','Windows junction fixture')
+    def test_previously_indexed_sessions_directory_escape_is_not_read(self):
+        sid,path=self.session(1)
+        source=self.source();self.assertEqual(len(source.poll()),1)
+        content=path.read_bytes();filename=path.name
+        path.unlink();(self.home/'sessions').rmdir()
+        outside=tempfile.TemporaryDirectory(prefix='scope-outside-test-');self.addCleanup(outside.cleanup)
+        (Path(outside.name)/filename).write_bytes(content)
+        self.junction(self.home/'sessions',Path(outside.name))
+        self.assertEqual(source.poll(),[])
 
 
 if __name__ == '__main__':

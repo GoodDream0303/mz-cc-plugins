@@ -14,7 +14,7 @@ from codex_wait import AsyncAttention
 from runtime_paths import runtime_root, home_events_root, consume_events
 
 UUID_PATTERN = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-ROLLOUT = re.compile(r".*-(" + UUID_PATTERN + r")\.jsonl$", re.I)
+ROLLOUT = re.compile(r".*-(" + UUID_PATTERN + r")(?:_(" + UUID_PATTERN + r"))?\.jsonl$", re.I)
 
 
 def safe_path(path, root):
@@ -43,6 +43,7 @@ class CodexSource:
         self._locks_stamp = None
         self._locks_due = 0
         self._paths = {}
+        self._path_ordinals = {}
         self._scan_dirs = []
         self._scan_iter = None
         self._scan_seen = set()
@@ -140,7 +141,47 @@ class CodexSource:
             else:
                 match = ROLLOUT.fullmatch(entry.name)
                 if match and match[1].lower() in self._active:
-                    self._paths[match[1].lower()] = path
+                    sid = match[1].lower()
+                    previous = self._paths.get(sid)
+                    if previous is None or (previous != path and self._recording_rank(path, sid) > self._recording_rank(previous, sid)):
+                        self._paths[sid] = path
+
+    def _recording_rank(self, path, sid):
+        """A resumed recorder keeps the thread ID but advances its history base."""
+        if not self._session_path(path):
+            return (-1, 0, 0, "")
+        try:
+            info = path.stat()
+            identity = (info.st_dev, info.st_ino, getattr(info, "st_birthtime_ns", 0))
+            cached = self._path_ordinals.get(path)
+            if cached is None or cached[0] != identity:
+                with path.open("rb") as stream:
+                    raw = stream.readline(2097153)
+                if len(raw) > 2097152:
+                    return (-1, 0, 0, "")
+                record = json.loads(raw)
+                if not isinstance(record, dict):
+                    return (-1, 0, 0, "")
+                meta = record.get("payload")
+                if (record.get("type") != "session_meta" or not isinstance(meta, dict)
+                        or (meta.get("id") or meta.get("session_id")) != sid):
+                    return (-1, 0, 0, "")
+                base = meta.get("history_base")
+                ordinal = base.get("end_ordinal_exclusive", 0) if isinstance(base, dict) and base.get("thread_id", sid) == sid else 0
+                if type(ordinal) is not int or not 0 <= ordinal < 2**64:
+                    ordinal = 0
+                self._path_ordinals[path] = (identity, ordinal)
+                while len(self._path_ordinals) > 256:
+                    self._path_ordinals.pop(next(iter(self._path_ordinals)))
+            ordinal = self._path_ordinals[path][1]
+            match = ROLLOUT.fullmatch(path.name)
+            return (ordinal, bool(match and match[2]), info.st_mtime_ns, path.name)
+        except (OSError, ValueError, UnicodeError):
+            return (-1, 0, 0, "")
+
+    def _session_path(self, path):
+        root = self.home / "sessions"
+        return safe_path(root, self.home) and safe_path(path, root)
 
     @staticmethod
     def _new_state():
@@ -174,7 +215,7 @@ class CodexSource:
         for sid, row in live_rows.items():
             path = row.get("path")
             if (sid in self._active and isinstance(path, str)
-                    and safe_path(Path(path), self.home / "sessions")):
+                    and self._session_path(Path(path))):
                 self._paths[sid] = Path(path)
         self._paths_step()
         if safe_path(self._title_reader.path, self.home):
@@ -198,7 +239,7 @@ class CodexSource:
         snapshots = []
         for sid in sorted(self._active):
             path = self._paths.get(sid)
-            if path is None or not safe_path(path, self.home / "sessions"):
+            if path is None or not self._session_path(path):
                 notes.add("Codex：部分活跃会话日志尚未发现")
                 continue
             reader = self._readers.get(sid)
