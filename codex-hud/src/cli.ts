@@ -13,10 +13,12 @@ import {render} from './render.js';
 import {readEnvironment} from './environment.js';
 import {sanitize} from './terminal-text.js';
 import {emptySnapshot,type HudSnapshot} from './types.js';
-import {initialPaneSize} from './pane-size.js';
 import {buildTerminalArgs,checkRuntime,createLaunch,readLaunch,requestStop,runtimeRoot,selectSessionId,updateLaunch,type LaunchDescriptor} from './runtime.js';
 import {loadCurrentHost,ensureHostDisplay,bindHostSession,acknowledgeViewer,readHost} from './host-session.js';
 import {readProcessFacts} from './psmux.js';
+import {decodeInvocation,launchHostedCodex,runHostOwner} from './host-launch.js';
+import {profileChange,applyProfileChange} from './profile-setup.js';
+import {fileURLToPath} from 'node:url';
 
 function option(args:string[],key:string):string|undefined{const i=args.indexOf(key);return i>=0?args[i+1]:args.find(v=>v.startsWith(key+'='))?.slice(key.length+1);}
 function launchFile(args:string[]):string|undefined{const encoded=option(args,'--launch64');return encoded?Buffer.from(encoded,'base64').toString('utf8'):option(args,'--launch');}
@@ -110,23 +112,24 @@ async function start(args:string[],demo=false):Promise<void>{
  }
  const report=checkRuntime();if(!report.terminal)throw new Error('Windows Terminal is missing; run doctor');
  if(args.includes('--')||option(args,'--cwd'))throw new Error('HUD attaches an existing session; no Codex launch arguments are accepted');
- const home=codexHome(),sessionsRoot=option(args,'--sessions-root')??path.join(home,'sessions');let selected=demo?undefined:selectSessionId(option(args,'--session'));
- if(!demo&&!selected)selected=await chooseSession(sessionsRoot);
- const session=selected?await findSession(sessionsRoot,selected):null;if(session)selected=session.id;
- const d=createLaunch(session?.cwd||process.cwd(),loadConfig(configFile(args)),runtimeRoot(),configFile(args));
- updateLaunch(d.file,v=>{
-  if(demo){v.demo=true;v.demoDurationMs=Number(option(args,'--duration'))||120000;v.codexHome=path.join(path.dirname(v.file),'demo-home-'+v.id);v.sessionId='demo-'+v.id;}
-  else{v.sessionId=selected;v.sessionsRoot=path.resolve(sessionsRoot);}
- });
- const window=option(args,'--window')??'last';
- if(!demo){const sizing=await initialPaneSize(loadConfig(configFile(args)),{sessionId:selected,transcriptPath:session?.path,home,window});updateLaunch(d.file,v=>{v.paneSize=sizing.fraction;v.initialSizing=sizing;});}
- const descriptor=readLaunch(d.file);const command=buildTerminalArgs(descriptor,window);
- if(args.includes('--dry-run')){updateLaunch(d.file,v=>{v.state='exited';v.exitCode=0;});console.log(JSON.stringify({mode:demo?'demo':'attach',hooksRequired:false,window:demo?'mz-codex-hud-'+d.id:window,sessionId:descriptor.sessionId,paneSize:descriptor.paneSize,launch:d.file}));return;}
- try{execFileSync('wt.exe',command,{windowsHide:false,stdio:'ignore',timeout:10000});}catch(error){updateLaunch(d.file,v=>{v.state='exited';v.exitCode=1;});throw error;}console.log('HUD opened. Launch ID: '+d.id);
+ const d=createLaunch(process.cwd(),loadConfig(configFile(args)),runtimeRoot(),configFile(args));
+ updateLaunch(d.file,v=>{v.demo=true;v.demoDurationMs=Number(option(args,'--duration'))||120000;v.codexHome=path.join(path.dirname(v.file),'demo-home-'+v.id);v.sessionId='demo-'+v.id;});
+ const descriptor=readLaunch(d.file),command=buildTerminalArgs(descriptor);
+ if(args.includes('--dry-run')){updateLaunch(d.file,v=>{v.state='exited';v.exitCode=0;});console.log(JSON.stringify({mode:'demo',hooksRequired:false,window:'mz-codex-hud-'+d.id,paneSize:descriptor.paneSize,launch:d.file}));return;}
+ try{execFileSync('wt.exe',command,{windowsHide:false,stdio:'ignore',timeout:10000});}catch(error){updateLaunch(d.file,v=>{v.state='exited';v.exitCode=1;});throw error;}console.log('HUD preview opened. Launch ID: '+d.id);
 }
+
 export async function main(args=process.argv.slice(2)):Promise<void>{
  const command=args[0]??'help',rest=args.slice(1);
  switch(command){
+  case 'codex-entry':process.exitCode=await launchHostedCodex(decodeInvocation(option(rest,'--invocation64')),{configFile:configFile(rest)});return;
+  case 'host-owner':process.exitCode=await runHostOwner(decodeInvocation(option(rest,'--invocation64')),configFile(rest));return;
+  case 'setup':{
+   const profile=option(rest,'--profile');if(!profile)throw new Error('setup --profile ABSOLUTE_PATH [--apply] [--remove]');
+   const change=profileChange(profile,{entry:fileURLToPath(new URL('../bin/powershell-entry.ps1',import.meta.url)),cli:fileURLToPath(new URL('../bin/hud.mjs',import.meta.url)),node:process.execPath},rest.includes('--remove')?'remove':'install');
+   if(rest.includes('--apply'))applyProfileChange(change);
+   console.log(JSON.stringify({file:change.file,action:rest.includes('--remove')?'remove':'install',applied:rest.includes('--apply'),changed:change.before!==change.after,block:change.block},null,2));return;
+  }
   case 'start':return start(rest);
   case 'demo':return start(rest,true);
   case 'demo-runner':{
@@ -153,7 +156,7 @@ export async function main(args=process.argv.slice(2)):Promise<void>{
   }
   case 'stop':{const id=option(rest,'--launch');if(!id||!/^[a-f0-9-]{36}$/i.test(id))throw new Error('stop --launch <launch ID>');requestStop(path.join(runtimeRoot(),id+'.json'));console.log('HUD stop requested; Codex keeps running');return;}
   case 'help':case '--help':case '-h':
-   console.log('mz-codex-hud\n  start [--session ID] [--window ID_OR_NAME]\n  watch|once [--session ID] [--json] [--width N]\n  list\n  configure\n  config show | config set KEY VALUE\n  import-claude [--path CONFIG] [--yes]\n  doctor\n  demo [--duration MILLISECONDS]\n  stop --launch ID\nManual attachment needs no hooks; auto-open uses SessionStart.\nNative statusline is unchanged. All commands accept --config FILE.');return;
+   console.log('mz-codex-hud\n  start [--session CURRENT_ID]\n  watch|once [--session ID] [--json] [--width N]\n  list\n  setup --profile ABSOLUTE_PATH [--apply] [--remove]\n  configure\n  config show | config set KEY VALUE\n  import-claude [--path CONFIG] [--yes]\n  doctor\n  demo [--duration MILLISECONDS]\n  stop --launch ID\nAutomatic opening requires the configured PowerShell host entry. SessionStart binds current telemetry.\nNative statusline is unchanged. All commands accept --config FILE.');return;
   default:throw new Error('Unknown command: '+command);
  }
 }

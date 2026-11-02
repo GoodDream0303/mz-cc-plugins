@@ -61,11 +61,11 @@
 **Consumes:** registration/display/lifecycle from Task 2.
 **Produces:** `classifyCodexInvocation(args)`, `launchHostedCodex(invocation,options?)`, `runHostOwner(invocation)`, `profileChange(file,entry)` and explicit dry-run/apply/remove CLI commands. Invocation contains official command path, shell path and original argv in memory only.
 
-- [ ] Write RED tests for interactive/maintenance/pipeline routing and literal argv preservation through PS5/7; test profile create/update/conflict/uninstall with temporary files.
-- [ ] Implement entry routing and unique in-place psmux namespace. Run official launcher exactly once; preserve its arguments and eventual exit status. Never edit installed official Codex shims.
-- [ ] Register actual bootstrap, open waiting display, execute official command, stop only owned display on exit. Detached hosts remain independent and alive.
-- [ ] Add `host.psmuxPath`; setup prints concrete changes by default and writes only with explicit apply. Existing function/alias or modified blocks require resolution, not overwrite.
-- [ ] Run focused tests and full `npm test`; commit source/tests/dist. Do not apply setup to user profiles.
+- [x] Write RED tests for interactive/maintenance/pipeline routing and literal argv preservation through PS5/7; test profile create/update/conflict/uninstall with temporary files.
+- [x] Implement entry routing and unique in-place psmux namespace. Run official launcher exactly once; preserve its arguments and eventual exit status. Never edit installed official Codex shims.
+- [x] Register actual bootstrap, open waiting display, execute official command, stop only owned display on exit. Detached hosts remain independent and alive.
+- [x] Add `host.psmuxPath`; setup prints concrete changes by default and writes only with explicit apply. Existing function/alias or modified blocks require resolution, not overwrite.
+- [x] Run focused tests and full `npm test`; commit source/tests/dist. Do not apply setup to user profiles.
 
 ### Task 4: Packaged integration and acceptance evidence
 
@@ -84,3 +84,7 @@
 - Pre-flight: Task 2 consumes Task 1 identity; Task 3 consumes Task 2 lifecycle; Task 4 exercises all production interfaces. No independent implementer delegation needed.
 
 - Task 2 evidence: 74/74 full tests; stale-thread recovery regression observed RED with the identity reset absent, then GREEN after implementing the reset. Waiting HUD, exact-slot concurrent hook, uncertain intent and independent shutdown tests passed.
+
+- Task 3 evidence: 85/85 full tests; PS5/7 argv, pipeline and exit-code checks passed. Profile edit/conflict/encoding/separator and caller preference regressions observed RED then GREEN.
+- Ruling: resolve the verified npm package JavaScript entry instead of forwarding through an additional PowerShell official-codex.ps1 bridge — preserves PS5 quoted/empty arguments while executing the official entry unchanged; unsupported custom shims require an explicit diagnostic.
+- Task 4 preliminary evidence: production backend synthetic smoke passed five native-process lifecycle checks in hud-production-host-dUn2dn. The codex.exe in that smoke is explicitly a renamed Node fixture, not official Codex acceptance.

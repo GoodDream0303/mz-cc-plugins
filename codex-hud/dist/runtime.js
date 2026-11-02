@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { get, configPath, loadConfig } from './config.js';
 import { codexHome } from './sessions.js';
+import { readHostOrigin } from './psmux.js';
 const guid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function runtimeRoot() { return path.join(path.dirname(configPath()), 'runtime'); }
 function write(file, value) { const temp = file + '.' + randomUUID() + '.tmp'; try {
@@ -94,6 +95,17 @@ export function checkRuntime(options = {}) {
     catch {
         status = 'invalid';
     }
+    let configured = false;
+    try {
+        configured = !!get(loadConfig(file), 'host.psmuxPath');
+    }
+    catch { }
+    let origin = 'unavailable';
+    try {
+        readHostOrigin();
+        origin = 'present';
+    }
+    catch { }
     let display = { status: 'not-selected' };
     if (options.launchFile) {
         try {
@@ -117,5 +129,5 @@ export function checkRuntime(options = {}) {
             lastResult = result.status;
     }
     catch { }
-    return { node: process.version, terminal, hooksRequired: false, nativeStatusline: 'unchanged', autostart: { enabled, trigger: 'SessionStart', trust: 'unknown', hookFilesPresent: ['hooks/hooks.json', 'hooks/session-start.mjs', 'dist/autostart.js'].every(f => fs.existsSync(path.join(pluginRoot, f))), lastResult }, configuration: { status, path: file }, session: { status: current ? 'Codex environment available' : 'Select explicitly or start from inside Codex' }, display, notes: process.platform === 'win32' ? [] : ['Automatic split attachment requires native Windows Terminal'] };
+    return { node: process.version, terminal, hooksRequired: false, nativeStatusline: 'unchanged', host: { backend: 'psmux', configured, origin, verification: 'required-at-attach' }, autostart: { enabled, trigger: 'SessionStart', trust: 'unknown', hookFilesPresent: ['hooks/hooks.json', 'hooks/session-start.mjs', 'dist/autostart.js'].every(f => fs.existsSync(path.join(pluginRoot, f))), lastResult }, configuration: { status, path: file }, session: { status: current ? 'Codex environment available' : 'Select explicitly or start from inside Codex' }, display, notes: process.platform === 'win32' ? [] : ['Automatic split attachment requires native Windows and a verified psmux host'] };
 }
