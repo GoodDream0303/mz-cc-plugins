@@ -17,8 +17,8 @@ test('closing HUD never changes or ends the native Codex session',t=>{
 });
 test('start inherits the current Codex ID with hooks disabled and without a Codex launcher',{skip:process.platform!=='win32'},t=>{
  const root=temp(t),home=path.join(root,'home');fs.mkdirSync(home);fs.writeFileSync(path.join(home,'config.toml'),'[features]\nhooks = false\n');fs.writeFileSync(path.join(root,'session.jsonl'),JSON.stringify({type:'session_meta',payload:{id:'current-thread',cwd:root}})+'\n');
- const result=spawnSync(process.execPath,['bin/hud.mjs','start','--sessions-root',root,'--dry-run'],{cwd:path.resolve(import.meta.dirname,'..'),env:{...process.env,LOCALAPPDATA:root,CODEX_HOME:home,CODEX_THREAD_ID:'current-thread'},encoding:'utf8'});
- assert.equal(result.status,0,result.stderr);const info=JSON.parse(result.stdout);assert.equal(info.sessionId,'current-thread');assert.equal(info.mode,'attach');assert.equal(info.hooksRequired,false);
+ const result=spawnSync(process.execPath,['bin/hud.mjs','start','--sessions-root',root,'--dry-run'],{cwd:path.resolve(import.meta.dirname,'..'),env:{...process.env,LOCALAPPDATA:root,CODEX_HOME:home,CODEX_THREAD_ID:'current-thread',WT_WINDOW_ID:'unrelated-window'},encoding:'utf8'});
+ assert.equal(result.status,0,result.stderr);const info=JSON.parse(result.stdout);assert.equal(info.sessionId,'current-thread');assert.equal(info.mode,'attach');assert.equal(info.hooksRequired,false);assert.equal(info.window,'last');
  const d=readLaunch(info.launch);assert.equal(d.sessionId,'current-thread');
 });
 test('demo chooses its isolated home before Terminal starts',{skip:process.platform!=='win32'},t=>{

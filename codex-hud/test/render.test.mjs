@@ -4,6 +4,9 @@ function sample(){return {...emptySnapshot('abc-session'),model:'gpt-example',ef
 test('default HUD supplements the native statusline without repeating its identity fields',()=>{
  const snapshot={...sample(),sessionName:'列出 Codex 常用插件'};const text=render(snapshot,defaultConfig(),{width:120,height:50,color:false}).lines.join('\n');assert.ok(!text.includes('gpt-example'));assert.ok(!text.includes('high'));assert.ok(!text.includes('固件'));assert.ok(!text.includes('列出 Codex 常用插件'));assert.match(text,/Context/);
 });
+test('optional session name never falls back to displaying a session ID',()=>{
+ const id='01234567-89ab-cdef-0123-456789abcdef';const text=render(emptySnapshot(id),set(defaultConfig(),'display.showSessionName',true),{width:120,height:50,color:false}).lines.join('\n');assert.ok(!text.includes('01234567'));assert.match(text,/unknown/);
+});
 test('renderer respects imported activity preferences and weekly-only quota labels',()=>{
  const {config}=importClaude({display:{showTools:false,showAgents:true,showTodos:true,showMcp:true,showSessionTokens:true,sevenDayThreshold:0}});const text=render(sample(),config,{width:140,height:50,color:false}).lines.join('\n');
  assert.ok(!text.includes('secret-tool'));assert.match(text,/MCP/);assert.match(text,/分析/);assert.match(text,/验证驱动/);assert.match(text,/7d/);assert.ok(!text.includes('5h'));assert.match(text,/120/);assert.ok(!text.includes('200 Token'));

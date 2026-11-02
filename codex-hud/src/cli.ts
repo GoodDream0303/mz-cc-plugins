@@ -92,7 +92,7 @@ async function start(args:string[],demo=false):Promise<void>{
   if(demo){v.demo=true;v.demoDurationMs=Number(option(args,'--duration'))||120000;v.codexHome=path.join(path.dirname(v.file),'demo-home-'+v.id);v.sessionId='demo-'+v.id;}
   else{v.sessionId=selected;v.sessionsRoot=path.resolve(sessionsRoot);}
  });
- const descriptor=readLaunch(d.file),window=option(args,'--window')??process.env.WT_WINDOW_ID??'last';const command=buildTerminalArgs(descriptor,window);
+ const descriptor=readLaunch(d.file),window=option(args,'--window')??'last';const command=buildTerminalArgs(descriptor,window);
  if(args.includes('--dry-run')){console.log(JSON.stringify({mode:demo?'demo':'attach',hooksRequired:false,window:demo?'mz-codex-hud-'+d.id:window,sessionId:descriptor.sessionId,paneSize:d.paneSize,launch:d.file}));return;}
  execFileSync('wt.exe',command,{windowsHide:false,stdio:'ignore',timeout:10000});console.log('HUD opened. Launch ID: '+d.id);
 }

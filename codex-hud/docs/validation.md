@@ -22,3 +22,9 @@ The previous temporary Python skill-validation environment remains in TEMP
 because execution policy rejected recursive cleanup. No automatic memory files
 were created or changed. User display preferences were updated only in the HUD
 configuration as requested.
+
+All 32 applicable tests passed. A real Windows Terminal attachment smoke test
+verified reading the same existing session in an added pane, preservation of
+the original owner pane, and independent HUD closure. Independent review found
+a session-name fallback leaking an ID and an undocumented window override;
+both were reproduced and corrected with regression tests.

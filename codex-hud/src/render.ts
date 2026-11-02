@@ -36,7 +36,7 @@ export function render(s:HudSnapshot,c:Config,o:RenderOptions={}):RenderResult {
   projectText+=(projectText?' ':'')+ink(status,critical>0&&git.ahead>=critical?'critical':warning>0&&git.ahead>=warning?'warning':'gitBranch');
  }
  if(projectText)identity.project=projectText;
- if(on('showSessionName'))identity.sessionName=ink(label('Session: ','会话: ','會話: ')+(s.sessionName??s.sessionId.slice(0,12)),'label');
+ if(on('showSessionName'))identity.sessionName=ink(label('Session: ','会话: ','會話: ')+(s.sessionName??unknown),'label');
  if(on('showCodexVersion'))identity.version=ink('Codex '+(s.version??unknown),'label');
  if(on('showAuth')&&s.plan)identity.auth=ink(s.plan,'label');
  function timestamp(value:string|number):string {
