@@ -5,10 +5,11 @@ import {execFileSync} from 'node:child_process';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {get,configPath,loadConfig,type Config} from './config.js';
 import {codexHome} from './sessions.js';
+import type {InitialPaneSize} from './pane-size.js';
 export interface LaunchDescriptor {
  kind:'mz-codex-hud/1'|'mz-codex-hud/2';id:string;file:string;cwd:string;codexHome:string;configFile:string;createdAt:string;
  state:'created'|'running'|'exited';sessionId?:string;heartbeat?:number;pid?:number;
- exitCode?:number;hudStop?:boolean;paneSize:number;demo?:boolean;demoDurationMs?:number;sessionsRoot?:string;
+ exitCode?:number;hudStop?:boolean;paneSize:number;initialSizing?:InitialPaneSize;viewport?:{columns:number;rows:number;contentRows:number;pages:number};demo?:boolean;demoDurationMs?:number;sessionsRoot?:string;transcriptPath?:string;
 }
 const guid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function runtimeRoot():string{return path.join(path.dirname(configPath()),'runtime');}
@@ -48,13 +49,15 @@ export function buildTerminalArgs(d:LaunchDescriptor,window='last'):string[]{
 }
 export interface DoctorReport {
  node:string;terminal:boolean;hooksRequired:false;nativeStatusline:'unchanged';
+ autostart:{enabled:boolean;trigger:'SessionStart';trust:'unknown';hookFilesPresent:boolean;lastResult?:string};
  configuration:{status:string;path:string};session:{status:string};display:{status:string};notes:string[];
 }
 export function checkRuntime(options:{configFile?:string;launchFile?:string}={}):DoctorReport{
  let terminal=false;try{execFileSync('where.exe',['wt.exe'],{stdio:'ignore',windowsHide:true,timeout:1500});terminal=true;}catch{}
- const file=options.configFile??configPath();let status=fs.existsSync(file)?'valid':'defaults';try{loadConfig(file);}catch{status='invalid';}
+ const file=options.configFile??configPath();let status=fs.existsSync(file)?'valid':'defaults',enabled=false;try{enabled=!!get(loadConfig(file),'startup.enabled');}catch{status='invalid';}
  let display={status:'not-selected'};
  if(options.launchFile){try{const d=readLaunch(options.launchFile);display={status:d.state==='exited'?'closed':d.hudStop?'stopping':'open'};}catch{display={status:'invalid-launch'};}}
  let current=false;try{current=!!selectSessionId(undefined);}catch{}
- return {node:process.version,terminal,hooksRequired:false,nativeStatusline:'unchanged',configuration:{status,path:file},session:{status:current?'Codex environment available':'Select explicitly or start from inside Codex'},display,notes:process.platform==='win32'?[]:['Automatic split attachment requires native Windows Terminal']};
+ const pluginRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');let lastResult:string|undefined;try{const result=JSON.parse(fs.readFileSync(path.join(runtimeRoot(),'autostart-status.json'),'utf8'));if(['opened','already-open','disabled','ignored','busy','failed'].includes(result.status))lastResult=result.status;}catch{}
+ return {node:process.version,terminal,hooksRequired:false,nativeStatusline:'unchanged',autostart:{enabled,trigger:'SessionStart',trust:'unknown',hookFilesPresent:['hooks/hooks.json','hooks/session-start.mjs','dist/autostart.js'].every(f=>fs.existsSync(path.join(pluginRoot,f))),lastResult},configuration:{status,path:file},session:{status:current?'Codex environment available':'Select explicitly or start from inside Codex'},display,notes:process.platform==='win32'?[]:['Automatic split attachment requires native Windows Terminal']};
 }

@@ -6,7 +6,7 @@ import {randomUUID} from 'node:crypto';
 export type Config = Record<string, unknown>;
 export interface Definition {
   key:string; section:string; label:string; value:unknown;
-  kind:'boolean'|'number'|'string'|'array'|'color'; choices?:unknown[]; min?:number; max?:number; reason?:string;
+  kind:'boolean'|'number'|'string'|'array'|'color'; choices?:unknown[]; min?:number; max?:number; pattern?:RegExp;reason?:string;
 }
 const defs:Definition[]=[];
 function def(key:string,value:unknown,section:string,label:string,extra:Partial<Definition>={}) {
@@ -72,8 +72,11 @@ for(const [key,value] of Object.entries({context:'green',usage:'brightBlue',warn
  def('colors.'+key,value,'colors',key,{kind:'color'});
 def('colors.barFilled','█','colors','进度条填充');def('colors.barEmpty','░','colors','进度条空白');
 def('terminal.paneSize',0.22,'terminal','下方面板比例',{min:0.1,max:0.75});
+def('terminal.autoHeight',true,'terminal','Fit initial pane to content');
 def('terminal.refreshMs',1000,'terminal','刷新间隔（毫秒）',{min:250,max:60000});
 def('terminal.margin',4,'terminal','预留列数',{min:0,max:20});
+def('startup.enabled',true,'startup','Auto open HUD');
+def('startup.window','last','startup','Terminal target',{pattern:/^[a-zA-Z0-9_.-]{1,100}$/});
 export const definitions:readonly Definition[]=defs;
 export const unsupported=unavailable;
 const unsafe=new Set(['__proto__','prototype','constructor']);
@@ -111,6 +114,7 @@ export function validateConfig(value:unknown):Config {
   else if(typeof v!==d.kind)throw new Error('Invalid type: '+d.key);
   if(typeof v==='number'&&(!Number.isFinite(v)||v<(d.min??-Infinity)||v>(d.max??Infinity)))throw new Error('Out of range: '+d.key);
   if(typeof v==='string'&&v.length>1000)throw new Error('Text is too long: '+d.key);
+  if(typeof v==='string'&&d.pattern&&!d.pattern.test(v))throw new Error('Invalid value: '+d.key);
  }
  return config;
 }

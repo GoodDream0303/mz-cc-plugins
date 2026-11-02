@@ -1,4 +1,3 @@
 .worktrees/
 ai-chat-scope/**/__pycache__/
 codex-hud/node_modules/
-codex-hud/dist/

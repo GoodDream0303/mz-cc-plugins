@@ -1,6 +1,6 @@
 {
   "name": "codex-hud",
-  "version": "0.2.1",
+  "version": "0.3.4",
   "description": "A configurable multiline HUD for Codex in native Windows Terminal.",
   "author": {
     "name": "mzzhu2"
@@ -11,5 +11,6 @@
     "displayName": "Codex HUD",
     "shortDescription": "Multiline Windows Terminal status",
     "category": "Developer Tools"
-  }
+  },
+  "hooks": "./hooks/hooks.json"
 }

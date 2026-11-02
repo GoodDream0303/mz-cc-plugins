@@ -1,6 +1,6 @@
 # Configuration compatibility
 
-Companion HUD: native Codex statusline is unchanged. Default model, effort, project and session-name fields are off. Explicit Full preset/import can enable them. No hooks or session-ID display are provided.
+Native Codex statusline is unchanged. Model, effort, project and session-name fields default off. Auto-open defaults on and uses a minimal SessionStart hook; manual attach needs no hook.
 
 | Key | Default | Availability |
 |---|---|---|
@@ -95,7 +95,7 @@ Companion HUD: native Codex statusline is unchanged. Default model, effort, proj
 | terminal.paneSize | 0.22 | Supported |
 | terminal.refreshMs | 1000 | Supported |
 | terminal.margin | 4 | Supported |
+| startup.enabled | true | Supported |
+| startup.window | "last" | Supported |
 
-Unknown imported keys are preserved without executing behavior. showClaudeCodeVersion maps to showCodexVersion. Legacy showSessionId is retained but ignored. Claude-specific jjStatus, modelSource, autocompactBuffer, autoCompactWindow, promptCacheTtlSeconds, advisor and external-usage settings have no active mapping. Credentials and statusLine shell commands are not imported.
-
-MCP reports configured/called/unknown facts. Skills activity, cost, cache expiry, per-model quotas, process memory and generation-only speed remain unavailable.
+Unknown imported fields are retained without executing behavior. Legacy showSessionId is ignored. Claude-only billing/cache/Advisor/output-style values remain unavailable. MCP shows configured/called/unknown facts, not online counts.

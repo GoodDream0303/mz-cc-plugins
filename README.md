@@ -16,7 +16,8 @@ mzzhu2 的 Claude Code / Codex 插件仓库，两个宿主使用各自的市场�
 ## 结构
 
 ```
-.claude-plugin/marketplace.json   市场清单（列出全部插件）
+.claude-plugin/marketplace.json   Claude 市场清单
+.agents/plugins/marketplace.json  Codex 市场清单
 ai-chat-scope/                    插件：双 CLI 会话状态悬浮窗
 task-handoff/                     插件：跨会话任务接力
 ```
@@ -27,13 +28,20 @@ task-handoff/                     插件：跨会话任务接力
 native Windows Terminal. Its Codex marketplace is `.agents/plugins/marketplace.json`;
 it is independent of AI Chat Scope and can be used alongside it.
 
-## Codex 安装
-
-在包含对应版本的已发布仓库中：
-
 ```powershell
 codex plugin marketplace add GoodDream0303/mz-cc-plugins
-codex plugin add ai-chat-scope@mz-codex-plugins
+codex plugin marketplace upgrade mz-cc-plugins
+codex plugin add codex-hud@mz-cc-plugins
 ```
 
-本地验收用仓库根绝对路径代替 GitHub 来源。安装后调用 `$ai-chat-scope:scope-show`；旧插件退出与改名配置兼容步骤见插件 README。
+HUD 0.3.1 includes its compiled runtime. Start a new Codex session and review its
+SessionStart command in `/hooks`. The Codex catalog also exposes task-handoff
+under its existing `task-handoff@mz-cc-plugins` identity.
+
+## AI Chat Scope 的 Codex 安装
+
+```powershell
+codex plugin add ai-chat-scope@mz-cc-plugins
+```
+
+安装后调用 `$ai-chat-scope:scope-show`；旧插件退出与改名配置兼容步骤见插件 README。

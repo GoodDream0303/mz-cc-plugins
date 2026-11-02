@@ -1,9 +1,21 @@
 {
-  "name": "mz-codex-plugins",
+  "name": "mz-cc-plugins",
   "interface": {
     "displayName": "mz Codex Plugins"
   },
   "plugins": [
+    {
+      "name": "task-handoff",
+      "source": {
+        "source": "local",
+        "path": "./task-handoff"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    },
     {
       "name": "codex-hud",
       "source": {

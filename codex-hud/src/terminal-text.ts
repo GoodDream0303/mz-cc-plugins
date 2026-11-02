@@ -33,6 +33,16 @@ export function wrapAnsi(value:string,max:number):string[]{
  emit(line);return lines;
 }
 const colorNames:Record<string,number>={dim:2,red:31,green:32,yellow:33,magenta:35,cyan:36,brightBlue:94,brightMagenta:95};
+export function wrapFields(fields:string[],width:number):string[]{
+ const lines:string[]=[];let current='';
+ for(const field of fields.filter(Boolean)){
+  const joined=current?current+' | '+field:field;
+  if(displayWidth(joined)<=width){current=joined;continue;}
+  if(current){lines.push(current);current='';}
+  const wrapped=wrapAnsi(field,width);lines.push(...wrapped.slice(0,-1));current=wrapped.at(-1)??'';
+ }
+ if(current)lines.push(current);return lines;
+}
 export function colorize(value:string,color:unknown,enabled:boolean):string{
  const safe=sanitize(value);if(!enabled)return safe;let code:string|undefined;
  if(typeof color==='number'&&color>=0&&color<=255)code='38;5;'+color;

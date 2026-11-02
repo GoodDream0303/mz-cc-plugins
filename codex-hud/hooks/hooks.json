@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [{
+      "matcher": "^(startup|resume|clear|fork)$",
+      "hooks": [{
+        "type": "command",
+        "command": "node -e \"import(require('node:url').pathToFileURL(require('node:path').join(process.env.PLUGIN_ROOT,'hooks','session-start.mjs')).href)\"",
+        "commandWindows": "node -e \"import(require('node:url').pathToFileURL(require('node:path').join(process.env.PLUGIN_ROOT,'hooks','session-start.mjs')).href)\"",
+        "timeout": 15,
+        "async": true
+      }]
+    }]
+  }
+}

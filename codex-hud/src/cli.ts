@@ -13,6 +13,7 @@ import {render} from './render.js';
 import {readEnvironment} from './environment.js';
 import {sanitize} from './terminal-text.js';
 import {emptySnapshot,type HudSnapshot} from './types.js';
+import {initialPaneSize} from './pane-size.js';
 import {buildTerminalArgs,checkRuntime,createLaunch,readLaunch,requestStop,runtimeRoot,selectSessionId,updateLaunch,type LaunchDescriptor} from './runtime.js';
 
 function option(args:string[],key:string):string|undefined{const i=args.indexOf(key);return i>=0?args[i+1]:args.find(v=>v.startsWith(key+'='))?.slice(key.length+1);}
@@ -43,7 +44,8 @@ async function watch(args:string[],once=false):Promise<void>{
    try{config=loadConfig(cfgFile);statusMessage='';}catch(e){statusMessage='Configuration reload failed: '+(e as Error).message;}
    let snapshot=emptySnapshot(selected??'pending');
    if(selected){
-    if(Date.now()>=nextDiscover||!reader){
+    if(descriptor?.transcriptPath){if(!reader||knownPath!==descriptor.transcriptPath){knownPath=descriptor.transcriptPath;reader=new SessionReader(knownPath,selected);}}
+    else if(Date.now()>=nextDiscover||!reader){
      const session=await findSession(root,selected);nextDiscover=Date.now()+5000;
       if(session&&(!reader||session.path!==knownPath)){knownPath=session.path;reader=new SessionReader(session.path,session.id);selected=session.id;}
     }
@@ -52,8 +54,8 @@ async function watch(args:string[],once=false):Promise<void>{
    }else snapshot.errors.push('Select the existing Codex session to display');
    if(snapshot.cwd)snapshot.environment=readEnvironment(snapshot.cwd,home);
    if(statusMessage)snapshot.errors.push(statusMessage);
-   if(descriptor&&!descriptor.demo)updateLaunch(ownedFile!,d=>{d.heartbeat=Date.now();});
    const result=render(snapshot,config,{width:Number(option(args,'--width'))||process.stdout.columns||100,height:once?1000:process.stdout.rows||12,page,color:!args.includes('--no-color')&&!!process.stdout.isTTY});
+   if(descriptor&&!descriptor.demo)updateLaunch(ownedFile!,d=>{d.heartbeat=Date.now();d.viewport={columns:process.stdout.columns??100,rows:process.stdout.rows??12,contentRows:result.totalLines,pages:result.pages};});
    if(args.includes('--json'))console.log(JSON.stringify(snapshot));else{
     if(!once&&process.stdout.isTTY)process.stdout.write('\x1b[H\x1b[2J'+result.lines.join('\r\n'));
     else console.log(result.lines.join('\n'));
@@ -92,9 +94,11 @@ async function start(args:string[],demo=false):Promise<void>{
   if(demo){v.demo=true;v.demoDurationMs=Number(option(args,'--duration'))||120000;v.codexHome=path.join(path.dirname(v.file),'demo-home-'+v.id);v.sessionId='demo-'+v.id;}
   else{v.sessionId=selected;v.sessionsRoot=path.resolve(sessionsRoot);}
  });
- const descriptor=readLaunch(d.file),window=option(args,'--window')??'last';const command=buildTerminalArgs(descriptor,window);
- if(args.includes('--dry-run')){console.log(JSON.stringify({mode:demo?'demo':'attach',hooksRequired:false,window:demo?'mz-codex-hud-'+d.id:window,sessionId:descriptor.sessionId,paneSize:d.paneSize,launch:d.file}));return;}
- execFileSync('wt.exe',command,{windowsHide:false,stdio:'ignore',timeout:10000});console.log('HUD opened. Launch ID: '+d.id);
+ const window=option(args,'--window')??'last';
+ if(!demo){const sizing=await initialPaneSize(loadConfig(configFile(args)),{sessionId:selected,transcriptPath:session?.path,home,window});updateLaunch(d.file,v=>{v.paneSize=sizing.fraction;v.initialSizing=sizing;});}
+ const descriptor=readLaunch(d.file);const command=buildTerminalArgs(descriptor,window);
+ if(args.includes('--dry-run')){updateLaunch(d.file,v=>{v.state='exited';v.exitCode=0;});console.log(JSON.stringify({mode:demo?'demo':'attach',hooksRequired:false,window:demo?'mz-codex-hud-'+d.id:window,sessionId:descriptor.sessionId,paneSize:descriptor.paneSize,launch:d.file}));return;}
+ try{execFileSync('wt.exe',command,{windowsHide:false,stdio:'ignore',timeout:10000});}catch(error){updateLaunch(d.file,v=>{v.state='exited';v.exitCode=1;});throw error;}console.log('HUD opened. Launch ID: '+d.id);
 }
 export async function main(args=process.argv.slice(2)):Promise<void>{
  const command=args[0]??'help',rest=args.slice(1);
@@ -125,7 +129,7 @@ export async function main(args=process.argv.slice(2)):Promise<void>{
   }
   case 'stop':{const id=option(rest,'--launch');if(!id||!/^[a-f0-9-]{36}$/i.test(id))throw new Error('stop --launch <launch ID>');requestStop(path.join(runtimeRoot(),id+'.json'));console.log('HUD stop requested; Codex keeps running');return;}
   case 'help':case '--help':case '-h':
-   console.log('mz-codex-hud\n  start [--session ID] [--window ID_OR_NAME]\n  watch|once [--session ID] [--json] [--width N]\n  list\n  configure\n  config show | config set KEY VALUE\n  import-claude [--path CONFIG] [--yes]\n  doctor\n  demo [--duration MILLISECONDS]\n  stop --launch ID\nAttaches existing Codex; no hooks and no statusline replacement.\nAll commands accept --config FILE.');return;
+   console.log('mz-codex-hud\n  start [--session ID] [--window ID_OR_NAME]\n  watch|once [--session ID] [--json] [--width N]\n  list\n  configure\n  config show | config set KEY VALUE\n  import-claude [--path CONFIG] [--yes]\n  doctor\n  demo [--duration MILLISECONDS]\n  stop --launch ID\nManual attachment needs no hooks; auto-open uses SessionStart.\nNative statusline is unchanged. All commands accept --config FILE.');return;
   default:throw new Error('Unknown command: '+command);
  }
 }

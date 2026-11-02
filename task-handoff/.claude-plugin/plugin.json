@@ -1,11 +1,18 @@
 {
   "name": "task-handoff",
-  "version": "2.0.0",
-  "description": "跨会话开发任务接力:落盘交接文档、新会话恢复、任务管理",
+  "version": "2.1.1",
+  "description": "Codex / Claude Code 跨会话开发任务接力：保存交接文档、恢复任务、管理任务",
   "author": {
     "name": "mzzhu2"
   },
-  "keywords": ["task", "handoff", "session", "workflow", "接力", "会话"],
+  "keywords": [
+    "task",
+    "handoff",
+    "session",
+    "workflow",
+    "接力",
+    "会话"
+  ],
   "userConfig": {
     "handoff_root": {
       "type": "directory",

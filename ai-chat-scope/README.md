@@ -37,7 +37,7 @@ Codex CLI：
 
 ```powershell
 codex plugin marketplace add GoodDream0303/mz-cc-plugins
-codex plugin add ai-chat-scope@mz-codex-plugins
+codex plugin add ai-chat-scope@mz-cc-plugins
 ```
 
 在 Codex 会话调用 `$ai-chat-scope:scope-show`。也可直接运行：
