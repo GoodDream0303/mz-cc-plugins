@@ -54,3 +54,7 @@ Optional recursive deletion of the temporary skill-validation virtualenv was
 rejected by execution policy. That isolated environment remains under the
 Windows temporary directory. Existing source plugins and Claude configuration
 were not modified by this feature.
+
+## Local installation
+
+The completed feature was fast-forwarded into the primary checkout. The CLI was linked locally, the Codex marketplace registered from the primary repository, and codex-hud@mz-codex-plugins 0.1.0 installed and enabled. The installed CLI doctor reports available plugin/build files and valid user configuration, while leaving trust unknown. Concurrent task-handoff edits were preserved. The isolated development worktree is retained.

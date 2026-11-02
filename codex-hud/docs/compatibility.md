@@ -9,7 +9,7 @@ Labels default to English; task/session names are never translated. This interfa
 | showSeparators | false | Supported |
 | pathLevels | 1 | Supported |
 | maxWidth | 0 | Supported |
-| forceMaxWidth | false | Supported |
+| forceMaxWidth | false | Reserved: actual viewport width is always respected |
 | elementOrder | ["project","addedDirs","context","usage","promptCache","memory","environment","tools","skills","mcp","agents","todos","sessionTime"] | Supported |
 | projectLineOrder | [] | Supported |
 | display.mergeGroups | [["context","usage"]] | Supported |
