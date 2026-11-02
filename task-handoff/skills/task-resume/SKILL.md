@@ -6,14 +6,18 @@ argument-hint: [序号|任务名]
 
 # task-resume — 会话接力(v2)
 
-数据根:`${user_config.handoff_root}`,总账 `${user_config.handoff_root}/INDEX.md`。
-校验脚本:`${CLAUDE_PLUGIN_ROOT}/scripts/handoff_check.py`。
+Claude Code 宿主注入（保留原版技能正文插值入口）：
+- Claude 数据根：`${user_config.handoff_root}`
+- Claude 会话 ID：`${CLAUDE_SESSION_ID}`
+这两项在 Claude 中按下面的初始化规则传入脚本；Codex 忽略这两项，使用自己的配置与会话信息。未展开的占位符不得作为实际参数传入。
+
+先阅读并执行 [运行环境初始化](../../references/runtime.md)，取得 `<root>`、`<check_script>`、`<session_ref>`。总账为 `<root>/INDEX.md`。Codex 若返回 `needs_setup: true`，先按运行环境说明询问并保存用户选定的目录，再执行后续步骤。
 要接力的任务:`$ARGUMENTS`;为空进入"列表挑选"。
-本技能**只读**:不写任何文件、不改任何仓库状态、不 fetch。
+任务恢复阶段**只读**：不改交接文件或仓库状态、不 fetch。首次目录配置仅在用户确认后写入插件配置；用户要求严格不写任何文件时，只用本次 --root，不保存配置。
 
 ## 执行步骤
 
-1. **读总账**:Read `${user_config.handoff_root}/INDEX.md`。
+1. **读总账**:Read `<root>/INDEX.md`。
 
 2. **`$ARGUMENTS` 为空**:列出**主表**(🔄)和 **`## 阻塞`** 区(⬜)全部任务的简表:序号、任务名、状态、一句话状态、最近更新,序号原样(主表数字、阻塞区 B 前缀)。不列已完成;用户要回看可报 `C` 序号。请用户指明接力哪一个(序号或任务名)。**不要自动选**,停在这里等回复。
 
@@ -22,7 +26,7 @@ argument-hint: [序号|任务名]
    - 任务名 → 四区模糊匹配;命中多个或零个 → 列候选让用户选,不猜。
 
 4. **读状态层**:Read 该文件夹的 `handoff.md`。**不读 `log.md`**,只在复述里说明它存在、需要追溯时再读。
-   先跑 `python -I "${CLAUDE_PLUGIN_ROOT}/scripts/handoff_check.py" sections "<handoff.md>"`:不通过或没有 `log.md` → 仍是 v1 格式,照常读,复述时提示"下次 save 会自动迁移,或用 task-manage §6 主动迁移"。
+   先跑 `python -I "<check_script>" sections "<handoff.md>"`:不通过或没有 `log.md` → 仍是 v1 格式,照常读,复述时提示"下次 save 会自动迁移,或用 task-manage §6 主动迁移"。
 
 5. **机械核对**(只读):从头部 `> 分支` / `> 关键路径`、§5、§9 抽取能验证的事实,逐项验证。工程根取自 `> 关键路径`;取不到就说明并跳过核对。
    - 分支存在?`git -C "<工程根>" branch --list "<名>"`;远端有?`git -C "<工程根>" branch -r --list "*/<名>"`
@@ -33,9 +37,9 @@ argument-hint: [序号|任务名]
 6. **⬜ 任务**:先核对头部 `> 阻塞:` 写的解除条件是否已满足(能验证的验证,不能的问用户),再决定继续或仍等。
 
 7. **复述确认**,三五句话:任务目标 / 当前状态 / 下一步 / 未决问题 / 核对不符项 / 最近一次落盘的会话 ID(头部 `> 落盘记录:` 首条)。
-   回查原文的方式一并给出:`claude --resume <id>` 打开原会话;`claude -p --resume <id> "<问题>"` 向原会话提问。原始记录受 settings `cleanupPeriodDays`(默认 30 天)约束,过期则回链失效,以 handoff + log 为准。
+   按运行环境说明识别记录中的宿主来源，给出对应的原会话恢复命令。来源或 ID 不可得时明确说明，不猜测；以 handoff + log 为准。
    请用户确认理解一致;若有核对不符项或未决问题,一并提出。
 
 8. **接续**:确认后从 §7 下一步开始干活,不要求用户重述背景。过程中遵循 §2 / §4 / §9 记录的约束、决策与路径。
 
-> 提示:本会话结束或用户说"准备新开会话"时,用 task-save(`/task-handoff:task-save`)回写,完成接力闭环。
+> 提示:用户明确要求保存进度或表达任务交接意图时，使用 task-save 回写；仅结束聊天不自动落盘。
