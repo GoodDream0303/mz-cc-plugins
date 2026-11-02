@@ -18,5 +18,5 @@ test('renderer reports unknown data and leaves no rows for disabled activity',()
 });
 test('renderer supports semantic reordering, compact mode, merged groups and hostile text',()=>{
  let config=preset('minimal');config=set(config,'display.customLine','\x1b[2Jhello');config=set(config,'display.customLinePosition','first');config=set(config,'lineLayout','compact');const s=sample();s.model='\x1b]2;inject\x07safe';const out=render(s,config,{width:200,height:30,color:false}).lines.join('\n');assert.ok(out.startsWith('hello'));assert.ok(!out.includes('\x1b'));assert.match(out,/safe/);
- config=set(config,'lineLayout','expanded');config=set(config,'elementOrder',['context','project']);const ordered=render(sample(),config,{width:200,height:30,color:false}).lines;assert.match(ordered[1],/上下文/);
+ config=set(config,'lineLayout','expanded');config=set(config,'elementOrder',['context','project']);const ordered=render(sample(),config,{width:200,height:30,color:false}).lines;assert.match(ordered[1],/Context/);
 });

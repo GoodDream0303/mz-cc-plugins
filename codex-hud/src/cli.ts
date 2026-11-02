@@ -1,0 +1,125 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import {execFileSync} from 'node:child_process';
+import {emitKeypressEvents} from 'node:readline';
+import {createInterface} from 'node:readline/promises';
+import {setTimeout as delay} from 'node:timers/promises';
+import {configPath,defaultConfig,get,importClaude,loadConfig,saveConfig,set,type Config} from './config.js';
+import {configure} from './config-menu.js';
+import {SessionReader} from './reader.js';
+import {codexHome,findSession,listSessions} from './sessions.js';
+import {render} from './render.js';
+import {readEnvironment} from './environment.js';
+import {sanitize} from './terminal-text.js';
+import {emptySnapshot,type HudSnapshot} from './types.js';
+import {bindLaunch,buildTerminalArgs,checkRuntime,createLaunch,decodeArgs,readLaunch,receiveEnvironment,requestStop,runCodex,runtimeRoot,serveEnvironment,updateLaunch,type LaunchDescriptor} from './runtime.js';
+import {handleHook} from './hook.js';
+
+function option(args:string[],key:string):string|undefined{const i=args.indexOf(key);return i>=0?args[i+1]:args.find(v=>v.startsWith(key+'='))?.slice(key.length+1);}
+function launchFile(args:string[]):string|undefined{const encoded=option(args,'--launch64');return encoded?Buffer.from(encoded,'base64').toString('utf8'):option(args,'--launch');}
+function configFile(args:string[]):string{return option(args,'--config')??configPath();}
+function preview(config:Config):string[]{
+ return render({...emptySnapshot('preview'),model:'Codex Demo',effort:'high',cwd:'C:/projects/firmware',context:{used:45000,window:200000},latest:{input:42000,cached:30000,output:3000,reasoning:1000,total:45000},totals:{input:120000,cached:90000,output:10000,reasoning:3000,total:130000},quotas:[{id:'demo',minutes:300,usedPercent:25,resetsAt:Math.floor(Date.now()/1000)+3600}],agents:[{id:'demo',name:'reviewer',status:'unknown'}],todos:[{step:'Validate firmware',status:'in_progress'}],mcpUsed:['docs']},config,{width:process.stdout.columns??100,height:100,color:!!process.stdout.isTTY}).lines;
+}
+async function chooseSession(root:string):Promise<string>{
+ const sessions=(await listSessions(root)).filter(s=>!s.parentId).slice(0,20);if(!sessions.length)throw new Error('No sessions found');
+ if(!process.stdin.isTTY)throw new Error('Specify --session explicitly; the latest session is never selected automatically');
+ sessions.forEach((s,i)=>console.log((i+1)+'. '+s.id+' '+sanitize(s.cwd)));
+ const rl=createInterface({input:process.stdin,output:process.stdout});try{const i=Number(await rl.question('Select a session: '))-1;if(!sessions[i])throw new Error('No session selected');return sessions[i].id;}finally{rl.close();}
+}
+async function watch(args:string[],once=false):Promise<void>{
+ const ownedFile=launchFile(args);let descriptor=ownedFile?readLaunch(ownedFile):undefined;
+ const home=descriptor?.codexHome??codexHome();const root=option(args,'--sessions-root')??path.join(home,'sessions');
+ let selected=option(args,'--session');if(!descriptor&&!selected)selected=await chooseSession(root);
+ let cfgFile=descriptor?.configFile??configFile(args),config=loadConfig(cfgFile);let page=0,quit=false,reader:SessionReader|undefined,nextDiscover=0,knownPath='',statusMessage='';
+ const onKey=(_:unknown,key:{name?:string;ctrl?:boolean})=>{if(key?.name==='q'||key?.name==='c'&&key.ctrl)quit=true;else if(key?.name==='right'||key?.name==='n')page++;else if(key?.name==='left'||key?.name==='p')page=Math.max(0,page-1);};
+ const interactive=!once&&!!process.stdin.isTTY;
+ if(interactive){emitKeypressEvents(process.stdin);process.stdin.setRawMode(true);process.stdin.on('keypress',onKey);process.stdin.resume();}
+ if(!once&&process.stdout.isTTY)process.stdout.write('\x1b[?1049h\x1b[?25l');
+ try{
+  do{
+   if(descriptor){descriptor=readLaunch(ownedFile!);if(descriptor.hudStop||descriptor.state==='exited')break;selected=descriptor.sessionId;}
+   try{config=loadConfig(cfgFile);statusMessage='';}catch(e){statusMessage='Configuration reload failed: '+(e as Error).message;}
+   let snapshot=emptySnapshot(selected??'pending');
+   if(selected){
+    if(Date.now()>=nextDiscover||!reader){
+     const session=await findSession(root,selected);nextDiscover=Date.now()+5000;
+     if(session&&session.path!==knownPath){knownPath=session.path;reader=new SessionReader(session.path,session.id);selected=session.id;}
+    }
+    if(reader){try{snapshot=await reader.read();}catch(e){snapshot=emptySnapshot(selected);snapshot.errors.push('Session log unavailable; waiting for recovery');reader=undefined;}}
+    else snapshot.errors.push('Waiting for the selected session log');
+   }else snapshot.errors.push('Waiting for SessionStart binding; open /hooks in Codex to review and trust this plugin hook');
+   if(snapshot.cwd)snapshot.environment=readEnvironment(snapshot.cwd,home);
+   if(statusMessage)snapshot.errors.push(statusMessage);
+   if(descriptor?.state==='running'&&descriptor.heartbeat&&Date.now()-descriptor.heartbeat>15000)snapshot.errors.push('Runner heartbeat is stale; session binding remains unchanged');
+   const result=render(snapshot,config,{width:Number(option(args,'--width'))||process.stdout.columns||100,height:once?1000:process.stdout.rows||12,page,color:!args.includes('--no-color')&&!!process.stdout.isTTY});
+   if(args.includes('--json'))console.log(JSON.stringify(snapshot));else{
+    if(!once&&process.stdout.isTTY)process.stdout.write('\x1b[H\x1b[2J'+result.lines.join('\r\n'));
+    else console.log(result.lines.join('\n'));
+   }
+   if(once)break;
+   if(!process.stdout.isTTY)break;
+   await delay(get(config,'terminal.refreshMs'));
+  }while(!quit);
+ }finally{
+  if(interactive){process.stdin.off('keypress',onKey);process.stdin.setRawMode(false);process.stdin.pause();}
+  if(!once&&process.stdout.isTTY)process.stdout.write('\x1b[0m\x1b[?25h\x1b[?1049l');
+ }
+}
+async function demoRunner(d:LaunchDescriptor):Promise<void>{
+ const id='demo-'+d.id;const root=path.join(path.dirname(d.file),'demo-sessions',d.id);fs.mkdirSync(root,{recursive:true});const file=path.join(root,id+'.jsonl');
+ const row=(type:string,payload:unknown)=>JSON.stringify({timestamp:new Date().toISOString(),type,payload})+'\n';
+ fs.writeFileSync(file,row('session_meta',{id,cwd:d.cwd,timestamp:new Date().toISOString(),cli_version:'preview'})+row('turn_context',{model:'Codex HUD Demo',effort:'high',cwd:d.cwd})+row('event_msg',{type:'token_count',info:{last_token_usage:{input_tokens:40000,cached_input_tokens:30000,output_tokens:5000,total_tokens:45000},total_token_usage:{input_tokens:120000,cached_input_tokens:90000,output_tokens:10000,total_tokens:130000},model_context_window:200000},rate_limits:{primary:{used_percent:25,window_minutes:300,resets_at:Math.floor(Date.now()/1000)+3600},secondary:{used_percent:10,window_minutes:10080,resets_at:Math.floor(Date.now()/1000)+86400}}}));
+ // Demo is a user-facing layout preview, never a model invocation.
+ updateLaunch(d.file,v=>{v.state='running';v.heartbeat=Date.now();});
+ const newHome=readLaunch(d.file).codexHome;fs.mkdirSync(path.join(newHome,'sessions'),{recursive:true});fs.copyFileSync(file,path.join(newHome,'sessions',id+'.jsonl'));bindLaunch(d.file,{session_id:id,cwd:d.cwd});
+ console.log('Codex HUD Preview - no model request; Codex was not started.\nThe HUD is below. Drag the divider to resize.');
+ const timer=setInterval(()=>updateLaunch(d.file,v=>{v.heartbeat=Date.now();}),2000);
+ try{await delay(d.demoDurationMs??120000);}finally{clearInterval(timer);updateLaunch(d.file,v=>{v.state='exited';v.exitCode=0;});}
+}
+async function start(args:string[],demo=false):Promise<void>{
+ if(process.platform!=='win32')throw new Error('Automatic split launch requires native Windows Terminal; use watch manually elsewhere');
+ const report=checkRuntime();if(!report.terminal||!report.codex&&!demo)throw new Error('Windows Terminal or Codex is missing; run doctor');
+ const separator=args.indexOf('--');const codexArgs=separator<0?[]:args.slice(separator+1);
+ const d=createLaunch(option(args,'--cwd')??process.cwd(),loadConfig(configFile(args)),runtimeRoot(),configFile(args));
+ if(demo)updateLaunch(d.file,v=>{v.demo=true;v.demoDurationMs=Number(option(args,'--duration'))||120000;v.codexHome=path.join(path.dirname(v.file),'demo-home-'+v.id);});
+ const command=buildTerminalArgs(readLaunch(d.file),codexArgs);
+ if(args.includes('--dry-run')){console.log(JSON.stringify({window:'mz-codex-hud-'+d.id,cwd:d.cwd,paneSize:d.paneSize,launch:d.file,argumentCount:codexArgs.length}));return;}
+ const bridge=await serveEnvironment(d);try{
+  execFileSync('wt.exe',command,{windowsHide:false,stdio:'ignore',timeout:10000});
+  await bridge.delivered;console.log('HUD opened. Launch ID: '+d.id);
+ }finally{bridge.close();}
+}
+export async function main(args=process.argv.slice(2)):Promise<void>{
+ const command=args[0]??'help',rest=args.slice(1);
+ switch(command){
+  case 'start':return start(rest);
+  case 'demo':return start(rest,true);
+  case 'runner':{
+   const file=launchFile(rest);if(!file)throw new Error('Missing launch descriptor');const d=readLaunch(file);const environment=await receiveEnvironment(d);
+   if(d.demo)return demoRunner(d);process.exitCode=await runCodex(d,decodeArgs(option(rest,'--argv')??'W10='),undefined,environment);return;
+  }
+  case 'hook':return handleHook();
+  case 'watch':return watch(rest);
+  case 'once':return watch(rest,true);
+  case 'list':{const sessions=await listSessions(option(rest,'--sessions-root')??path.join(codexHome(),'sessions'));for(const s of sessions)if(!s.parentId)console.log(s.id+'  '+sanitize(s.cwd));return;}
+  case 'configure':await configure(configFile(rest),preview);return;
+  case 'config':{
+   const file=configFile(rest);if(rest[0]==='set'){if(!rest[1]||rest[2]===undefined)throw new Error('config set <key> <JSON value>');let value:unknown=rest[2];try{value=JSON.parse(rest[2]);}catch{}saveConfig(file,set(loadConfig(file),rest[1],value));console.log('Saved '+rest[1]);}
+   else console.log(JSON.stringify(loadConfig(file),null,2));return;
+  }
+  case 'import-claude':{
+   const file=configFile(rest);const source=option(rest,'--path')??path.join(os.homedir(),'.claude','plugins','claude-hud','config.json');
+   const {config,report}=importClaude(JSON.parse(fs.readFileSync(source,'utf8').replace(/^\uFEFF/,'')));console.log(JSON.stringify(report,null,2));
+   let yes=rest.includes('--yes');if(!yes&&process.stdin.isTTY){const rl=createInterface({input:process.stdin,output:process.stdout});try{yes=(await rl.question('Save imported configuration? [y/N] ')).toLowerCase()==='y';}finally{rl.close();}}
+   if(yes){saveConfig(file,config);console.log('Imported '+file);}else console.log('Preview only; use --yes to save the import');return;
+  }
+  case 'doctor':console.log(JSON.stringify(checkRuntime(),null,2));return;
+  case 'stop':{const id=option(rest,'--launch');if(!id||!/^[a-f0-9-]{36}$/i.test(id))throw new Error('stop --launch <launch ID>');requestStop(path.join(runtimeRoot(),id+'.json'));console.log('HUD stop requested; Codex keeps running');return;}
+  case 'help':case '--help':case '-h':
+   console.log('mz-codex-hud\\n  start [--cwd DIR] [-- Codex args...]\\n  watch|once --session ID [--json] [--width N]\\n  list\\n  configure\\n  config show | config set KEY VALUE\\n  import-claude [--path CONFIG] [--yes]\\n  doctor\\n  demo [--duration MILLISECONDS]\\n  stop --launch ID\\nAll commands accept --config FILE.');return;
+  default:throw new Error('Unknown command: '+command);
+ }
+}
+

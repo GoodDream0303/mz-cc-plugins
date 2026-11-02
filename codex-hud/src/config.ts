@@ -10,9 +10,10 @@ export interface Definition {
 }
 const defs:Definition[]=[];
 function def(key:string,value:unknown,section:string,label:string,extra:Partial<Definition>={}) {
-  defs.push({key,value,section,label,kind:Array.isArray(value)?'array':typeof value as Definition['kind'],...extra});
+  const english=key.split('.').at(-1)!.replace(/^show(?=[A-Z])/,'').replace(/([a-z])([A-Z])/g,'$1 $2');
+  defs.push({key,value,section,label:english.charAt(0).toUpperCase()+english.slice(1),kind:Array.isArray(value)?'array':typeof value as Definition['kind'],...extra});
 }
-def('language','zh-Hans','layout','语言 / Language',{choices:['en','zh-Hans','zh-Hant']});
+def('language','en','layout','Language',{choices:['en','zh-Hans','zh-Hant']});
 def('lineLayout','expanded','layout','展开 / 紧凑',{choices:['expanded','compact']});
 def('showSeparators',false,'layout','分隔线');
 def('pathLevels',1,'layout','目录层数',{choices:[1,2,3,'full']});
@@ -27,12 +28,12 @@ for (const [key,value,label] of [
  ['showFileStats',false,'文件统计'],['branchOverflow','truncate','分支溢出'],['pushWarningThreshold',0,'推送警告阈值'],['pushCriticalThreshold',0,'推送严重阈值']
 ] as const) def('gitStatus.'+key,value,'git',label,key==='branchOverflow'?{choices:['truncate','wrap']}:typeof value==='number'?{min:0,max:100000}:{});
 const unavailable:Record<string,string>={
- showSkills:'Codex 未提供可靠的活跃 Skills 事件',showMemoryUsage:'不读取其他进程内存',
- showPromptCache:'Codex 未提供权威缓存过期时间',showSpeed:'没有可靠的纯生成耗时',
- showCost:'没有权威账单数据',showRoutedCost:'没有权威账单数据',showDailyCost:'没有权威账单数据',
- showAuthUser:'不读取认证凭据',showOutputStyle:'Claude 专用设置',showAdvisor:'Claude 专用功能',
- showModelScopedUsage:'当前数据源未提供分模型额度',showAddedDirs:'当前日志未提供额外工作目录',
- showConfigCounts:'不以磁盘配置数量冒充实际加载数量'
+ showSkills:'Codex does not expose reliable active-Skill events',showMemoryUsage:'Other-process memory inspection is not supported',
+ showPromptCache:'Codex does not expose authoritative cache expiry',showSpeed:'Reliable generation-only duration is unavailable',
+ showCost:'Authoritative billing data is unavailable',showRoutedCost:'Authoritative billing data is unavailable',showDailyCost:'Authoritative billing data is unavailable',
+ showAuthUser:'Authentication credentials are not read',showOutputStyle:'Claude-specific setting',showAdvisor:'Claude-specific feature',
+ showModelScopedUsage:'Per-model quota data is unavailable',showAddedDirs:'Additional work directories are not reported',
+ showConfigCounts:'Loaded configuration counts are not reported'
 };
 const flags:Record<string,boolean>={
  showModel:true,showProject:true,showAddedDirs:false,showContextBar:true,showConfigCounts:false,
@@ -66,7 +67,7 @@ for(const [key,value,max] of [
  ['sevenDayThreshold',80,100],['environmentThreshold',0,100]
 ] as const) def('display.'+key,value,'display',key,{min:0,max});
 for(const key of ['modelOverride','providerName','customLine','advisorOverride','externalUsagePath','externalUsageWritePath'])
- def('display.'+key,'','display',key,{reason:key.startsWith('externalUsage')?'保留配置；不执行外部路径读写':key==='advisorOverride'?unavailable.showAdvisor:undefined});
+ def('display.'+key,'','display',key,{reason:key.startsWith('externalUsage')?'Preserved only; external path I/O is disabled':key==='advisorOverride'?unavailable.showAdvisor:undefined});
 for(const [key,value] of Object.entries({context:'green',usage:'brightBlue',warning:'yellow',usageWarning:'brightMagenta',critical:'red',model:'cyan',project:'yellow',git:'magenta',gitBranch:'cyan',label:'dim',custom:208}))
  def('colors.'+key,value,'colors',key,{kind:'color'});
 def('colors.barFilled','█','colors','进度条填充');def('colors.barEmpty','░','colors','进度条空白');
@@ -77,18 +78,18 @@ export const definitions:readonly Definition[]=defs;
 export const unsupported=unavailable;
 const unsafe=new Set(['__proto__','prototype','constructor']);
 function inspect(value:unknown,depth=0):void {
- if(depth>12) throw new Error('配置嵌套过深');
+ if(depth>12) throw new Error('Configuration nesting is too deep');
  if(value!==null&&typeof value==='object') for(const [key,item] of Object.entries(value)) {
-  if(unsafe.has(key)) throw new Error('不允许的配置键: '+key);inspect(item,depth+1);
+  if(unsafe.has(key)) throw new Error('Unsafe configuration key: '+key);inspect(item,depth+1);
  }
 }
 export function get(config:Config,key:string):any {
- let value:any=config;for(const part of key.split('.')) {if(unsafe.has(part))throw new Error('不允许的配置键');value=value?.[part];}return value;
+ let value:any=config;for(const part of key.split('.')) {if(unsafe.has(part))throw new Error('Unsafe configuration key');value=value?.[part];}return value;
 }
 function put(config:Config,key:string,value:unknown):void {
  const parts=key.split('.');let at:any=config;
- for(const part of parts.slice(0,-1)){if(unsafe.has(part))throw new Error('不允许的配置键');if(!at[part]||typeof at[part]!=='object'||Array.isArray(at[part]))at[part]={};at=at[part];}
- const last=parts.at(-1)!;if(unsafe.has(last))throw new Error('不允许的配置键');at[last]=structuredClone(value);
+ for(const part of parts.slice(0,-1)){if(unsafe.has(part))throw new Error('Unsafe configuration key');if(!at[part]||typeof at[part]!=='object'||Array.isArray(at[part]))at[part]={};at=at[part];}
+ const last=parts.at(-1)!;if(unsafe.has(last))throw new Error('Unsafe configuration key');at[last]=structuredClone(value);
 }
 export function defaultConfig():Config {const config:Config={};for(const d of defs)put(config,d.key,d.value);return config;}
 function merge(target:Config,source:Config):Config {
@@ -99,24 +100,24 @@ function merge(target:Config,source:Config):Config {
  }return target;
 }
 export function validateConfig(value:unknown):Config {
- inspect(value);if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('配置必须是 JSON 对象');
- if(Buffer.byteLength(JSON.stringify(value))>65536)throw new Error('配置超过 64 KiB');
+ inspect(value);if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('Configuration must be a JSON object');
+ if(Buffer.byteLength(JSON.stringify(value))>65536)throw new Error('Configuration exceeds 64 KiB');
  const config=merge(defaultConfig(),value as Config);
- for(const group of ['display','gitStatus','colors','terminal'])if(!config[group]||typeof config[group]!=='object'||Array.isArray(config[group]))throw new Error('无效配置分组: '+group);
+ for(const group of ['display','gitStatus','colors','terminal'])if(!config[group]||typeof config[group]!=='object'||Array.isArray(config[group]))throw new Error('Invalid configuration group: '+group);
  for(const d of defs) {
-  const v=get(config,d.key);if(d.choices){if(!d.choices.includes(v))throw new Error('无效选项: '+d.key);continue;}
-  if(d.kind==='color'){if(!(typeof v==='number'&&Number.isInteger(v)&&v>=0&&v<=255)&&!(typeof v==='string'&&(/^(dim|red|green|yellow|magenta|cyan|brightBlue|brightMagenta)$/.test(v)||/^#[0-9a-f]{6}$/i.test(v))))throw new Error('无效颜色: '+d.key);continue;}
-  if(d.kind==='array'){if(!Array.isArray(v))throw new Error('必须是数组: '+d.key);if(d.key==='display.mergeGroups'? !v.every(g=>Array.isArray(g)&&g.every(x=>typeof x==='string')) : !v.every(x=>typeof x==='string'))throw new Error('无效顺序数组: '+d.key);}
-  else if(typeof v!==d.kind)throw new Error('无效类型: '+d.key);
-  if(typeof v==='number'&&(!Number.isFinite(v)||v<(d.min??-Infinity)||v>(d.max??Infinity)))throw new Error('超出范围: '+d.key);
-  if(typeof v==='string'&&v.length>1000)throw new Error('文本过长: '+d.key);
+  const v=get(config,d.key);if(d.choices){if(!d.choices.includes(v))throw new Error('Invalid option: '+d.key);continue;}
+  if(d.kind==='color'){if(!(typeof v==='number'&&Number.isInteger(v)&&v>=0&&v<=255)&&!(typeof v==='string'&&(/^(dim|red|green|yellow|magenta|cyan|brightBlue|brightMagenta)$/.test(v)||/^#[0-9a-f]{6}$/i.test(v))))throw new Error('Invalid color: '+d.key);continue;}
+  if(d.kind==='array'){if(!Array.isArray(v))throw new Error('Expected array: '+d.key);if(d.key==='display.mergeGroups'? !v.every(g=>Array.isArray(g)&&g.every(x=>typeof x==='string')) : !v.every(x=>typeof x==='string'))throw new Error('Invalid ordering array: '+d.key);}
+  else if(typeof v!==d.kind)throw new Error('Invalid type: '+d.key);
+  if(typeof v==='number'&&(!Number.isFinite(v)||v<(d.min??-Infinity)||v>(d.max??Infinity)))throw new Error('Out of range: '+d.key);
+  if(typeof v==='string'&&v.length>1000)throw new Error('Text is too long: '+d.key);
  }
  return config;
 }
 export function set(config:Config,key:string,value:unknown):Config {const copy=structuredClone(config);put(copy,key,value);return validateConfig(copy);}
 export function configPath():string{return path.join(process.env.LOCALAPPDATA??path.join(os.homedir(),'.local','share'),'mz-codex-hud','config.json');}
 export function loadConfig(file=configPath()):Config {
- try {const stat=fs.statSync(file);if(stat.size>65536)throw new Error('配置超过 64 KiB');return validateConfig(JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,'')));}
+ try {const stat=fs.statSync(file);if(stat.size>65536)throw new Error('Configuration exceeds 64 KiB');return validateConfig(JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,'')));}
  catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')return defaultConfig();throw e;}
 }
 export function saveConfig(file:string,config:Config):void {
@@ -127,7 +128,7 @@ export function saveConfig(file:string,config:Config):void {
  finally{try{fs.unlinkSync(temp);}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}}
 }
 export function preset(name:string,base=defaultConfig()):Config {
- if(!['full','essential','minimal'].includes(name))throw new Error('未知预设: '+name);
+ if(!['full','essential','minimal'].includes(name))throw new Error('Unknown preset: '+name);
  const config=structuredClone(base);
  for(const d of defs.filter(d=>d.key.startsWith('display.show')&&d.kind==='boolean'))
   put(config,d.key,!d.reason&&(name==='full'||['display.showModel','display.showContextBar',...(name==='essential'?['display.showProject','display.showUsage','display.showEffortLevel','display.showSessionTokens']:[])].includes(d.key)));
@@ -135,9 +136,9 @@ export function preset(name:string,base=defaultConfig()):Config {
 }
 export interface ImportRow {key:string;status:'mapped'|'unavailable'|'unknown';reason?:string}
 export function importClaude(value:unknown):{config:Config;report:ImportRow[]} {
- inspect(value);if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('需要 claude-hud config.json');
+ inspect(value);if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('Expected claude-hud config.json');
  const source=structuredClone(value) as Config;
- if('env' in source||'statusLine' in source)throw new Error('这是 Claude settings.json；请选择 claude-hud/config.json');
+ if('env' in source||'statusLine' in source)throw new Error('This is Claude settings.json; choose claude-hud/config.json instead');
  if(get(source,'display.showClaudeCodeVersion')!==undefined)put(source,'display.showCodexVersion',get(source,'display.showClaudeCodeVersion'));
  if(source.maxWidth===null)source.maxWidth=0;
  const report:ImportRow[]=[];
