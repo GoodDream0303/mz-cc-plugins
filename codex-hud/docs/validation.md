@@ -1,5 +1,26 @@
 # Validation: companion HUD with minimal autostart
 
+## 0.3.2 Windows shell compatibility
+
+The 0.3.1 Windows command used CMD-specific percent expansion. Replaying that
+command through PowerShell 7 and Windows PowerShell 5 reproduced MODULE_NOT_FOUND
+before the hook script could write diagnostics. Core session hook setup can pass
+the selected environment shell, so the default COMSPEC runner is not sufficient
+evidence of the actual session behavior.
+
+Both command variants now let Node resolve PLUGIN_ROOT and convert the absolute
+script path to a file URL. Regressions execute the installed command through CMD,
+PowerShell 7, and Windows PowerShell 5; the PowerShell cases include plugin paths
+with spaces and Unicode. The existing weekly-label assertion now matches `5h:`
+as a label rather than rejecting the same substring inside a reset countdown.
+Native startup/resume dispatch still requires validation after reviewing the
+changed command in /hooks; hook trust is never edited by the implementation.
+
+All 52 tests pass. A real Windows Terminal smoke test using the PowerShell 7
+runner passed automatic pane opening, quiet stdout, repeated-event deduplication,
+and independent HUD closure. Independent review reran all three shell regressions
+and found no blocking issues.
+
 ## 0.3.1 marketplace distribution
 
 The previous source-only Git package omitted dist/ and required a manual build

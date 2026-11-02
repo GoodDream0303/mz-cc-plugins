@@ -39,3 +39,13 @@ test('Windows hook command expands the plugin path using the native cmd shell',{
  const f=fixture(t);const local=path.join(f.root,'local');saveConfig(path.join(local,'mz-codex-hud/config.json'),set(defaultConfig(),'startup.enabled',false));const hook=JSON.parse(fs.readFileSync(path.resolve(import.meta.dirname,'../hooks/hooks.json'),'utf8')).hooks.SessionStart[0].hooks[0];
  const result=spawnSync(process.env.COMSPEC??'cmd.exe',['/D','/S','/C',hook.commandWindows??hook.command],{input:JSON.stringify(f.event),encoding:'utf8',windowsVerbatimArguments:true,env:{...process.env,LOCALAPPDATA:local,PLUGIN_ROOT:path.resolve(import.meta.dirname,'..')}});assert.equal(result.status,0,result.stderr);assert.equal(result.stdout,'');assert.equal(result.stderr,'');
 });
+for(const shell of ['pwsh.exe','powershell.exe'])test('Windows hook locates a plugin with spaces and Unicode through '+shell,{skip:process.platform!=='win32'},t=>{
+ const f=fixture(t);const local=path.join(f.root,'local'),plugin=path.join(f.root,'plugin space 测试');
+ saveConfig(path.join(local,'mz-codex-hud/config.json'),set(defaultConfig(),'startup.enabled',false));
+ for(const dir of ['hooks','dist'])fs.cpSync(path.resolve(import.meta.dirname,'..',dir),path.join(plugin,dir),{recursive:true});
+ fs.copyFileSync(path.resolve(import.meta.dirname,'../package.json'),path.join(plugin,'package.json'));
+ const hook=JSON.parse(fs.readFileSync(path.join(plugin,'hooks/hooks.json'),'utf8')).hooks.SessionStart[0].hooks[0];
+ const result=spawnSync(shell,['-NoLogo','-NoProfile','-NonInteractive','-Command',hook.commandWindows??hook.command],{input:JSON.stringify(f.event),encoding:'utf8',timeout:10000,windowsHide:true,env:{...process.env,LOCALAPPDATA:local,PLUGIN_ROOT:plugin}});
+ assert.equal(result.status,0,result.stderr);assert.equal(result.stdout,'');assert.equal(result.stderr,'');
+ assert.equal(JSON.parse(fs.readFileSync(path.join(local,'mz-codex-hud/runtime/autostart-status.json'),'utf8')).status,'disabled');
+});

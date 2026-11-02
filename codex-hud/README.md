@@ -28,6 +28,10 @@ Start a new Codex session, then inspect `/hooks` and review/trust the command
 whose source is `codex-hud@mz-cc-plugins` and event is `SessionStart`. It may be
 listed by its command path rather than the display name "Codex HUD".
 
+Version 0.3.2 also supports PowerShell hook execution. Its command starts with
+`node -e` and resolves PLUGIN_ROOT inside Node, so it works through both CMD and
+PowerShell. Review the updated hook command in `/hooks` when upgrading.
+
 For the earlier development install, first remove only
 `codex-hud@mz-codex-plugins` and its local `mz-codex-plugins` marketplace using
 `codex plugin remove` and `codex plugin marketplace remove`. Then install from

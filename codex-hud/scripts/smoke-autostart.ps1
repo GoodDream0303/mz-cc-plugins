@@ -1,3 +1,4 @@
+param([ValidateSet('cmd','pwsh','powershell')][string]$HookShell='cmd')
 $ErrorActionPreference='Stop'
 $hudRoot=Split-Path $PSScriptRoot -Parent
 $originalLocal=$env:LOCALAPPDATA
@@ -39,8 +40,26 @@ try {
  $event=@{hook_event_name='SessionStart';source='startup';session_id=$owner.sessionId;cwd=$owner.cwd;transcript_path=$transcript} | ConvertTo-Json -Compress
  $definition=Get-Content -Raw -LiteralPath './hooks/hooks.json' | ConvertFrom-Json
  $command=$definition.hooks.SessionStart[0].hooks[0].commandWindows
- $hookOutput=$event | & $env:COMSPEC /D /S /C $command
- if($LASTEXITCODE -ne 0 -or $hookOutput){throw 'The Windows hook failed or emitted stdout.'}
+ $hookProgram=if($HookShell -eq 'cmd'){$env:COMSPEC}else{$HookShell+'.exe'}
+ # ProcessStartInfo preserves embedded quotes when this smoke script runs in
+ # Windows PowerShell 5, whose native argument passing otherwise strips them.
+ $hookArguments=if($HookShell -eq 'cmd'){'/D /S /C "'+$command+'"'}else{'-NoLogo -NoProfile -NonInteractive -Command "'+$command.Replace('"','\"')+'"'}
+ function Invoke-HudSmokeHook {
+  $info=New-Object System.Diagnostics.ProcessStartInfo
+  $info.FileName=$hookProgram;$info.Arguments=$hookArguments
+  $info.UseShellExecute=$false;$info.CreateNoWindow=$true
+  $info.RedirectStandardInput=$true;$info.RedirectStandardOutput=$true;$info.RedirectStandardError=$true
+  $process=[System.Diagnostics.Process]::Start($info)
+  try {
+   $process.StandardInput.WriteLine($event);$process.StandardInput.Close()
+   if(-not $process.WaitForExit(15000)){$process.Kill();throw 'The test hook timed out.'}
+   $output=$process.StandardOutput.ReadToEnd();$errorOutput=$process.StandardError.ReadToEnd()
+   if($process.ExitCode -ne 0 -or $errorOutput){throw ('The test hook failed: '+$errorOutput)}
+   return $output
+  } finally {$process.Dispose()}
+ }
+ $hookOutput=Invoke-HudSmokeHook
+ if($hookOutput){throw 'The Windows hook emitted stdout.'}
  $runtime=Join-Path $testLocal 'mz-codex-hud/runtime'
  $displays=@(Get-ChildItem -LiteralPath $runtime -Filter '*.json' | Where-Object {$_.BaseName -match '^[a-f0-9-]{36}$'})
  if($displays.Count -ne 1){throw 'Expected exactly one automatic display.'}
@@ -64,7 +83,7 @@ try {
   Start-Sleep -Milliseconds 200
  } while([DateTime]::UtcNow -lt $deadline)
  if([regex]::Matches($text,'22\.5%').Count -lt 2){throw 'Automatic HUD telemetry did not appear.'}
- $event | & $env:COMSPEC /D /S /C $command | Out-Null
+ Invoke-HudSmokeHook | Out-Null
  $after=@(Get-ChildItem -LiteralPath $runtime -Filter '*.json' | Where-Object {$_.BaseName -match '^[a-f0-9-]{36}$'})
  if($after.Count -ne 1){throw 'The repeated startup hook created another display.'}
  $display=Get-Content -Raw -LiteralPath $displayFile | ConvertFrom-Json

@@ -9,7 +9,7 @@ test('optional session name never falls back to displaying a session ID',()=>{
 });
 test('renderer respects imported activity preferences and weekly-only quota labels',()=>{
  const {config}=importClaude({display:{showTools:false,showAgents:true,showTodos:true,showMcp:true,showSessionTokens:true,sevenDayThreshold:0}});const text=render(sample(),config,{width:140,height:50,color:false}).lines.join('\n');
- assert.ok(!text.includes('secret-tool'));assert.match(text,/MCP/);assert.match(text,/分析/);assert.match(text,/验证驱动/);assert.match(text,/7d/);assert.ok(!text.includes('5h'));assert.match(text,/120/);assert.ok(!text.includes('200 Token'));
+ assert.ok(!text.includes('secret-tool'));assert.match(text,/MCP/);assert.match(text,/分析/);assert.match(text,/验证驱动/);assert.match(text,/7d/);assert.doesNotMatch(text,/\b5h\s*:/);assert.match(text,/120/);assert.ok(!text.includes('200 Token'));
 });
 test('renderer uses latest context and cannot inflate it with cumulative counters',()=>{
  const text=render(sample(),defaultConfig(),{width:120,height:50,color:false}).lines.join('\n');assert.match(text,/15%/);assert.ok(!text.includes('60%'));
