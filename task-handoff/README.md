@@ -60,6 +60,14 @@ Codex 首次调用 save/resume/manage 时，如果尚未指定或保存交接目
 2. 新开会话第一句 `/task-handoff:task-resume 1`(序号)或 `/task-handoff:task-resume <任务名>` → 读回、核对、复述,从"下一步"直接续。
 3. 整理时 `/task-handoff:task-manage`。
 
+Codex 下，save 保存交接文档后、resume 定位任务并复述时，会提醒手动为当前会话改名，并提供已填入实际任务名的完整 `/rename` 命令，方便复制到 Codex 输入框执行。例如任务名为“会话接力机制与插件分发”时：
+
+```text
+/rename 会话接力机制与插件分发
+```
+
+此提醒不自动修改会话标题，也不要求先完成改名才能继续；Claude 流程不变。
+
 ## 会话回链
 
 每次 save 在 `> 落盘记录:` 中写入来源和 ID，例如 `session codex:<id>` 或 `session claude:<id>`。
