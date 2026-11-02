@@ -178,6 +178,17 @@ class CodexSourceTests(unittest.TestCase):
         publish_event(root, {'session_id':sid,'hook_event_name':'Interrupt','turn_id':'turn-1'})
         self.assertEqual(source.poll()[0].state, 'stby')
 
+    def test_invalid_uuid_date_hint_does_not_stop_valid_sessions(self):
+        sid,path=self.session(1)
+        bad='ffffffff-ffff-7fff-bfff-ffffffffffff'
+        (self.home/'thread-writer-locks'/(bad+'.lock')).touch()
+        self.locks[bad]='held'
+        source=self.source()
+        self.assertEqual([row.session_id for row in source.poll()],[sid])
+        with path.open('a') as stream:
+            stream.write(json.dumps({'type':'event_msg','payload':{'type':'task_started','turn_id':'new'}})+'\n')
+        self.assertEqual(source.poll()[0].state,'run')
+
 
 if __name__ == '__main__':
     unittest.main()

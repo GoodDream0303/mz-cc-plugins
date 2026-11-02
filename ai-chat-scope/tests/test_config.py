@@ -55,5 +55,15 @@ class ConfigTests(unittest.TestCase):
             self.assertNotIn('SECRET',p.read_text())
             self.assertNotIn('codex',json.loads(p.read_text()))
 
+    def test_arbitrary_precision_integer_geometry_is_bounded_without_float_overflow(self):
+        load, _ = self.functions()
+        with tempfile.TemporaryDirectory(prefix='scope-config-test-') as raw:
+            p=Path(raw)/'config.json'
+            p.write_text(json.dumps({'x':10**400,'width':10**400,'scale':10**400}))
+            data=load(p,Path(raw)/'missing')
+            self.assertLessEqual(abs(data['x']),1000000)
+            self.assertLessEqual(data['width'],2000)
+            self.assertLessEqual(data['scale'],3)
+
 
 if __name__ == '__main__':unittest.main()

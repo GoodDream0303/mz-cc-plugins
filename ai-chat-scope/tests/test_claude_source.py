@@ -73,6 +73,35 @@ class ClaudeSourceTests(unittest.TestCase):
         self.write_session(2, sessionId="same")
         self.assertEqual([s.pid for s in source.poll()], [2])
 
+    def test_bad_registry_values_do_not_block_normal_sessions(self):
+        self.write_session(1,status='busy')
+        for bad in ([],{'pid':[]},{'pid':2,'sessionId':[]},{'pid':2,'sessionId':'two','cwd':[]},{'pid':2,'sessionId':'two','startedAt':10**400}):
+            with self.subTest(bad_type=type(bad).__name__):
+                (self.home/'sessions/2.json').write_text(json.dumps(bad),encoding='utf-8')
+                rows=self.source().poll()
+                self.assertEqual([(r.pid,r.state) for r in rows],[(1,'run')])
+
+    def test_bad_rewrite_does_not_replace_last_valid_registry(self):
+        path=self.write_session(1,status='waiting')
+        source=self.source();self.assertEqual(source.poll()[0].state,'attn')
+        path.write_text('[]',encoding='utf-8')
+        self.assertEqual(source.poll()[0].state,'attn')
+
+    def test_bad_job_objects_and_flags_do_not_block_other_rows(self):
+        self.write_session(1)
+        self.write_session(2,kind='bg',jobId='job',status='busy')
+        folder=self.home/'jobs/job';folder.mkdir(parents=True)
+        for value in ([],{'sessionId':[]},{'sessionId':'session-2','state':'working','respawnFlags':123}):
+            (folder/'state.json').write_text(json.dumps(value),encoding='utf-8')
+            self.assertEqual([r.pid for r in self.source().poll()],[1,2])
+
+    def test_bad_title_items_are_skipped(self):
+        self.write_session(1,name='derived',nameSource='derived')
+        folder=self.home/'projects/C--repo';folder.mkdir(parents=True)
+        records=[{'type':'ai-title','aiTitle':'Valid title'},['ai-title'],{'type':'ai-title','aiTitle':[]}]
+        (folder/'session-1.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in records),encoding='utf-8')
+        self.assertEqual(self.source().poll()[0].title,'Valid title')
+
 
 if __name__ == "__main__":
     unittest.main()

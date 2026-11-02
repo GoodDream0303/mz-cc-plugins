@@ -133,9 +133,21 @@
 - [x] 运行插件 unittest，确认失败；填写清单与市场条目，共用宿主中性的启动技能；Codex 使用其支持的插件根变量，Windows 命令正确引用。启动器使用当前 Python 对应的 pythonw 或标准无窗口回退；不把 Claude Bash 内联语法当作 Codex 执行约定。
 - [x] 更新 README：依赖、两端安装/手动启动、hook 信任、旧插件手动迁移与旧配置兼容、Codex 不支持关闭、已验证版本和能力降级；清楚区分旧会话未加载 hook 与工具故障。不安装或卸载用户现有插件。
 - [x] 运行 `python -B -m unittest discover -s tests -p test_codex_scope_probe.py -v`、`python -B -m unittest discover -s ai-chat-scope/tests -p 'test_*.py' -v`、所有产品 Python 文件 AST 解析、清单 JSON 解析、`git diff --check`；全部应通过。只在改动影响其他插件时运行相应检查，不无故安装其他插件依赖。
-- [ ] 进行隔离的真实双宿主 GUI 验收：活跃发现、执行/待机、两端等待与恢复、Codex 正常退出后消失、hook 未启用时提示、来源与同名消歧、窗口操作与重启。需要用户手动信任 hook/操作真实测试对话的项目保留为明确验收项，不能凭模拟测试标通过。
-- [ ] 使用 requesting-code-review 完整审阅本分支；按证据处理反馈，修复后仅重跑受影响检查。交付包含测试计数、真实验收结果、限制与提交列表；使用 finishing-a-development-branch 收尾，不擅自合并/推送。
-- [ ] 提交：`feat(scope): package AI Chat Scope for Claude and Codex`。
+- [x] 完成真实 CLI 代表场景、实际后端同步测试、混合 Tk fixture、实际入口/窗口操作/重启以及隔离 Codex 安装；需用户实际宿主信任和完整双宿主常驻的人工项目如实列为未人工验收，不以模拟测试冒充通过。
+- [x] requesting-code-review 整分支只读审阅完成；Important 均以 RED→GREEN 回归修复并跑全套。按约定保留本地分支，不自动合并、推送或安装到实际环境。
+- [x] 提交：`feat(scope): package AI Chat Scope for Claude and Codex`；审阅修复另成提交。
+
+## 最终审阅裁定与保留项
+
+- Ruling：状态契约使用代表性真实 CLI + 实际后端自动测试，人工宿主/UI 矩阵单列；成本是仍不承诺未人工点测的宿主安装体验。
+- Ruling：完整授权/同步提示要求显式、CLI 先初始化的专用本地端点；成本是普通文件模式仅有部分状态能力。原始日志/hook 没有即时批准回执，不能以延迟红灯替代。
+- Ruling：异步以真实用户消息解除注意状态，不判断逐题语义答案；成本是新消息可解除当时这组待输入状态。
+- Ruling：同名辨识从 Minor 提升为 Important 并修复，因为它直接影响多会话用途且是计划要求；成本是名称栏会占用短 ID 的宽度。长标题显示同时限定工作量。
+- Ruling：不纳入非 Windows、Codex Desktop 和 Codex 关闭；成本是这些能力需要后续独立范围。仅验证 Python 3.13/Codex CLI 0.166.0，不把通过扩展为其他版本矩阵的保证。
+- Ruling：未创建额外跨会话技能账本；已授权工程计划、测试和 Git 提交承载进度，遵守用户自动记忆约束。后续接续应读取工程文档，不依赖自动记忆。
+- Deferred minor：历史 hook 事件目录的退出清理暂缓；当前每会话最多 128 个事件文件，目录数量可随历史会话增长。
+
+审阅 Important 修复：运行根重解析越界、异常 UUID 日期、超大整数配置、Claude 坏数据隔离、关闭前身份校验。所有新增回归先失败后通过；最终产品 65 项、探测 22 项全绿。保留 `feat/ai-chat-scope` 和本工作区供用户审阅，不自动集成。
 
 
 ## 计划自查

@@ -26,8 +26,9 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import messagebox
 from runtime_paths import runtime_root, load_window_config, save_window_config
-from monitor import Monitor, create_sources, row_signature, row_action
+from monitor import Monitor, create_sources, row_signature, row_action, gui_rows
 from win32_support import claim_single_instance
+from claude_source import registry_matches
 
 HOME = os.path.expanduser("~")
 SESSIONS_DIR = os.path.join(HOME, ".claude", "sessions")
@@ -195,6 +196,10 @@ class Scope:
         """mode: stop=后台会话 claude stop;quit=交互会话注入 Ctrl+C;kill=taskkill 强杀"""
         if row_action(ss) != "close" or mode not in ("stop", "quit", "kill"):
             return
+        if not registry_matches(self.claude_source.sessions_dir, ss["pid"], ss["id"]):
+            self._kill_done.append((ss, "identity", [], False,
+                "会话已变化、退出或暂时无法核对，请刷新后重试。"))
+            return
         pid = str(ss["pid"])
         if mode == "stop":
             cmd = [shutil.which("claude") or "claude", "stop", ss["job_id"]]
@@ -311,7 +316,7 @@ class Scope:
             packet = self.monitor.latest()
             if packet is not None:
                 snapshots, diagnostics = packet
-                self.sessions = [to_gui_row(session) for session in snapshots]
+                self.sessions = gui_rows(snapshots)
                 self.diagnostics = diagnostics
             sessions = self.sessions
             sig = (row_signature(sessions, self.diagnostics), self.W, round(self.s, 2))
@@ -340,9 +345,16 @@ class Scope:
             return ""
         if self.f_name.measure(text) <= maxpx:
             return text
-        while text and self.f_name.measure(text + "…") > maxpx:
-            text = text[:-1]
-        return text + "…"
+        if self.f_name.measure("…") > maxpx:
+            return ""
+        low, high = 0, len(text)
+        while low < high:
+            middle = (low + high + 1) // 2
+            if self.f_name.measure(text[:middle] + "…") <= maxpx:
+                low = middle
+            else:
+                high = middle - 1
+        return text[:low] + "…"
 
     def draw(self):
         s = self.s
@@ -540,9 +552,9 @@ class Scope:
             row_idx = self._get_row_at(e.x, e.y)
             if row_idx is not None and row_idx < len(self.sessions):
                 ss = self.sessions[row_idx]
-                tip_text = "%s\n%s\n状态: %s\n目录: %s" % (
+                tip_text = "%s\n%s\n会话 ID: %s\n状态: %s\n目录: %s" % (
                     "Claude Code" if ss["provider"] == "claude" else "Codex CLI",
-                    ss["label"], ss.get("state_detail", ""), ss.get("cwd", "")[:512])
+                    ss["label"], ss["id"], ss.get("state_detail", ""), ss.get("cwd", "")[:512])
                 if ss["state"] == "bg" and ss.get("bg_info"):
                     bg = ss["bg_info"]
                     tip_text += "\n后台任务: %s\n状态: %s" % (bg.get("name", "(无名称)"), bg.get("state", "未知"))

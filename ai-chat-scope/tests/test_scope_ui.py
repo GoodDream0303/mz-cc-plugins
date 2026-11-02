@@ -6,6 +6,7 @@ import tempfile
 import unittest
 import shutil
 import subprocess
+import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -82,6 +83,42 @@ class UiBoundaryTests(unittest.TestCase):
             result=subprocess.run([sys.executable,'-I','-c',code,str(root),str(root/'scope.pyw')],capture_output=True,timeout=15)
             self.assertEqual(result.returncode,0,result.stderr.decode(errors='replace'))
             self.assertEqual(list(root.rglob('__pycache__')),[])
+
+    def test_close_rechecks_registry_after_identity_changed_or_disappeared(self):
+        module=self.scope_module();scope=module.Scope.__new__(module.Scope)
+        scope._kill_done=[]
+        row={'provider':'claude','id':'old-session','pid':123,'label':'Old','capabilities':('close',)}
+        with tempfile.TemporaryDirectory(prefix='scope-close-test-') as raw:
+            scope.claude_source=SimpleNamespace(sessions_dir=raw)
+            registry=Path(raw)/'123.json'
+            for replacement in ({'pid':123,'sessionId':'new-session'},None,[]):
+                if replacement is None:registry.unlink(missing_ok=True)
+                else:registry.write_text(json.dumps(replacement))
+                for mode in ('quit','kill','stop'):
+                    with patch.object(module.subprocess,'run') as run:
+                        scope._run_kill(row,mode)
+                        run.assert_not_called()
+
+    def test_matching_claude_identity_still_uses_filtered_kill_command(self):
+        module=self.scope_module();scope=module.Scope.__new__(module.Scope);scope._kill_done=[]
+        row={'provider':'claude','id':'same-session','pid':123,'label':'Same','capabilities':('close',)}
+        with tempfile.TemporaryDirectory(prefix='scope-close-test-') as raw:
+            scope.claude_source=SimpleNamespace(sessions_dir=raw)
+            (Path(raw)/'123.json').write_text(json.dumps({'pid':123,'sessionId':'same-session'}))
+            with patch.object(module.subprocess,'run',return_value=subprocess.CompletedProcess([],0,'PID 123','')) as run:
+                scope._run_kill(row,'kill')
+                self.assertEqual(run.call_args.args[0],['taskkill','/F','/PID','123','/FI','IMAGENAME eq claude.exe'])
+            self.assertTrue(scope._kill_done[-1][3])
+
+    def test_long_name_truncation_has_bounded_font_measurements(self):
+        module=self.scope_module();scope=module.Scope.__new__(module.Scope)
+        class Font:
+            calls=0
+            def measure(self,text):self.calls+=1;return len(text)
+        scope.f_name=Font()
+        label=scope.fit_text('x'*10000,20)
+        self.assertLessEqual(len(label),20)
+        self.assertLess(scope.f_name.calls,32)
 
 
 if __name__=='__main__':unittest.main()

@@ -5,6 +5,7 @@ import math
 import os
 from pathlib import Path
 import re
+import stat
 import time
 import uuid
 from urllib.parse import urlsplit
@@ -15,7 +16,7 @@ EVENT_NAME = re.compile(r"\d{20}-[0-9a-f]{32}\.json\Z")
 
 def runtime_root():
     override = os.environ.get("AI_CHAT_SCOPE_RUNTIME")
-    return Path(override).resolve() if override else Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "ai-chat-scope"
+    return Path(override).absolute() if override else Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "ai-chat-scope"
 
 
 def codex_home_key(home):
@@ -31,6 +32,27 @@ def _inside(path, root):
             and path.resolve().is_relative_to(root.resolve()))
 
 
+def _plain_directory(path):
+    """Keep the lexical boundary; inspect ancestors before walking through them."""
+    path = Path(os.path.abspath(path))
+    for component in reversed((path,) + tuple(path.parents)):
+        try:
+            info = component.lstat()
+        except FileNotFoundError:
+            continue
+        if (stat.S_ISLNK(info.st_mode)
+                or getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)):
+            raise ValueError("runtime path contains a reparse point")
+    return path
+
+
+def _remove_event_file(path, root):
+    _plain_directory(path.parent)
+    if not _inside(path, root):
+        raise ValueError("event file escapes runtime root")
+    path.unlink(missing_ok=True)
+
+
 def publish_event(root, event):
     sid = str(uuid.UUID(event["session_id"]))
     kind = event.get("hook_event_name")
@@ -43,32 +65,37 @@ def publish_event(root, event):
         value = event.get(key)
         if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_:.\-]{1,160}", value):
             clean[key] = value
-    root = Path(root).resolve()
+    root = _plain_directory(root)
     folder = root / sid
+    _plain_directory(folder)
     if not _inside(folder, root):
         raise ValueError("event directory escapes runtime root")
     folder.mkdir(parents=True, exist_ok=True)
+    _plain_directory(folder)
     path = folder / ("%020d-%s.json" % (stamp, uuid.uuid4().hex))
     temporary = path.with_suffix(".tmp")
     try:
+        _plain_directory(folder)
         with temporary.open("x", encoding="utf-8", newline="\n") as output:
             json.dump(clean, output, ensure_ascii=False)
             output.write("\n")
+        _plain_directory(folder)
         temporary.replace(path)
     finally:
-        temporary.unlink(missing_ok=True)
+        _remove_event_file(temporary, root)
     for old in sorted(folder.glob("*.json"))[:-128]:
         if EVENT_NAME.fullmatch(old.name) and _inside(old, root):
             try:
-                old.unlink()
+                _remove_event_file(old, root)
             except FileNotFoundError:
                 pass
     return path
 
 
 def consume_events(root, sid):
-    root = Path(root).resolve()
+    root = _plain_directory(root)
     folder = root / str(uuid.UUID(sid))
+    _plain_directory(folder)
     if not folder.is_dir() or not _inside(folder, root):
         return []
     files = []
@@ -80,6 +107,7 @@ def consume_events(root, sid):
     events = []
     for path in sorted(files):
         try:
+            _plain_directory(folder)
             with path.open("rb") as stream:
                 raw = stream.read(65537)
             if len(raw) <= 65536:
@@ -87,7 +115,7 @@ def consume_events(root, sid):
                 if (isinstance(event, dict) and event.get("session_id") == sid
                         and event.get("hook_event_name") in HOOK_NAMES):
                     events.append(event)
-            path.unlink()
+            _remove_event_file(path, root)
         except (OSError, ValueError):
             continue
     return events
@@ -106,7 +134,9 @@ def _config_data(path):
 def _window_fields(data):
     def number(key, default, low, high):
         value = data.get(key, default)
-        if type(value) not in (int, float) or not math.isfinite(value):
+        if type(value) is int:
+            return min(high, max(low, value))
+        if type(value) is not float or not math.isfinite(value):
             value = default
         return min(high, max(low, value))
     result = {"x": int(number("x", 80, -1000000, 1000000)),

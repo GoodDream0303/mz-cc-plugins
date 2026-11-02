@@ -100,7 +100,10 @@ class CodexSource:
             for sid in self._active:
                 identity = uuid.UUID(sid)
                 if identity.version == 7:
-                    day = datetime.fromtimestamp((identity.int >> 80) / 1000, timezone.utc)
+                    try:
+                        day = datetime.fromtimestamp((identity.int >> 80) / 1000, timezone.utc)
+                    except (ValueError, OverflowError, OSError):
+                        continue
                     for delta in (-1, 0, 1):
                         date = day + timedelta(days=delta)
                         directory = root / date.strftime("%Y/%m/%d")
@@ -219,7 +222,12 @@ class CodexSource:
             if sid in self._uncertain:
                 freshness = "stale"
             meta = state["meta"]
-            for event in consume_events(home_events_root(self._runtime_dir, self.home), sid):
+            try:
+                hook_events = consume_events(home_events_root(self._runtime_dir, self.home), sid)
+            except (OSError, ValueError):
+                hook_events = []
+                notes.add("Codex：辅助状态暂不可用")
+            for event in hook_events:
                 if (event.get("hook_event_name") == "Interrupt"
                         and isinstance(event.get("turn_id"), str)
                         and event["turn_id"] == state["turn"]):
@@ -235,7 +243,7 @@ class CodexSource:
             title = self._titles.get(sid) or display_text(meta.get("title") or meta.get("name")) or Path(cwd).name or sid[:8]
             try:
                 started = datetime.fromisoformat(str(meta.get("timestamp")).replace("Z", "+00:00")).timestamp()
-            except (ValueError, OverflowError):
+            except (ValueError, OverflowError, OSError):
                 started = 0.0
             detail = "同步日志中" if freshness == "syncing" else ("执行中" if state["state"] == "run" else "待机")
             row_state = state["state"]

@@ -77,5 +77,22 @@ class MonitorTests(unittest.TestCase):
             self.assertNotEqual(signature, module.row_signature([to_gui_row(changed)], ()))
         self.assertNotEqual(signature, module.row_signature([to_gui_row(original)], ('source unavailable',)))
 
+    def test_duplicate_titles_get_visible_stable_unique_ids(self):
+        module=self.module()
+        self.assertTrue(hasattr(module,'gui_rows'),'Duplicate name formatting is not implemented')
+        snapshots=[SessionSnapshot('codex','01a10000-first-11111111',title='repo'),SessionSnapshot('codex','01a10000-second-22222222',title='repo')]
+        rows=module.gui_rows(snapshots)
+        self.assertNotEqual(rows[0]['label'],rows[1]['label'])
+        self.assertIn('11111111',rows[0]['label'][:12]);self.assertIn('22222222',rows[1]['label'][:12])
+        colliding=module.gui_rows([SessionSnapshot('codex','first-SAME-END',title='repo'),SessionSnapshot('codex','second-SAME-END',title='repo')])
+        self.assertNotEqual(colliding[0]['label'],colliding[1]['label'])
+
+    def test_display_names_are_bounded_and_valid_unicode(self):
+        module=self.module()
+        self.assertTrue(hasattr(module,'gui_rows'),'Display formatting is not implemented')
+        rows=module.gui_rows([SessionSnapshot('claude','one',title='x'*10000+'\ud800')])
+        self.assertLessEqual(len(rows[0]['label']),220)
+        rows[0]['label'].encode('utf-8')
+
 
 if __name__ == '__main__':unittest.main()

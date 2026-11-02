@@ -2,8 +2,36 @@
 from dataclasses import replace
 import threading
 import time
+import re
 
-from session_types import SessionSnapshot
+from session_types import SessionSnapshot, to_gui_row
+
+
+def _label(value, limit=200):
+    if not isinstance(value, str):
+        return ""
+    value = value.encode("utf-8", "replace").decode("utf-8")
+    return re.sub(r"[\x00-\x1f\x7f]", " ", value).strip()[:limit]
+
+
+def gui_rows(snapshots):
+    rows = [to_gui_row(snapshot) for snapshot in snapshots]
+    groups = {}
+    for index, row in enumerate(rows):
+        row["label"] = _label(row["label"])
+        row["cwd"] = _label(row["cwd"], 32768)
+        groups.setdefault((row["provider"], row["label"]), []).append(index)
+    for indices in groups.values():
+        if len(indices) < 2:
+            continue
+        width = 8
+        maximum = max(len(rows[index]["id"]) for index in indices)
+        while width < maximum and len({rows[index]["id"][-width:] for index in indices}) < len(indices):
+            width += 4
+        for index in indices:
+            row = rows[index]
+            row["label"] = "[%s] %s" % (row["id"][-width:], row["label"])
+    return rows
 
 
 def row_signature(rows, diagnostics=()):
