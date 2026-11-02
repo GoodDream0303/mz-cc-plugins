@@ -1,6 +1,6 @@
 # Codex HUD 设计：Windows Terminal 多行面板
 
-日期：2026-11-02。状态：独立 builder check 已通过，待用户审阅；尚未批准实现。
+日期：2026-11-02。状态：独立 builder check 已通过，用户已在本会话批准实现。
 
 ## 1. 用户目标与已确认范围
 
