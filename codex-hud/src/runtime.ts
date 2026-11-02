@@ -6,10 +6,12 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import {get,configPath,loadConfig,type Config} from './config.js';
 import {codexHome} from './sessions.js';
 import type {InitialPaneSize} from './pane-size.js';
+import type {HostProof,ProcessFact} from './psmux.js';
 export interface LaunchDescriptor {
  kind:'mz-codex-hud/1'|'mz-codex-hud/2';id:string;file:string;cwd:string;codexHome:string;configFile:string;createdAt:string;
  state:'created'|'running'|'exited';sessionId?:string;heartbeat?:number;pid?:number;
  exitCode?:number;hudStop?:boolean;paneSize:number;initialSizing?:InitialPaneSize;viewport?:{columns:number;rows:number;contentRows:number;pages:number};demo?:boolean;demoDurationMs?:number;sessionsRoot?:string;transcriptPath?:string;
+ host?:{recordFile:string;proof:HostProof;phase:'opening'|'running'|'uncertain'|'closed';hudPane?:string;hudProcess?:ProcessFact};
 }
 const guid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function runtimeRoot():string{return path.join(path.dirname(configPath()),'runtime');}
@@ -38,14 +40,14 @@ export function selectSessionId(explicit:string|undefined,environment:NodeJS.Pro
  return id;
 }
 export function buildTerminalArgs(d:LaunchDescriptor,window='last'):string[]{
+ if(!d.demo)throw new Error('Windows Terminal cannot identify the exact source pane; a verified psmux host is required');
  if(!/^[a-zA-Z0-9_.-]{1,100}$/.test(window))throw new Error('Invalid Windows Terminal window ID or name');
  const entry=pathToFileURL(path.resolve(path.dirname(fileURLToPath(import.meta.url)),'cli.js')).href;
  const boot="import(Buffer.from(process.argv[1],'base64').toString()).then(m=>m.main(process.argv.slice(2))).catch(e=>{console.error(e.message),process.exitCode=1})";
  const shared=[process.execPath,'-e',boot,Buffer.from(entry).toString('base64')],launch64=Buffer.from(d.file).toString('base64');
  const viewer=[...shared,'watch','--launch64',launch64];
  if(d.demo)return ['-w','mz-codex-hud-'+d.id,'new-tab','--title','Codex HUD Preview '+d.id.slice(0,8),'--suppressApplicationTitle',...shared,'demo-runner','--launch64',launch64,';','split-pane','--horizontal','--size',String(d.paneSize),'--title','Codex HUD','--suppressApplicationTitle',...viewer,';','focus-pane','-t','0'];
- if(!d.sessionId)throw new Error('Select a Codex session before opening the HUD');
- return ['-w',window,'split-pane','--horizontal','--size',String(d.paneSize),'--title','Codex HUD','--suppressApplicationTitle',...viewer,';','move-focus','up'];
+ throw new Error('A verified psmux host is required');
 }
 export interface DoctorReport {
  node:string;terminal:boolean;hooksRequired:false;nativeStatusline:'unchanged';

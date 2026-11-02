@@ -7,19 +7,17 @@ test('session selection uses an explicit ID or the Codex-provided current thread
  assert.equal(selectSessionId(undefined,{CODEX_SESSION_ID:'tree-root'}),'tree-root');
  assert.equal(selectSessionId(undefined,{}),undefined);assert.throws(()=>selectSessionId('../bad',{}));
 });
-test('passive Terminal attachment starts only the HUD and preserves its fixed session',t=>{
- const d=createLaunch(process.cwd(),defaultConfig(),temp(t));d.sessionId='current-thread';const args=buildTerminalArgs(d,'target-window');
- assert.deepEqual(args.slice(0,4),['-w','target-window','split-pane','--horizontal']);assert.ok(args.includes('watch'));assert.ok(!args.includes('runner'));assert.ok(!args.includes('new-tab'));assert.ok(!args.includes('--no-daemon'));
- const script=args[args.indexOf('-e')+1].replace(/"/g,'');const encoded=args[args.indexOf('-e')+2];const result=spawnSync(process.execPath,['-e',script,encoded,'help'],{encoding:'utf8'});assert.equal(result.status,0,result.stderr);
+test('a window name cannot prove an existing tab or pane and is rejected',t=>{
+ const d=createLaunch(process.cwd(),defaultConfig(),temp(t));d.sessionId='current-thread';
+ for(const window of ['last','0','target-window'])assert.throws(()=>buildTerminalArgs(d,window),/host|pane|psmux/i);
 });
 test('closing HUD never changes or ends the native Codex session',t=>{
  const d=createLaunch(process.cwd(),defaultConfig(),temp(t));requestStop(d.file);const value=readLaunch(d.file);assert.equal(value.hudStop,true);assert.equal(value.state,'created');assert.equal(value.exitCode,undefined);
 });
-test('start inherits the current Codex ID with hooks disabled and without a Codex launcher',{skip:process.platform!=='win32'},t=>{
+test('ordinary start refuses an unknown physical host even with a valid current session',{skip:process.platform!=='win32'},t=>{
  const root=temp(t),home=path.join(root,'home');fs.mkdirSync(home);fs.writeFileSync(path.join(home,'config.toml'),'[features]\nhooks = false\n');fs.writeFileSync(path.join(root,'session.jsonl'),JSON.stringify({type:'session_meta',payload:{id:'current-thread',cwd:root}})+'\n');
  const result=spawnSync(process.execPath,['bin/hud.mjs','start','--sessions-root',root,'--dry-run'],{cwd:path.resolve(import.meta.dirname,'..'),env:{...process.env,LOCALAPPDATA:root,CODEX_HOME:home,CODEX_THREAD_ID:'current-thread',WT_WINDOW_ID:'unrelated-window'},encoding:'utf8'});
- assert.equal(result.status,0,result.stderr);const info=JSON.parse(result.stdout);assert.equal(info.sessionId,'current-thread');assert.equal(info.mode,'attach');assert.equal(info.hooksRequired,false);assert.equal(info.window,'last');
- const d=readLaunch(info.launch);assert.equal(d.sessionId,'current-thread');
+ assert.notEqual(result.status,0);assert.match(result.stderr,/host|psmux|pane/i);
 });
 test('demo chooses its isolated home before Terminal starts',{skip:process.platform!=='win32'},t=>{
  const result=spawnSync(process.execPath,['bin/hud.mjs','demo','--dry-run','--duration','1000'],{cwd:path.resolve(import.meta.dirname,'..'),env:{...process.env,LOCALAPPDATA:temp(t)},encoding:'utf8'});assert.equal(result.status,0,result.stderr);const info=JSON.parse(result.stdout);const d=readLaunch(info.launch);assert.ok(d.codexHome.startsWith(path.dirname(d.file)));

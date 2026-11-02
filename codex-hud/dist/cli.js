@@ -15,6 +15,8 @@ import { sanitize } from './terminal-text.js';
 import { emptySnapshot } from './types.js';
 import { initialPaneSize } from './pane-size.js';
 import { buildTerminalArgs, checkRuntime, createLaunch, readLaunch, requestStop, runtimeRoot, selectSessionId, updateLaunch } from './runtime.js';
+import { loadCurrentHost, ensureHostDisplay, bindHostSession, acknowledgeViewer, readHost } from './host-session.js';
+import { readProcessFacts } from './psmux.js';
 function option(args, key) { const i = args.indexOf(key); return i >= 0 ? args[i + 1] : args.find(v => v.startsWith(key + '='))?.slice(key.length + 1); }
 function launchFile(args) { const encoded = option(args, '--launch64'); return encoded ? Buffer.from(encoded, 'base64').toString('utf8') : option(args, '--launch'); }
 function configFile(args) { return option(args, '--config') ?? configPath(); }
@@ -44,11 +46,15 @@ async function watch(args, once = false) {
     let descriptor = ownedFile ? readLaunch(ownedFile) : undefined;
     const home = descriptor?.codexHome ?? codexHome();
     const root = option(args, '--sessions-root') ?? descriptor?.sessionsRoot ?? path.join(home, 'sessions');
-    let selected = descriptor?.sessionId ?? selectSessionId(option(args, '--session'));
-    if (!selected)
+    let selected = descriptor?.host ? descriptor.sessionId : descriptor?.sessionId ?? selectSessionId(option(args, '--session'));
+    if (!selected && !descriptor?.host)
         selected = await chooseSession(root);
+    if (descriptor?.host && !once) {
+        acknowledgeViewer(ownedFile);
+        descriptor = readLaunch(ownedFile);
+    }
     let cfgFile = descriptor?.configFile ?? configFile(args), config = loadConfig(cfgFile);
-    let page = 0, quit = false, reader, nextDiscover = 0, knownPath = '', statusMessage = '';
+    let page = 0, quit = false, reader, nextDiscover = 0, nextOwnerCheck = 0, knownPath = '', statusMessage = '';
     let lastSnapshot = emptySnapshot(selected ?? 'pending');
     const onKey = (_, key) => { if (key?.name === 'q' || key?.name === 'c' && key.ctrl)
         quit = true;
@@ -73,7 +79,23 @@ async function watch(args, once = false) {
                 descriptor = readLaunch(ownedFile);
                 if (descriptor.hudStop || descriptor.state === 'exited')
                     break;
+                if (selected !== descriptor.sessionId) {
+                    reader = undefined;
+                    knownPath = '';
+                    lastSnapshot = emptySnapshot(descriptor.sessionId ?? 'pending');
+                    page = 0;
+                }
                 selected = descriptor.sessionId;
+                if (descriptor.host) {
+                    if (readHost(descriptor.host.recordFile).state === 'closed')
+                        break;
+                    if (Date.now() >= nextOwnerCheck) {
+                        const expected = descriptor.host.proof.owner, actual = readProcessFacts([expected.pid]).find(p => p.pid === expected.pid);
+                        nextOwnerCheck = Date.now() + 5000;
+                        if (!actual || actual.startedAt !== expected.startedAt)
+                            break;
+                    }
+                }
             }
             try {
                 config = loadConfig(cfgFile);
@@ -113,7 +135,7 @@ async function watch(args, once = false) {
                     snapshot.errors.push('Waiting for the selected session log');
             }
             else
-                snapshot.errors.push('Select the existing Codex session to display');
+                snapshot.errors.push(descriptor?.host ? 'Waiting for this Codex conversation' : 'Select the existing Codex session to display');
             if (snapshot.cwd)
                 snapshot.environment = readEnvironment(snapshot.cwd, home);
             if (statusMessage)
@@ -173,7 +195,27 @@ async function demoRunner(d) {
 }
 async function start(args, demo = false) {
     if (process.platform !== 'win32')
-        throw new Error('Automatic split launch requires native Windows Terminal; use watch manually elsewhere');
+        throw new Error('Automatic split launch requires native Windows; use watch manually elsewhere');
+    if (!demo) {
+        if (option(args, '--window'))
+            throw new Error('A Windows Terminal window cannot prove the source pane; use the verified psmux host');
+        if (args.includes('--') || option(args, '--cwd'))
+            throw new Error('HUD attaches the current Codex session; no launch arguments are accepted');
+        const record = loadCurrentHost('hook'), current = selectSessionId(undefined), selected = selectSessionId(option(args, '--session'));
+        if (!current || selected !== current)
+            throw new Error('HUD must display the current Codex conversation in this exact host');
+        const sessionsRoot = option(args, '--sessions-root') ?? path.join(codexHome(), 'sessions'), session = await findSession(sessionsRoot, current);
+        if (!session || session.id !== current)
+            throw new Error('Current Codex transcript is not available yet');
+        if (args.includes('--dry-run')) {
+            await ensureHostDisplay(record, loadConfig(configFile(args)), { role: 'hook', dryRun: true });
+            console.log(JSON.stringify({ mode: 'attach', backend: 'psmux', status: 'validated', ownerPane: record.proof.origin.pane }));
+            return;
+        }
+        const result = await bindHostSession(record, current, session.path, { role: 'hook', config: loadConfig(configFile(args)), configFile: configFile(args) });
+        console.log('HUD ' + result.status + '.');
+        return;
+    }
     const report = checkRuntime();
     if (!report.terminal)
         throw new Error('Windows Terminal is missing; run doctor');

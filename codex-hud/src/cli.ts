@@ -15,6 +15,8 @@ import {sanitize} from './terminal-text.js';
 import {emptySnapshot,type HudSnapshot} from './types.js';
 import {initialPaneSize} from './pane-size.js';
 import {buildTerminalArgs,checkRuntime,createLaunch,readLaunch,requestStop,runtimeRoot,selectSessionId,updateLaunch,type LaunchDescriptor} from './runtime.js';
+import {loadCurrentHost,ensureHostDisplay,bindHostSession,acknowledgeViewer,readHost} from './host-session.js';
+import {readProcessFacts} from './psmux.js';
 
 function option(args:string[],key:string):string|undefined{const i=args.indexOf(key);return i>=0?args[i+1]:args.find(v=>v.startsWith(key+'='))?.slice(key.length+1);}
 function launchFile(args:string[]):string|undefined{const encoded=option(args,'--launch64');return encoded?Buffer.from(encoded,'base64').toString('utf8'):option(args,'--launch');}
@@ -31,8 +33,9 @@ async function chooseSession(root:string):Promise<string>{
 async function watch(args:string[],once=false):Promise<void>{
  const ownedFile=launchFile(args);let descriptor=ownedFile?readLaunch(ownedFile):undefined;
  const home=descriptor?.codexHome??codexHome();const root=option(args,'--sessions-root')??descriptor?.sessionsRoot??path.join(home,'sessions');
- let selected=descriptor?.sessionId??selectSessionId(option(args,'--session'));if(!selected)selected=await chooseSession(root);
- let cfgFile=descriptor?.configFile??configFile(args),config=loadConfig(cfgFile);let page=0,quit=false,reader:SessionReader|undefined,nextDiscover=0,knownPath='',statusMessage='';let lastSnapshot=emptySnapshot(selected??'pending');
+ let selected=descriptor?.host?descriptor.sessionId:descriptor?.sessionId??selectSessionId(option(args,'--session'));if(!selected&&!descriptor?.host)selected=await chooseSession(root);
+ if(descriptor?.host&&!once){acknowledgeViewer(ownedFile!);descriptor=readLaunch(ownedFile!);}
+ let cfgFile=descriptor?.configFile??configFile(args),config=loadConfig(cfgFile);let page=0,quit=false,reader:SessionReader|undefined,nextDiscover=0,nextOwnerCheck=0,knownPath='',statusMessage='';let lastSnapshot=emptySnapshot(selected??'pending');
  const onKey=(_:unknown,key:{name?:string;ctrl?:boolean})=>{if(key?.name==='q'||key?.name==='c'&&key.ctrl)quit=true;else if(key?.name==='right'||key?.name==='n')page++;else if(key?.name==='left'||key?.name==='p')page=Math.max(0,page-1);};
  const interactive=!once&&!!process.stdin.isTTY;
  if(interactive){emitKeypressEvents(process.stdin);process.stdin.setRawMode(true);process.stdin.on('keypress',onKey);process.stdin.resume();}
@@ -40,7 +43,18 @@ async function watch(args:string[],once=false):Promise<void>{
  if(descriptor&&!descriptor.demo)updateLaunch(ownedFile!,d=>{d.state='running';d.pid=process.pid;d.heartbeat=Date.now();});
  try{
   do{
-   if(descriptor){descriptor=readLaunch(ownedFile!);if(descriptor.hudStop||descriptor.state==='exited')break;selected=descriptor.sessionId;}
+   if(descriptor){
+    descriptor=readLaunch(ownedFile!);if(descriptor.hudStop||descriptor.state==='exited')break;
+    if(selected!==descriptor.sessionId){reader=undefined;knownPath='';lastSnapshot=emptySnapshot(descriptor.sessionId??'pending');page=0;}
+    selected=descriptor.sessionId;
+    if(descriptor.host){
+     if(readHost(descriptor.host.recordFile).state==='closed')break;
+     if(Date.now()>=nextOwnerCheck){
+      const expected=descriptor.host.proof.owner,actual=readProcessFacts([expected.pid]).find(p=>p.pid===expected.pid);nextOwnerCheck=Date.now()+5000;
+      if(!actual||actual.startedAt!==expected.startedAt)break;
+     }
+    }
+   }
    try{config=loadConfig(cfgFile);statusMessage='';}catch(e){statusMessage='Configuration reload failed: '+(e as Error).message;}
    let snapshot=emptySnapshot(selected??'pending');
    if(selected){
@@ -51,7 +65,7 @@ async function watch(args:string[],once=false):Promise<void>{
     }
      if(reader){try{snapshot=await reader.read();lastSnapshot=structuredClone(snapshot);}catch(e){snapshot=structuredClone(lastSnapshot);snapshot.errors.push('Session log unavailable; showing stale telemetry and retrying');}}
     else snapshot.errors.push('Waiting for the selected session log');
-   }else snapshot.errors.push('Select the existing Codex session to display');
+   }else snapshot.errors.push(descriptor?.host?'Waiting for this Codex conversation':'Select the existing Codex session to display');
    if(snapshot.cwd)snapshot.environment=readEnvironment(snapshot.cwd,home);
    if(statusMessage)snapshot.errors.push(statusMessage);
    const result=render(snapshot,config,{width:Number(option(args,'--width'))||process.stdout.columns||100,height:once?1000:process.stdout.rows||12,page,color:!args.includes('--no-color')&&!!process.stdout.isTTY});
@@ -83,7 +97,17 @@ async function demoRunner(d:LaunchDescriptor):Promise<void>{
  try{await delay(d.demoDurationMs??120000);}finally{clearInterval(timer);updateLaunch(d.file,v=>{v.state='exited';v.exitCode=0;});}
 }
 async function start(args:string[],demo=false):Promise<void>{
- if(process.platform!=='win32')throw new Error('Automatic split launch requires native Windows Terminal; use watch manually elsewhere');
+ if(process.platform!=='win32')throw new Error('Automatic split launch requires native Windows; use watch manually elsewhere');
+ if(!demo){
+  if(option(args,'--window'))throw new Error('A Windows Terminal window cannot prove the source pane; use the verified psmux host');
+  if(args.includes('--')||option(args,'--cwd'))throw new Error('HUD attaches the current Codex session; no launch arguments are accepted');
+  const record=loadCurrentHost('hook'),current=selectSessionId(undefined),selected=selectSessionId(option(args,'--session'));
+  if(!current||selected!==current)throw new Error('HUD must display the current Codex conversation in this exact host');
+  const sessionsRoot=option(args,'--sessions-root')??path.join(codexHome(),'sessions'),session=await findSession(sessionsRoot,current);
+  if(!session||session.id!==current)throw new Error('Current Codex transcript is not available yet');
+  if(args.includes('--dry-run')){await ensureHostDisplay(record,loadConfig(configFile(args)),{role:'hook',dryRun:true});console.log(JSON.stringify({mode:'attach',backend:'psmux',status:'validated',ownerPane:record.proof.origin.pane}));return;}
+  const result=await bindHostSession(record,current,session.path,{role:'hook',config:loadConfig(configFile(args)),configFile:configFile(args)});console.log('HUD '+result.status+'.');return;
+ }
  const report=checkRuntime();if(!report.terminal)throw new Error('Windows Terminal is missing; run doctor');
  if(args.includes('--')||option(args,'--cwd'))throw new Error('HUD attaches an existing session; no Codex launch arguments are accepted');
  const home=codexHome(),sessionsRoot=option(args,'--sessions-root')??path.join(home,'sessions');let selected=demo?undefined:selectSessionId(option(args,'--session'));

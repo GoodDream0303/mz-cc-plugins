@@ -67,6 +67,8 @@ export function selectSessionId(explicit, environment = process.env) {
     return id;
 }
 export function buildTerminalArgs(d, window = 'last') {
+    if (!d.demo)
+        throw new Error('Windows Terminal cannot identify the exact source pane; a verified psmux host is required');
     if (!/^[a-zA-Z0-9_.-]{1,100}$/.test(window))
         throw new Error('Invalid Windows Terminal window ID or name');
     const entry = pathToFileURL(path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'cli.js')).href;
@@ -75,9 +77,7 @@ export function buildTerminalArgs(d, window = 'last') {
     const viewer = [...shared, 'watch', '--launch64', launch64];
     if (d.demo)
         return ['-w', 'mz-codex-hud-' + d.id, 'new-tab', '--title', 'Codex HUD Preview ' + d.id.slice(0, 8), '--suppressApplicationTitle', ...shared, 'demo-runner', '--launch64', launch64, ';', 'split-pane', '--horizontal', '--size', String(d.paneSize), '--title', 'Codex HUD', '--suppressApplicationTitle', ...viewer, ';', 'focus-pane', '-t', '0'];
-    if (!d.sessionId)
-        throw new Error('Select a Codex session before opening the HUD');
-    return ['-w', window, 'split-pane', '--horizontal', '--size', String(d.paneSize), '--title', 'Codex HUD', '--suppressApplicationTitle', ...viewer, ';', 'move-focus', 'up'];
+    throw new Error('A verified psmux host is required');
 }
 export function checkRuntime(options = {}) {
     let terminal = false;

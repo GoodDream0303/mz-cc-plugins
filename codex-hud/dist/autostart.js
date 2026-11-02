@@ -1,13 +1,10 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import { createHash, randomUUID } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { get, loadConfig, configPath } from './config.js';
-import { codexHome } from './sessions.js';
-import { buildTerminalArgs, createLaunch, readLaunch, runtimeRoot, updateLaunch } from './runtime.js';
-import { acquireStartupLock, processIsLive } from './startup-lock.js';
-import { initialPaneSize } from './pane-size.js';
+import { runtimeRoot } from './runtime.js';
+import { loadCurrentHost, bindHostSession } from './host-session.js';
 const idPattern = /^[a-zA-Z0-9_-]{3,100}$/;
 async function metadata(file) {
     let handle;
@@ -34,23 +31,6 @@ async function metadata(file) {
         await handle?.close();
     }
 }
-function canonical(value) { const result = path.resolve(value); return process.platform === 'win32' ? result.toLowerCase() : result; }
-function activeDisplay(root, id, home) {
-    for (const name of fs.readdirSync(root)) {
-        if (!/^[a-f0-9-]{36}\.json$/i.test(name))
-            continue;
-        try {
-            const d = readLaunch(path.join(root, name));
-            if (d.demo || d.sessionId !== id || canonical(d.codexHome) !== canonical(home) || d.hudStop || d.state === 'exited')
-                continue;
-            if (d.state === 'created' && Date.now() - Date.parse(d.createdAt) < 15000)
-                return d;
-            if (d.state === 'running' && Number.isInteger(d.pid) && d.pid > 0 && processIsLive(d.pid) !== false)
-                return d;
-        }
-        catch { /* unrelated, stale or malformed owned metadata is not a live display */ }
-    }
-}
 export async function autoStart(event, options = {}) {
     if (event.hook_event_name !== 'SessionStart' || !['startup', 'resume', 'clear', 'fork'].includes(String(event.source)) || event.agent_id || event.subagent_id || event.agent_transcript_path)
         return { status: 'ignored', reason: 'not-main-start' };
@@ -75,35 +55,15 @@ export async function autoStart(event, options = {}) {
         return { status: 'ignored', reason: 'not-cli-main' };
     if (typeof meta.id !== 'string' || !idPattern.test(meta.id) || event.session_id !== meta.id && event.session_id !== meta.session_id || typeof meta.cwd !== 'string')
         return { status: 'ignored', reason: 'identity-mismatch' };
-    const home = codexHome(), root = options.runtimeDir ?? runtimeRoot();
-    fs.mkdirSync(root, { recursive: true });
-    const key = createHash('sha256').update(canonical(home) + '\0' + meta.id).digest('hex'), lock = path.join(root, '.autostart-' + key + '.lock');
-    const release = await acquireStartupLock(lock);
-    if (!release)
-        return { status: 'busy' };
+    let record;
     try {
-        const active = activeDisplay(root, meta.id, home);
-        if (active) {
-            if (active.transcriptPath !== event.transcript_path)
-                updateLaunch(active.file, d => { d.transcriptPath = event.transcript_path; });
-            return { status: 'already-open' };
-        }
-        const sizing = await initialPaneSize(config, { sessionId: meta.id, transcriptPath: event.transcript_path, home, window: get(config, 'startup.window'), measure: options.viewport });
-        const d = createLaunch(meta.cwd, config, root, file);
-        updateLaunch(d.file, value => { value.sessionId = meta.id; value.transcriptPath = event.transcript_path; value.paneSize = sizing.fraction; value.initialSizing = sizing; });
-        const display = readLaunch(d.file);
-        try {
-            await (options.launch ?? ((value, window) => { execFileSync('wt.exe', buildTerminalArgs(value, window), { windowsHide: false, stdio: 'ignore', timeout: 10000 }); }))(display, get(config, 'startup.window'));
-            return { status: 'opened' };
-        }
-        catch (error) {
-            updateLaunch(d.file, value => { value.state = 'exited'; value.exitCode = 1; });
-            throw error;
-        }
+        record = loadCurrentHost('hook', options.dependencies, options.environment);
     }
-    finally {
-        release();
+    catch {
+        return { status: 'ignored', reason: 'unproven-host' };
     }
+    const result = await bindHostSession(record, meta.id, event.transcript_path, { role: 'hook', config, configFile: file, dependencies: options.dependencies });
+    return result.status === 'stopping' ? { status: 'ignored', reason: 'hud-stopping' } : { status: result.status };
 }
 export async function runAutostartHook() {
     let status = 'failed', reason = 'startup-failed';

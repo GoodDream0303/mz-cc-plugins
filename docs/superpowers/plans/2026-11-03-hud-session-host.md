@@ -47,12 +47,12 @@
 **Consumes:** Task 1 proof/client/process interfaces.
 **Produces:** `registerHost(proof,root)`, `readHost(file)`, `ensureHostDisplay(record,config,options?)`, `bindHostSession(record,sessionId,transcriptPath,options?)`, `closeHost(record,exitCode)`, `acknowledgeViewer(launchFile)`. Host records contain only identity/lifecycle metadata and a validated launch reference.
 
-- [ ] Write RED tests: waiting HUD with no transcript, cross-owner same thread independence, duplicate concurrent hook, rebind without stale reader data, closed HUD reopen, uncertain split refusal, dead/reused owner/server, independent shutdown; ordinary start/hook must never launch WT MRU.
-- [ ] Implement owner-slot locking, metadata intents, viewer PID/pane acknowledgement and lifecycle. Bind hook metadata only with proven frontend ancestry; refuse unproven shared-daemon origins.
-- [ ] Update watch to display waiting telemetry without selecting any session; recreate reader and discard stale snapshot on identity changes. Validate exact viewer identity before marking running.
-- [ ] Change SessionStart to a bounded synchronous binding stage. Keep diagnostics quiet and English; no trust modifications.
-- [ ] Run focused tests and full `npm test`; expect zero failures, with no live terminal/process changes from unit tests.
-- [ ] Commit Task 2 including generated dist and updated tests.
+- [x] Write RED tests: waiting HUD with no transcript, cross-owner same thread independence, duplicate concurrent hook, rebind without stale reader data, closed HUD reopen, uncertain split refusal, dead/reused owner/server, independent shutdown; ordinary start/hook must never launch WT MRU.
+- [x] Implement owner-slot locking, metadata intents, viewer PID/pane acknowledgement and lifecycle. Bind hook metadata only with proven frontend ancestry; refuse unproven shared-daemon origins.
+- [x] Update watch to display waiting telemetry without selecting any session; recreate reader and discard stale snapshot on identity changes. Validate exact viewer identity before marking running.
+- [x] Change SessionStart to a bounded synchronous binding stage. Keep diagnostics quiet and English; no trust modifications.
+- [x] Run focused tests and full `npm test`; expect zero failures, with no live terminal/process changes from unit tests.
+- [x] Commit Task 2 including generated dist and updated tests.
 
 ### Task 3: Transparent PowerShell entry and safe setup
 
@@ -82,3 +82,5 @@
 - Baseline before implementation: 61/61 tests passed; branch `feat/codex-hud`; unrelated `task-handoff/scripts/__pycache__/` preserved.
 - Ruling: create a waiting HUD from the real bootstrap before SessionStart — meets the idle-TUI requirement without model requests; data remains unbound until proven.
 - Pre-flight: Task 2 consumes Task 1 identity; Task 3 consumes Task 2 lifecycle; Task 4 exercises all production interfaces. No independent implementer delegation needed.
+
+- Task 2 evidence: 74/74 full tests; stale-thread recovery regression observed RED with the identity reset absent, then GREEN after implementing the reset. Waiting HUD, exact-slot concurrent hook, uncertain intent and independent shutdown tests passed.
