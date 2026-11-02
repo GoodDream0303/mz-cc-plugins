@@ -30,6 +30,7 @@ def display_text(value, limit=200):
 
 
 class CodexSource:
+    provider = "Codex"
     def __init__(self, home=None, lock_probe=probe_writer_lock, live=None, runtime_dir=None):
         self.home = Path(home or os.environ.get("CODEX_HOME") or Path.home() / ".codex").resolve()
         self.lock_probe = lock_probe

@@ -1,11 +1,13 @@
 """Own runtime data only. No writes into Claude/Codex source directories."""
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
 import time
 import uuid
+from urllib.parse import urlsplit
 
 HOOK_NAMES = frozenset({"SessionStart", "SessionEnd", "PermissionRequest", "Stop", "Interrupt"})
 EVENT_NAME = re.compile(r"\d{20}-[0-9a-f]{32}\.json\Z")
@@ -89,3 +91,69 @@ def consume_events(root, sid):
         except (OSError, ValueError):
             continue
     return events
+
+
+def _config_data(path):
+    try:
+        with Path(path).open("r", encoding="utf-8-sig") as source:
+            raw = source.read(65537)
+        value = json.loads(raw) if len(raw) <= 65536 else {}
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError, UnicodeError):
+        return {}
+
+
+def _window_fields(data):
+    def number(key, default, low, high):
+        value = data.get(key, default)
+        if type(value) not in (int, float) or not math.isfinite(value):
+            value = default
+        return min(high, max(low, value))
+    result = {"x": int(number("x", 80, -1000000, 1000000)),
+              "y": int(number("y", 80, -1000000, 1000000)),
+              "width": int(number("width", 340, 160, 2000)),
+              "scale": number("scale", 1.0, .6, 3.0),
+              "opacity": number("opacity", .92, .2, 1.0),
+              "pinned": data.get("pinned") if type(data.get("pinned")) is bool else True}
+    live = data.get("codex")
+    if isinstance(live, dict):
+        endpoint, token_file = live.get("endpoint"), live.get("token_file")
+        if (isinstance(endpoint, str) and 0 < len(endpoint) <= 256
+                and isinstance(token_file, str) and 0 < len(token_file) <= 32768):
+            try:
+                url = urlsplit(endpoint)
+                valid = (url.scheme == "ws" and url.hostname == "127.0.0.1" and url.port
+                         and url.username is None and url.password is None
+                         and not url.query and not url.fragment and url.path in ("", "/"))
+            except ValueError:
+                valid = False
+            if valid:
+                result["codex"] = {"endpoint": endpoint, "token_file": token_file}
+    return result
+
+
+def load_window_config(new_path, legacy_path):
+    new_path = Path(new_path)
+    if new_path.exists():
+        return _window_fields(_config_data(new_path))
+    legacy = _config_data(legacy_path)
+    legacy.pop("codex", None)
+    if "width" not in legacy and "base_w" in legacy:
+        legacy["width"] = legacy["base_w"]
+    return _window_fields(legacy)
+
+
+def save_window_config(path, config):
+    path = Path(path)
+    previous = _config_data(path)
+    previous.update(config)
+    clean = _window_fields(previous)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name("." + path.name + "-" + uuid.uuid4().hex + ".tmp")
+    try:
+        with temporary.open("x", encoding="utf-8", newline="\n") as output:
+            json.dump(clean, output, ensure_ascii=False, allow_nan=False, indent=2)
+            output.write("\n")
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)

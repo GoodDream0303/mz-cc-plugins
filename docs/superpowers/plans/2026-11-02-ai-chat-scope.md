@@ -116,12 +116,12 @@
 
 **Interfaces:** `Monitor(sources: list).start() -> None`、`latest() -> Optional[tuple]`、`stop() -> None`，最新消息为 `(sessions, diagnostics)`；`load_window_config(new_path: Path, legacy_path: Path) -> dict`；`save_window_config(path: Path, config: dict) -> None`；`claim_single_instance() -> Optional[object]`（返回句柄持有器，重复时 None）。
 
-- [ ] 写失败测试：一端抛错另一端继续更新，队列只保留最新快照；慢源等待时 UI latest 调用立即返回；名称/能力/诊断更新都触发重绘，单纯轮询不触发；状态变化保持稳定行序，同标题短 ID 消歧。
-- [ ] 写失败测试：Codex 行没有关闭项且不能从回调绕过；Claude 关闭仍采用既有 stop/quit/taskkill 确认链；新配置优先、旧配置只读回退、坏配置/NaN/越界数值有安全默认；重复启动不创建第二个窗口，不枚举其他进程。UI 行为用 Tk stub/纯菜单构造测试，真实 Windows 点测补充，不把测试写成源码字符串匹配。
-- [ ] 运行插件 unittest，确认失败；实现后台 worker 与非阻塞快照读取，仅 Tk 线程操作控件；设置停止事件，不在 UI 关闭时等待无界 I/O。源故障作为简短状态提示显示，不把“不可用”当“没有会话”。
-- [ ] 将标题改为 AI Chat Scope，增加 CC/CX 来源标记及各行状态说明；保留拖动、置顶、透明度/缩放与原始 Claude 关闭行为。新配置原子保存，只写新路径；单实例使用用户范围命名 mutex，不检查其他进程 PID。重复启动退出或聚焦本应用窗口，不操作别的窗口。
-- [ ] 重跑插件 unittest，并用独立测试入口点测 GUI 与混合 fixture；不关闭或重启用户当前浮窗。记录拖动/缩放响应及每轮读取开销，不引用旧内存数字作为保证。
-- [ ] 提交：`feat(scope): display both providers with responsive polling`。
+- [x] 写失败测试：一端抛错另一端继续更新，队列只保留最新快照；慢源等待时 UI latest 调用立即返回；名称/能力/诊断更新都触发重绘，单纯轮询不触发；状态变化保持稳定行序，同标题短 ID 消歧。
+- [x] 写失败测试：Codex 行没有关闭项且不能从回调绕过；Claude 关闭仍采用既有 stop/quit/taskkill 确认链；新配置优先、旧配置只读回退、坏配置/NaN/越界数值有安全默认；重复启动不创建第二个窗口，不枚举其他进程。UI 行为用 Tk stub/纯菜单构造测试，真实 Windows 点测补充，不把测试写成源码字符串匹配。
+- [x] 运行插件 unittest，确认失败；实现后台 worker 与非阻塞快照读取，仅 Tk 线程操作控件；设置停止事件，不在 UI 关闭时等待无界 I/O。源故障作为简短状态提示显示，不把“不可用”当“没有会话”。
+- [x] 将标题改为 AI Chat Scope，增加 CC/CX 来源标记及各行状态说明；保留拖动、置顶、透明度/缩放与原始 Claude 关闭行为。新配置原子保存，只写新路径；单实例使用用户范围命名 mutex，不检查其他进程 PID。重复启动退出或聚焦本应用窗口，不操作别的窗口。
+- [x] 重跑插件 unittest，并用独立测试入口点测 GUI 与混合 fixture；不关闭或重启用户当前浮窗。记录拖动/缩放响应及每轮读取开销，不引用旧内存数字作为保证。
+- [x] 提交：`feat(scope): display both providers with responsive polling`。
 
 ## Task 6：双宿主打包、文档及验收
 

@@ -55,6 +55,7 @@ def assign_labels(items):
         s['label'] = labels[i] + (' #%d' % s['pid'] if cnt[labels[i]] > 1 else '')
 
 class ClaudeSource:
+    provider = "Claude"
     def __init__(self, home=None):
         self.home = Path(home) if home is not None else Path.home() / ".claude"
         self.sessions_dir = str(self.home / "sessions")
