@@ -90,12 +90,12 @@
 
 **Interfaces:** `probe_writer_lock(path: Path) -> str` 返回 `held/released/unavailable`；`JsonlReader(path: Path, max_line_bytes: int = 2097152).read(max_bytes: int = 262144) -> list[dict]`，属性 `caught_up: bool`；`CodexSource(home: Path, lock_probe: Callable = probe_writer_lock).poll() -> list[SessionSnapshot]`，`diagnostics`；路径发现每次最多处理 256 项，完整刷新间隔 10 秒，未知新锁可触发有预算的路径补查。
 
-- [ ] 写失败测试：`test_released_lock_is_not_live`、`test_access_denied_is_not_held`、`test_filters_subagent_and_non_cli`、`test_active_lock_with_missing_log_is_reported`、`test_session_index_name_updates_incrementally`；JSONL 覆盖 UTF-8 分块/半行、超长行后恢复、截断、同路径替换、同长度改写、每次读取不超预算；含符号链接/目录联接的源路径不得越出规范化数据根。
-- [ ] 运行插件 unittest，确认新模块相关测试失败。
-- [ ] 实现只读 Win32 字节读取探测，只有错误 33 属于 held；不使用 LockFileEx 或 OpenProcess。测试中另起自己的短期辅助进程，在临时文件上持有/释放锁，验证两态且目录内容未被探测函数改变。
-- [ ] 实现有界发现、元数据来源确认、增量标题索引及生命周期状态。未追赶完为 syncing；单个文件异常保留上一份有效快照并标 stale，不用历史记录填充列表；缺少能力时报告数据源不可用。旧回合完成不得覆盖新回合开始。
-- [ ] 重跑插件 unittest；在实际 Codex 数据根做一次只读列表核对，输出 ID/状态与源诊断，不输出对话正文、不创建源目录附属文件。真实退出行为的验收关联 Task 1 证据。
-- [ ] 提交：`feat(scope): read active Codex CLI sessions incrementally`。
+- [x] 写失败测试：`test_released_lock_is_not_live`、`test_access_denied_is_not_held`、`test_filters_subagent_and_non_cli`、`test_active_lock_with_missing_log_is_reported`、`test_session_index_name_updates_incrementally`；JSONL 覆盖 UTF-8 分块/半行、超长行后恢复、截断、同路径替换、同长度改写、每次读取不超预算；含符号链接/目录联接的源路径不得越出规范化数据根。
+- [x] 运行插件 unittest，确认新模块相关测试失败。
+- [x] 实现只读 Win32 字节读取探测，只有错误 33 属于 held；不使用 LockFileEx 或 OpenProcess。测试中另起自己的短期辅助进程，在临时文件上持有/释放锁，验证两态且目录内容未被探测函数改变。
+- [x] 实现有界发现、元数据来源确认、增量标题索引及生命周期状态。未追赶完为 syncing；单个文件异常保留上一份有效快照并标 stale，不用历史记录填充列表；缺少能力时报告数据源不可用。旧回合完成不得覆盖新回合开始。
+- [x] 重跑插件 unittest；在实际 Codex 数据根做一次只读列表核对，输出 ID/状态与源诊断，不输出对话正文、不创建源目录附属文件。真实退出行为的验收关联 Task 1 证据。
+- [x] 提交：`feat(scope): read active Codex CLI sessions incrementally`。
 
 ## Task 4：被动 hook 与等待状态归并
 
