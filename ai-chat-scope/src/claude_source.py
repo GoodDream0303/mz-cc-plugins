@@ -11,6 +11,12 @@ def _identifier(value):
     return isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,160}', value) is not None
 
 
+def _started_seconds(value):
+    value = float(value or 0)
+    # Modern Claude registry uses Unix milliseconds; older second values remain valid.
+    return value / 1000 if value >= 10**11 else value
+
+
 def _valid_session(data):
     if not isinstance(data, dict) or type(data.get('pid')) is not int or not 0 < data['pid'] < 2**32:
         return False
@@ -23,7 +29,7 @@ def _valid_session(data):
             return False
     started = data.get('startedAt')
     if started is not None:
-        if type(started) not in (int, float) or not 0 <= started <= 10**12:
+        if type(started) not in (int, float) or not 0 <= started <= 10**15:
             return False
         if type(started) is float and not math.isfinite(started):
             return False
@@ -276,7 +282,7 @@ class ClaudeSource:
                 state = 'stby'
             else:
                 state = 'run'
-            out.append({'id': sid, 'pid': data.get('pid') or 0, 'cwd': data.get('cwd') or '', 'name': data.get('name') or '', 'name_src': data.get('nameSource'), 'state': state, 'bg_info': bg_info, 'kind': kind, 'job_id': data.get('jobId'), 'started': data.get('startedAt') or 0, 'label': '', 'verified_id': _identifier(data.get('sessionId'))})
+            out.append({'id': sid, 'pid': data.get('pid') or 0, 'cwd': data.get('cwd') or '', 'name': data.get('name') or '', 'name_src': data.get('nameSource'), 'state': state, 'bg_info': bg_info, 'kind': kind, 'job_id': data.get('jobId'), 'started': _started_seconds(data.get('startedAt')), 'label': '', 'verified_id': _identifier(data.get('sessionId'))})
         self._killed.intersection_update(present)
         assign_labels(out)
         for s in out:

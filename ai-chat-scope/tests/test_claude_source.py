@@ -102,6 +102,22 @@ class ClaudeSourceTests(unittest.TestCase):
         (folder/'session-1.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in records),encoding='utf-8')
         self.assertEqual(self.source().poll()[0].title,'Valid title')
 
+    def test_real_registry_millisecond_start_time_is_visible_and_normalized(self):
+        self.write_session(42,startedAt=1793599792183,sessionId='11111111-1111-4111-8111-111111111111',kind='interactive')
+        rows=self.source().poll()
+        self.assertEqual(len(rows),1)
+        self.assertEqual(rows[0].provider,'claude')
+        self.assertAlmostEqual(rows[0].started_at,1793599792.183,places=3)
+
+    def test_second_start_time_remains_compatible(self):
+        self.write_session(1,startedAt=1793599792)
+        self.assertEqual(self.source().poll()[0].started_at,1793599792)
+
+    def test_mixed_timestamp_units_keep_the_actual_latest_duplicate(self):
+        self.write_session(1,sessionId='same',startedAt=1793599792183)
+        self.write_session(2,sessionId='same',startedAt=1793599800)
+        self.assertEqual([row.pid for row in self.source().poll()],[2])
+
 
 if __name__ == "__main__":
     unittest.main()
