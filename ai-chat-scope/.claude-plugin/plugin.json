@@ -1,9 +1,17 @@
 {
-  "name": "claude-scope",
-  "description": "悬浮窗实时监视多个 Claude Code 会话状态(红=需授权 / 蓝=后台任务 / 绿=执行中 / 黄=待机)。只读会话状态文件,无需 hook、无需 Node;用 /claude-scope:scope-show 拉起悬浮窗。",
-  "version": "1.3.0",
+  "name": "ai-chat-scope",
+  "description": "Windows 悬浮窗监视 Claude Code 与 Codex CLI 多会话状态。",
+  "version": "2.0.0",
   "author": {
     "name": "mzzhu2"
   },
-  "keywords": ["monitoring", "overlay", "sessions", "notifications", "claude-code", "agent", "workflow"]
+  "keywords": [
+    "monitoring",
+    "overlay",
+    "sessions",
+    "notifications",
+    "claude-code",
+    "agent",
+    "workflow"
+  ]
 }

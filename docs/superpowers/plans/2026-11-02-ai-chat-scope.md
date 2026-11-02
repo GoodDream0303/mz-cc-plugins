@@ -129,13 +129,14 @@
 
 **Interfaces:** `start_scope(plugin_root: Path) -> int` 无窗口启动本工具，返回 0 表示启动请求成功，不代表真实 GUI 验收通过；启动路径基于入口文件位置，不能依赖当前目录或用户名。
 
-- [ ] 写失败测试：两端 name/version 一致为 ai-chat-scope/2.0.0、资源路径存在；Codex 清单显式引用专属 hook 配置，默认 hooks/hooks.json 不存在，Claude 清单不引用 Codex hook；两市场保留其他插件条目；启动脚本在含空格/中文/引号的路径下按参数数组运行，不经字符串 shell 拼接；VBS 不含个人 Python 绝对路径。
-- [ ] 运行插件 unittest，确认失败；填写清单与市场条目，共用宿主中性的启动技能；Codex 使用其支持的插件根变量，Windows 命令正确引用。启动器使用当前 Python 对应的 pythonw 或标准无窗口回退；不把 Claude Bash 内联语法当作 Codex 执行约定。
-- [ ] 更新 README：依赖、两端安装/手动启动、hook 信任、旧插件手动迁移与旧配置兼容、Codex 不支持关闭、已验证版本和能力降级；清楚区分旧会话未加载 hook 与工具故障。不安装或卸载用户现有插件。
-- [ ] 运行 `python -B -m unittest discover -s tests -p test_codex_scope_probe.py -v`、`python -B -m unittest discover -s ai-chat-scope/tests -p 'test_*.py' -v`、所有产品 Python 文件 AST 解析、清单 JSON 解析、`git diff --check`；全部应通过。只在改动影响其他插件时运行相应检查，不无故安装其他插件依赖。
+- [x] 写失败测试：两端 name/version 一致为 ai-chat-scope/2.0.0、资源路径存在；Codex 清单显式引用专属 hook 配置，默认 hooks/hooks.json 不存在，Claude 清单不引用 Codex hook；两市场保留其他插件条目；启动脚本在含空格/中文/引号的路径下按参数数组运行，不经字符串 shell 拼接；VBS 不含个人 Python 绝对路径。
+- [x] 运行插件 unittest，确认失败；填写清单与市场条目，共用宿主中性的启动技能；Codex 使用其支持的插件根变量，Windows 命令正确引用。启动器使用当前 Python 对应的 pythonw 或标准无窗口回退；不把 Claude Bash 内联语法当作 Codex 执行约定。
+- [x] 更新 README：依赖、两端安装/手动启动、hook 信任、旧插件手动迁移与旧配置兼容、Codex 不支持关闭、已验证版本和能力降级；清楚区分旧会话未加载 hook 与工具故障。不安装或卸载用户现有插件。
+- [x] 运行 `python -B -m unittest discover -s tests -p test_codex_scope_probe.py -v`、`python -B -m unittest discover -s ai-chat-scope/tests -p 'test_*.py' -v`、所有产品 Python 文件 AST 解析、清单 JSON 解析、`git diff --check`；全部应通过。只在改动影响其他插件时运行相应检查，不无故安装其他插件依赖。
 - [ ] 进行隔离的真实双宿主 GUI 验收：活跃发现、执行/待机、两端等待与恢复、Codex 正常退出后消失、hook 未启用时提示、来源与同名消歧、窗口操作与重启。需要用户手动信任 hook/操作真实测试对话的项目保留为明确验收项，不能凭模拟测试标通过。
 - [ ] 使用 requesting-code-review 完整审阅本分支；按证据处理反馈，修复后仅重跑受影响检查。交付包含测试计数、真实验收结果、限制与提交列表；使用 finishing-a-development-branch 收尾，不擅自合并/推送。
 - [ ] 提交：`feat(scope): package AI Chat Scope for Claude and Codex`。
+
 
 ## 计划自查
 

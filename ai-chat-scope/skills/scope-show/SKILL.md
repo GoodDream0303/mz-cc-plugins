@@ -1,21 +1,24 @@
 ---
 name: scope-show
-description: 启动 claude-scope 悬浮窗,实时监视各 Claude Code 会话的"执行中/待机/需要你"状态。用户需要看多会话状态时手动触发。
+description: Use when 用户明确要求打开 AI Chat Scope，或查看 Windows 上多个 Claude Code/Codex CLI 会话的悬浮状态窗。
 disable-model-invocation: true
-allowed-tools: Bash
 ---
 
-# 启动 claude-scope 悬浮窗
+# 启动 AI Chat Scope
 
-本插件的悬浮窗是纯 Python(tkinter)脚本 `src/scope.pyw`(Windows,无控制台、置顶半透明),
-用系统 Python 的无窗口启动器 `pyw` 直接跑、不打包 exe。下面这条命令在插件上下文里后台启动它
-(若已在运行,再开一个也会读同一份配置,通常无害):
+Windows、Python 3.9+。Claude Code 与 Codex 共用一个轻量 tkinter 窗口。
 
-!`pyw "${CLAUDE_PLUGIN_ROOT}/src/scope.pyw" & echo "claude-scope 已启动 (PID $!)"`
+1. 根据**本次实际加载的 SKILL.md 路径**确定插件根：技能文件所在目录向上两级。不要依赖可能未设置或属于另一插件的环境变量。
+2. 用当前宿主的 shell 工具执行以下 PowerShell 命令，把占位路径换成已确定的绝对路径：
 
-> 依赖:目标机需装有 **Python 3**(标准安装自带 `pyw` 启动器与 tkinter)。若 `pyw` 不可用,
-> 回退用 `pythonw "${CLAUDE_PLUGIN_ROOT}/src/scope.pyw" &`。
+```powershell
+python -B "<实际插件根>\scripts\start_scope.py"
+```
 
-启动后请告诉用户:悬浮窗已拉起;红灯=需要你(等授权/回答)、蓝灯=后台任务(agent/workflow)运行中、
-绿灯=执行中、黄灯=待机。优先级红>蓝>绿>黄;悬停蓝灯行可看后台任务名与状态。
-红/绿/黄读会话文件 `~/.claude/sessions/<PID>.json` 的 `status`,蓝灯读 `~/.claude/jobs/<id>/state.json`,无需 hook。
+启动器选择无窗口 Python；同一运行目录只保留一个实例。若窗口已经打开，继续使用现有窗口，不自动关闭它或任何 CLI。用户明确要换新版时，可请用户从旧窗菜单退出后再启动。不要把启动器的成功返回当作已看见新窗口。
+
+向用户简短说明：`CC`=Claude、`CX`=Codex；红=需要用户、绿=执行、黄=待机、蓝=Claude 后台会话。`SYNC`/`STALE` 表示状态同步中/暂未更新，悬停可看详情。
+
+Codex 的完整授权/同步问答提示需要显式配置的 CLI 专用实时服务；它应先由 CLI 初始化，再打开浮窗。未配置时仍能显示普通 CLI 的执行/待机及已识别的异步待输入状态，底部会说明授权提示未启用。不要承诺所有 Codex 红灯已经可用。
+
+仅当用户已经给出实时端点和令牌文件路径时，把两者作为独立参数转交启动器；令牌内容不进入命令、对话或配置。不要自行启动服务、安装插件、修改 CLI 全局配置或授予 hook 信任。需要配置时参阅本插件 [README](../../README.md)。

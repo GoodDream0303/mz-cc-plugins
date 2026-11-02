@@ -1,6 +1,11 @@
-' 静默启动 claude-scope(无控制台窗口)。双击本文件即可,或放入"启动"文件夹开机自启。
-Dim shell, here, py
+' Start AI Chat Scope using Python from PATH, without a console.
+Dim shell, here
 Set shell = CreateObject("WScript.Shell")
 here = Left(WScript.ScriptFullName, InStrRev(WScript.ScriptFullName, "\"))
-py = "C:\Users\mzzhu2\AppData\Local\Programs\Python\Python313\pythonw.exe"
-shell.Run """" & py & """ """ & here & "scope.pyw""", 0, False
+On Error Resume Next
+shell.Run "pythonw.exe -B """ & here & "scope.pyw""", 0, False
+If Err.Number <> 0 Then
+  Err.Clear
+  shell.Run "pyw.exe -3 -B """ & here & "scope.pyw""", 0, False
+End If
+If Err.Number <> 0 Then MsgBox "Python 3 with tkinter is required for AI Chat Scope."

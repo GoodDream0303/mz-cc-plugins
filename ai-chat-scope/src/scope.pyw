@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-claude-scope (tkinter 轻量版)
+AI Chat Scope (tkinter 轻量版)
 多会话状态悬浮监视器:
   红=需要你(等待授权/回答)
-  蓝=等待后台(agent/workflow运行中)
+  蓝=Claude 后台会话
   绿=思考/执行中(自己busy)
   黄=待机(idle)
 无边框 / 置顶 / 半透明(滚轮或滑块调) / 可拖动 / 可缩放(右下角缩放整体,右边缘单独调宽)。
@@ -11,9 +11,9 @@ claude-scope (tkinter 轻量版)
        (status: waiting=等授权/回答 -> 红, idle -> 黄, busy/shell 等其余 -> 绿);
        ~/.claude/jobs/<id>/state.json 检测后台任务。
 状态优先级:红 > 蓝 > 绿 > 黄。
-窗口配置与日志放 %LOCALAPPDATA%\\claude-scope\\(与 CLI、插件版本目录均无关,升级不丢)。
+窗口配置与日志放 %LOCALAPPDATA%\\ai-chat-scope\\(与 CLI、插件版本目录均无关,升级不丢)。
 
-**安全约束:本程序只读 ~/.claude 文件、只操作自己的窗口与光标,绝不枚举或打开其它进程**
+**安全约束:只读 Claude/Codex 会话文件及显式配置的本地实时状态；不枚举或打开其他进程。**
 (早期版本用 OpenProcess/Toolhelp 查后台 shell,疑似被 EDR 拦截并连带影响 MCP/Dashboard,已彻底移除)。
 唯一例外:用户右键某行「关闭」并确认后,一次性启动外部命令结束该会话:后台会话 `claude stop <jobId>`;
 交互会话起子进程 `scope.pyw --quit-session <pid>` 往其控制台注入 Ctrl+C 正常退出,未退出时再经用户确认

@@ -146,3 +146,14 @@ python -B tools/codex_scope_probe.py --report --root '<独立测试目录>'
 - [OpenAI Hooks](https://developers.openai.com/codex/hooks)：公开事件与字段。
 - 本机 `codex --help`、`codex app-server --help`、`codex app-server daemon version` 和 `codex app-server generate-json-schema --out <临时目录>`。
 - 本次 worktree 中探测器与可重复运行的 8 项单元测试。
+
+## 产品与打包验证
+
+- 产品测试 52 项、根探测测试 22 项通过；包括实际 Windows 文件字节锁持有/释放、目录联接越界、分块 UTF-8、文件替换、旧回合和 hook 隔离、凭据不写配置、不同来源故障隔离及 Codex 禁止关闭。
+- 实际 Tk fixture 窗口显示 CC/CX 与红绿黄、能力提示；窗口截图已目视检查。拖动/缩放/透明度回调在真实窗口执行成功，10 次单行 fixture 绘制均值约 3.863 ms；该值不代表完整真实负载的 CPU/内存保证。
+- 实际入口使用独立运行目录启动并从菜单重启，后继进程成功接过实例 mutex，启动/GUI error.log 为空。仅终止本次创建的测试子进程。
+- 原生弹出菜单会等待交互，自动点测脚本的撤回出现阻塞；定向取消本次测试窗口的菜单后退出。菜单路由用可执行的 UI 边界测试验证，没有把自动撤回当作产品操作完成的证据。
+- 旧配置只读回退、新配置优先、实时配置保留、无源码字节码写入均测试；测试生成的本工作区缓存已清理并加入忽略规则。
+- Codex 原生命令在新建的临时 CODEX_HOME 中成功 marketplace add 本地仓库、plugin add ai-chat-scope@mz-codex-plugins；2.0.0 的两端清单均存在于隔离缓存，Codex 专属 hooks 路径成功解析。临时目录已清理，用户真实插件安装未改动。
+- 启动技能行为测试：无指导时能定位启动器但无法说明颜色；读取新技能后给出正确带引号命令、状态含义、未启用授权能力和保留现有窗口的说明。
+- 实际令牌值未进入仓库或日志；插件默认不安装/卸载、不获信任、不拉起 CLI 服务。整分支独立审阅待完成。

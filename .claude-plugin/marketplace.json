@@ -4,16 +4,23 @@
     "name": "mzzhu2"
   },
   "metadata": {
-    "description": "mzzhu2 的 Claude Code 插件市场:多会话状态悬浮窗 + 跨会话任务接力。",
+    "description": "mzzhu2 的插件市场：AI Chat Scope 与跨会话任务接力。",
     "version": "1.0.0"
   },
   "plugins": [
     {
-      "name": "claude-scope",
-      "source": "./claude-scope",
-      "description": "悬浮窗实时监视多个 Claude Code 会话状态(红=需要你 / 蓝=后台任务 / 绿=执行中 / 黄=待机);只读会话状态文件,无需 hook。",
+      "name": "ai-chat-scope",
+      "source": "./ai-chat-scope",
+      "description": "Windows 轻量多会话浮窗，支持 Claude Code 与 Codex CLI。",
       "category": "monitoring",
-      "tags": ["overlay", "monitoring", "sessions", "notifications", "agent", "workflow"]
+      "tags": [
+        "overlay",
+        "monitoring",
+        "sessions",
+        "notifications",
+        "agent",
+        "workflow"
+      ]
     },
     {
       "name": "task-handoff",

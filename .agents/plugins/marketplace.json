@@ -1,10 +1,32 @@
 {
   "name": "mz-codex-plugins",
-  "interface": {"displayName": "mz Codex Plugins"},
-  "plugins": [{
-    "name": "codex-hud",
-    "source": {"source": "local", "path": "./codex-hud"},
-    "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
-    "category": "Developer Tools"
-  }]
+  "interface": {
+    "displayName": "mz Codex Plugins"
+  },
+  "plugins": [
+    {
+      "name": "codex-hud",
+      "source": {
+        "source": "local",
+        "path": "./codex-hud"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    },
+    {
+      "name": "ai-chat-scope",
+      "source": {
+        "source": "local",
+        "path": "./ai-chat-scope"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
 }

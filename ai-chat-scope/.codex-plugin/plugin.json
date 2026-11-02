@@ -1,0 +1,13 @@
+{
+  "name": "ai-chat-scope",
+  "version": "2.0.0",
+  "description": "Windows floating session monitor for Claude Code and Codex CLI.",
+  "author": {"name": "mzzhu2"},
+  "skills": "./skills/",
+  "hooks": "./hooks/codex-hooks.json",
+  "interface": {
+    "displayName": "AI Chat Scope",
+    "shortDescription": "Claude and Codex session status",
+    "category": "Developer Tools"
+  }
+}

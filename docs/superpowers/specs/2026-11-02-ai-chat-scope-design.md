@@ -1,7 +1,7 @@
 # AI Chat Scope：Claude Code 与 Codex CLI 多会话浮窗
 
 日期：2026-11-02
-状态：用户已批准设计（2026-11-02）；尚未实施产品改动。
+状态：用户已批准设计（2026-11-02）；实现已落地，进入整分支审阅。
 工作区：`E:\Ai_Process_Folder\mz-cc-plugins\.worktrees\ai-chat-scope`
 分支：`feat/ai-chat-scope`；创建时基线：`a0fe36e`。
 
@@ -161,3 +161,13 @@ Claude 行继续提供原来的关闭入口。**首版 Codex 行不提供关闭�
 - 本机只读核查：Codex CLI 0.166.0；会话头部、事件类型统计、已有会话写入锁的只读探测。
 - [OpenAI Hooks](https://developers.openai.com/codex/hooks)：生命周期事件、字段、插件 hook、信任流程，以及 transcript 格式不是稳定接口的说明。
 - [OpenAI 插件打包](https://developers.openai.com/plugins/build/plugins)：Codex 兼容清单、插件资源及 hook 定位。
+
+## 11. 验证后的实现调整
+
+日志/hook 没有批准后的即时回执后，用户选择继续验证实时协议；实际 CLI 已验证只读查询的恢复早于长命令结束。因此实现使用日志读取常规与异步待输入、显式配置的已有 CLI 专用服务提供授权和同步等待；不自动启动服务，不把普通 CLI 的授权能力描述为已启用。
+
+本机 remote CLI 的 source 也可能是 vscode，因此只有显式配置的 CLI 专用端点可提供这一来源的主线程；不自动连接 Desktop 服务。服务须先由 CLI 初始化，避免观察者抢占 originator。
+
+异步只监视“待用户消息”：AgentMessage.questions 置为待输入，后续真实 UserMessage/accepted steering 解除这组注意状态，不声称逐题语义答案已完成；普通 task_complete 不清除等待。
+
+真实 CLI 代表场景、实际后端固定响应测试与回归测试共同验证状态契约。混合 Tk fixture、实际入口与重启分别验证；宿主人工安装和同步选择界面的人工点测不以自动后台测试冒充。细节见验证记录与计划的实施裁定。
