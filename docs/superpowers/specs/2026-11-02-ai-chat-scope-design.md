@@ -1,7 +1,7 @@
 # AI Chat Scope：Claude Code 与 Codex CLI 多会话浮窗
 
 日期：2026-11-02
-状态：设计待用户批准；尚未实施产品改动。
+状态：用户已批准设计（2026-11-02）；尚未实施产品改动。
 工作区：`E:\Ai_Process_Folder\mz-cc-plugins\.worktrees\ai-chat-scope`
 分支：`feat/ai-chat-scope`；创建时基线：`a0fe36e`。
 
@@ -11,7 +11,7 @@
 
 用户已确认先支持 **Codex CLI**，并选择“常规数据只读，插件 hook 补充等待信号”的方案。保留 Claude Code 支持及原有轻量、低干扰约束。
 
-命名提案：界面显示 **AI Chat Scope**，插件名和目录名统一为 **`ai-chat-scope`**。这是对用户 `AI-chat_scope` 提议的格式整理，随本文一并确认。
+命名已确认：界面显示 **AI Chat Scope**，插件名和目录名统一为 **`ai-chat-scope`**。
 
 本次包括：双宿主会话采集、状态汇总、来源区分、Codex 插件 hook、两套插件入口和市场清单、旧窗口配置兼容、自动化验证与人工验收说明。
 
@@ -113,11 +113,11 @@ hook 只写入 `%LOCALAPPDATA%\ai-chat-scope\runtime\codex\<home-key>\<session-i
 
 新配置与日志目录为 `%LOCALAPPDATA%\ai-chat-scope\`。新配置不存在时，读取旧 `%LOCALAPPDATA%\claude-scope\config.json` 的窗口字段作兼容回退，正常保存只写新目录；不删除或改写旧目录，不覆盖已经存在的新配置。损坏配置采用默认值并限制几何尺寸与透明度。
 
-Claude 行继续提供原来的关闭入口。**首版 Codex 行不提供关闭命令**：当前已核查的公开会话字段和 hook 输入没有可靠 PID 归属，不能把 Claude 的 Ctrl+C 注入或 taskkill 过滤直接套用到 Codex。提供复制会话 ID/恢复命令等只读操作即可；这项功能差异随本文明确交由用户确认。后续如需 Codex 关闭功能，应另行验证可靠身份映射和退出语义。
+Claude 行继续提供原来的关闭入口。**首版 Codex 行不提供关闭命令**：当前已核查的公开会话字段和 hook 输入没有可靠 PID 归属，不能把 Claude 的 Ctrl+C 注入或 taskkill 过滤直接套用到 Codex。提供复制会话 ID/恢复命令等只读操作即可；这项功能差异已随本文批准确认。后续如需 Codex 关闭功能，应另行验证可靠身份映射和退出语义。
 
 ## 7. 插件打包与改名迁移
 
-源码目录计划由 `claude-scope/` 改为 `ai-chat-scope/`，版本提案为 `2.0.0`（插件标识变更及新增宿主）。不复制维护两份 UI。
+源码目录由 `claude-scope/` 改为 `ai-chat-scope/`，版本为 `2.0.0`（插件标识变更及新增宿主，用户已确认）。不复制维护两份 UI。
 
 同一源码目录提供 `.claude-plugin/plugin.json` 与 `.codex-plugin/plugin.json`，二者插件标识均为 `ai-chat-scope`。沿用仓库现有 Codex 兼容清单格式；不在此任务中迁移整个市场到另一套格式。
 
@@ -152,7 +152,7 @@ Claude 行继续提供原来的关闭入口。**首版 Codex 行不提供关闭�
 
 实现者可以决定模块文件名、事件文件保留上限、发现频率/预算、来源标记的具体短文本、测试框架（优先标准库 unittest）及重复启动的本工具通信细节。必须保持单一代码源、原始会话数据只读、无后台进程枚举和以上验收条件。
 
-需用户随设计批准确认的产品决定：规范命名 `ai-chat-scope`、改名版本 `2.0.0`，以及首版 Codex 暂不提供右键关闭。混合采集方式及 CLI 范围已确认，不重复询问。
+用户已随设计批准确认：规范命名 `ai-chat-scope`、改名版本 `2.0.0`，以及首版 Codex 暂不提供右键关闭。混合采集方式及 CLI 范围已确认，不重复询问。
 
 ## 10. 依据
 
