@@ -3,7 +3,8 @@
 A configurable multiline companion pane for **native Windows Terminal**.
 It attaches to an existing Codex session. The native statusline stays intact.
 
-**No hooks, no replacement statusline, no new Codex session, no daemon override.**
+**Automatically opens on main Codex startup/resume through a minimal hook.**
+No replacement statusline, new Codex session, daemon override or model request.
 
 UI labels, menus and diagnostics default to English. Task/session names retain
 their original language. Model, reasoning effort, directory and session-name
@@ -21,6 +22,27 @@ npm ci --ignore-scripts
 npm run build
 node ./bin/hud.mjs doctor
 ```
+
+## Automatic opening (default)
+
+After installing the plugin, open Codex `/hooks` and review/trust the **Codex HUD
+SessionStart** hook. Exit and open Codex again after the first trust review.
+Future main-session startups and resumes automatically add the companion pane.
+
+The hook is asynchronous and emits no stdout or model/developer context. It
+uses the supplied transcript metadata, skips subagents/non-CLI/compact events,
+and does not create a second display for an already open or pending session.
+Manual attachment remains available without trusting hooks.
+
+```powershell
+mz-codex-hud.cmd config set startup.enabled false
+mz-codex-hud.cmd config set startup.enabled true
+mz-codex-hud.cmd config set startup.window last
+```
+
+Autostart targets the most recently active Terminal window by default. Set
+`startup.window` to a known window ID/name when a fixed target is preferred.
+Closing a HUD keeps Codex running; the next startup/resume may open it again.
 
 From inside Codex, invoke `$hud-start` or run:
 
@@ -60,8 +82,8 @@ codex plugin add codex-hud@mz-codex-plugins
 ```
 
 The Codex marketplace is `.agents/plugins/marketplace.json`, separate from the
-original Claude marketplace. The plugin registers no lifecycle hooks and needs
-no /hooks trust review. Skills: `$hud-start`, `$hud-configure`, `$hud-doctor`.
+original Claude marketplace. The plugin registers one asynchronous SessionStart
+hook for startup/resume only. Skills: `$hud-start`, `$hud-configure`, `$hud-doctor`.
 If a fresh cache is unbuilt, run `npm ci --ignore-scripts` and `npm run build`
 in its plugin directory once.
 
@@ -96,6 +118,7 @@ See [configuration compatibility](docs/compatibility.md).
 mz-codex-hud.cmd demo
 npm test
 powershell -NoProfile -File ./scripts/smoke-terminal.ps1
+powershell -NoProfile -File ./scripts/smoke-autostart.ps1
 ```
 
 The demo uses synthetic telemetry and makes no model request.

@@ -43,7 +43,8 @@ async function watch(args:string[],once=false):Promise<void>{
    try{config=loadConfig(cfgFile);statusMessage='';}catch(e){statusMessage='Configuration reload failed: '+(e as Error).message;}
    let snapshot=emptySnapshot(selected??'pending');
    if(selected){
-    if(Date.now()>=nextDiscover||!reader){
+    if(descriptor?.transcriptPath){if(!reader||knownPath!==descriptor.transcriptPath){knownPath=descriptor.transcriptPath;reader=new SessionReader(knownPath,selected);}}
+    else if(Date.now()>=nextDiscover||!reader){
      const session=await findSession(root,selected);nextDiscover=Date.now()+5000;
       if(session&&(!reader||session.path!==knownPath)){knownPath=session.path;reader=new SessionReader(session.path,session.id);selected=session.id;}
     }
@@ -93,8 +94,8 @@ async function start(args:string[],demo=false):Promise<void>{
   else{v.sessionId=selected;v.sessionsRoot=path.resolve(sessionsRoot);}
  });
  const descriptor=readLaunch(d.file),window=option(args,'--window')??'last';const command=buildTerminalArgs(descriptor,window);
- if(args.includes('--dry-run')){console.log(JSON.stringify({mode:demo?'demo':'attach',hooksRequired:false,window:demo?'mz-codex-hud-'+d.id:window,sessionId:descriptor.sessionId,paneSize:d.paneSize,launch:d.file}));return;}
- execFileSync('wt.exe',command,{windowsHide:false,stdio:'ignore',timeout:10000});console.log('HUD opened. Launch ID: '+d.id);
+ if(args.includes('--dry-run')){updateLaunch(d.file,v=>{v.state='exited';v.exitCode=0;});console.log(JSON.stringify({mode:demo?'demo':'attach',hooksRequired:false,window:demo?'mz-codex-hud-'+d.id:window,sessionId:descriptor.sessionId,paneSize:d.paneSize,launch:d.file}));return;}
+ try{execFileSync('wt.exe',command,{windowsHide:false,stdio:'ignore',timeout:10000});}catch(error){updateLaunch(d.file,v=>{v.state='exited';v.exitCode=1;});throw error;}console.log('HUD opened. Launch ID: '+d.id);
 }
 export async function main(args=process.argv.slice(2)):Promise<void>{
  const command=args[0]??'help',rest=args.slice(1);
@@ -125,7 +126,7 @@ export async function main(args=process.argv.slice(2)):Promise<void>{
   }
   case 'stop':{const id=option(rest,'--launch');if(!id||!/^[a-f0-9-]{36}$/i.test(id))throw new Error('stop --launch <launch ID>');requestStop(path.join(runtimeRoot(),id+'.json'));console.log('HUD stop requested; Codex keeps running');return;}
   case 'help':case '--help':case '-h':
-   console.log('mz-codex-hud\n  start [--session ID] [--window ID_OR_NAME]\n  watch|once [--session ID] [--json] [--width N]\n  list\n  configure\n  config show | config set KEY VALUE\n  import-claude [--path CONFIG] [--yes]\n  doctor\n  demo [--duration MILLISECONDS]\n  stop --launch ID\nAttaches existing Codex; no hooks and no statusline replacement.\nAll commands accept --config FILE.');return;
+   console.log('mz-codex-hud\n  start [--session ID] [--window ID_OR_NAME]\n  watch|once [--session ID] [--json] [--width N]\n  list\n  configure\n  config show | config set KEY VALUE\n  import-claude [--path CONFIG] [--yes]\n  doctor\n  demo [--duration MILLISECONDS]\n  stop --launch ID\nManual attachment needs no hooks; auto-open uses SessionStart.\nNative statusline is unchanged. All commands accept --config FILE.');return;
   default:throw new Error('Unknown command: '+command);
  }
 }

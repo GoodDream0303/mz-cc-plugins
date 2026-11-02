@@ -1,4 +1,9 @@
-# Validation: passive companion HUD 0.2.0
+# Validation: companion HUD with minimal autostart
+
+Version 0.3.0 adds the user-selected asynchronous startup/resume hook. Manual
+attachment stays independent of hooks. The native statusline and hidden identity
+defaults remain unchanged. The original no-hook requirement below describes the
+historical 0.2 implementation, superseded only for automatic startup triggering.
 
 The follow-up user requirements replace the 0.1 launcher design. This version
 attaches an existing Codex conversation and keeps native statusline untouched.
@@ -28,6 +33,22 @@ verified reading the same existing session in an added pane, preservation of
 the original owner pane, and independent HUD closure. Independent review found
 a session-name fallback leaking an ID and an undocumented window override;
 both were reproduced and corrected with regression tests.
+
+## 0.3.0 automatic opening
+
+The hook command was checked against the installed Codex 0.166.0 command-runner
+source: native Windows defaults to COMSPEC /C, so commandWindows uses
+%PLUGIN_ROOT%, while the Unix command uses ${PLUGIN_ROOT}.
+
+Synthetic SessionStart input through that actual Windows command opened a real
+Terminal pane, emitted no stdout, deduplicated a repeated event, and closed only
+the HUD when requested. Unit tests cover main-thread metadata, disabled config,
+compact/subagent/non-CLI skips, mismatched identity, concurrent opening,
+failed-launch recovery and manual dry-run metadata not suppressing autostart.
+
+The actual native Codex hook dispatch after trust remains the first-use boundary:
+the user must review the hook in /hooks and restart. No trust hashes or bypass
+flags are changed by setup or tests.
 
 ## 0.2.1 audit fixes
 

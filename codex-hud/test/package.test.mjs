@@ -3,9 +3,9 @@ const root=path.resolve(import.meta.dirname,'..');
 test('CLI help exposes commands on separate readable lines',()=>{
  const result=spawnSync(process.execPath,['bin/hud.mjs','help'],{cwd:root,encoding:'utf8'});assert.equal(result.status,0);assert.match(result.stdout,/\n  start /);assert.match(result.stdout,/\n  configure\n/);
 });
-test('package exposes a passive HUD plugin without hook registration',t=>{
+test('package registers only the quiet startup/resume autostart hook',t=>{
  const marketplace=JSON.parse(fs.readFileSync(path.join(root,'..','.agents','plugins','marketplace.json'),'utf8'));const entry=marketplace.plugins.find(p=>p.name==='codex-hud');assert.ok(entry);assert.equal(path.resolve(root,'..',entry.source.path),root);
- const manifest=JSON.parse(fs.readFileSync(path.join(root,'.codex-plugin','plugin.json'),'utf8'));assert.equal(manifest.hooks,undefined);assert.ok(!fs.existsSync(path.join(root,'hooks/hooks.json')));
+ const manifest=JSON.parse(fs.readFileSync(path.join(root,'.codex-plugin','plugin.json'),'utf8'));assert.equal(manifest.hooks,'./hooks/hooks.json');const hooks=JSON.parse(fs.readFileSync(path.join(root,manifest.hooks),'utf8'));assert.deepEqual(Object.keys(hooks.hooks),['SessionStart']);const group=hooks.hooks.SessionStart[0];const matcher=new RegExp(group.matcher);assert.ok(matcher.test('startup')&&matcher.test('resume'));assert.ok(!matcher.test('compact')&&!matcher.test('fork'));assert.equal(group.hooks[0].async,true);
  for(const skill of ['hud-start','hud-configure','hud-doctor'])assert.ok(fs.statSync(path.join(root,'skills',skill,'SKILL.md')).isFile());
 });
 test('package CLI can configure and render fixture telemetry with English labels and original task names',t=>{
