@@ -10,6 +10,8 @@ import uuid
 from jsonl_reader import JsonlReader
 from session_types import SessionSnapshot
 from win32_support import probe_writer_lock
+from codex_wait import AsyncAttention
+from runtime_paths import runtime_root, home_events_root, consume_events
 
 UUID_PATTERN = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 ROLLOUT = re.compile(r".*-(" + UUID_PATTERN + r")\.jsonl$", re.I)
@@ -28,9 +30,11 @@ def display_text(value, limit=200):
 
 
 class CodexSource:
-    def __init__(self, home=None, lock_probe=probe_writer_lock):
+    def __init__(self, home=None, lock_probe=probe_writer_lock, live=None, runtime_dir=None):
         self.home = Path(home or os.environ.get("CODEX_HOME") or Path.home() / ".codex").resolve()
         self.lock_probe = lock_probe
+        self.live = live
+        self._runtime_dir = Path(runtime_dir) if runtime_dir is not None else runtime_root()
         self.diagnostics = ()
         self._active = set()
         self._uncertain = set()
@@ -136,9 +140,11 @@ class CodexSource:
 
     @staticmethod
     def _new_state():
-        return {"generation": -1, "meta": {}, "state": "stby", "turn": None}
+        return {"generation": -1, "meta": {}, "state": "stby", "turn": None,
+                "attention": AsyncAttention()}
 
     def _apply(self, state, record):
+        state["attention"].apply(record)
         payload = record.get("payload")
         if not isinstance(payload, dict):
             return
@@ -154,7 +160,18 @@ class CodexSource:
 
     def poll(self):
         notes = set()
+        live_rows = self.live.poll() if self.live is not None else {}
+        live_available = self.live is not None and self.live.available
+        if self.live is not None:
+            notes.update(self.live.diagnostics)
         self._locks(notes)
+        if live_available:
+            self._active.update(sid for sid in live_rows if re.fullmatch(UUID_PATTERN, sid, re.I))
+        for sid, row in live_rows.items():
+            path = row.get("path")
+            if (sid in self._active and isinstance(path, str)
+                    and safe_path(Path(path), self.home / "sessions")):
+                self._paths[sid] = Path(path)
         self._paths_step()
         if safe_path(self._title_reader.path, self.home):
             try:
@@ -201,10 +218,17 @@ class CodexSource:
             if sid in self._uncertain:
                 freshness = "stale"
             meta = state["meta"]
+            for event in consume_events(home_events_root(self._runtime_dir, self.home), sid):
+                if (event.get("hook_event_name") == "Interrupt"
+                        and isinstance(event.get("turn_id"), str)
+                        and event["turn_id"] == state["turn"]):
+                    self._apply(state, {"type": "event_msg", "payload": {
+                        "type": "turn_aborted", "turn_id": event.get("turn_id")}})
             if not meta and freshness == "syncing":
                 notes.add("Codex：正在同步会话信息")
             if ((meta.get("id") or meta.get("session_id")) != sid
-                    or meta.get("source") != "cli" or meta.get("thread_source") not in (None, "user")):
+                    or (meta.get("source") != "cli" and sid not in live_rows)
+                    or meta.get("thread_source") not in (None, "user")):
                 continue
             cwd = meta.get("cwd") if isinstance(meta.get("cwd"), str) else ""
             title = self._titles.get(sid) or display_text(meta.get("title") or meta.get("name")) or Path(cwd).name or sid[:8]
@@ -213,10 +237,30 @@ class CodexSource:
             except (ValueError, OverflowError):
                 started = 0.0
             detail = "同步日志中" if freshness == "syncing" else ("执行中" if state["state"] == "run" else "待机")
+            row_state = state["state"]
+            capabilities = ["copy_id", "async_input"]
+            native = live_rows.get(sid)
+            if live_available and native is not None and native.get("state") in ("run", "stby", "attn"):
+                row_state = native["state"]
+                detail = native.get("state_detail") or detail
+                capabilities.extend(("authorization", "sync_input"))
+                title = self._titles.get(sid) or display_text(native.get("name")) or title
+            elif native is not None:
+                freshness = "stale"
+            if state["attention"].waiting:
+                row_state = "attn"
+                if native is None or native.get("state") != "attn":
+                    detail = "等待用户消息"
+            if "authorization" not in capabilities:
+                notes.add("Codex：授权提示需连接实时服务")
             snapshots.append(SessionSnapshot("codex", sid, cwd=cwd, title=title,
-                state=state["state"], state_detail=detail, started_at=started,
-                freshness=freshness, capabilities=("copy_id",)))
-        if snapshots:
-            notes.add("Codex：授权提示需连接实时服务")
+                state=row_state, state_detail=detail, started_at=started,
+                freshness=freshness, capabilities=tuple(capabilities)))
         self.diagnostics = tuple(sorted(notes))
         return sorted(snapshots, key=lambda value: (value.started_at, value.session_id))
+
+    def close(self):
+        if self.live is not None:
+            self.live.close()
+        if self._scan_iter is not None:
+            self._scan_iter.close()

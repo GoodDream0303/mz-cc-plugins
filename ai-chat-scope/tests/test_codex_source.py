@@ -132,6 +132,52 @@ class CodexSourceTests(unittest.TestCase):
         source.poll()
         self.assertEqual(probed, [])
 
+    def test_async_question_waits_until_real_user_input(self):
+        _, path = self.session(1, events=[
+            {'type':'event_msg','payload':{'type':'task_started','turn_id':'turn-1'}},
+            {'type':'event_msg','payload':{'type':'item_completed','turn_id':'turn-1','item':{'type':'AgentMessage','id':'question-1','questions':[{'title':'Choose'}]}}},
+            {'type':'event_msg','payload':{'type':'task_complete','turn_id':'turn-1'}},
+        ])
+        source = self.source()
+        self.assertEqual(source.poll()[0].state, 'attn')
+        with path.open('a') as stream:
+            stream.write(json.dumps({'type':'event_msg','payload':{'type':'item_completed','turn_id':'turn-1','item':{'type':'UserMessage','id':'answer-1'}}})+'\n')
+        self.assertEqual(source.poll()[0].state, 'stby')
+
+    def test_live_approval_clears_before_log_command_completion(self):
+        sid, path = self.session(1, source='vscode')
+        source = self.source()
+        class Live:
+            available = True
+            diagnostics = ()
+            state = 'attn'
+            def poll(self):return {sid:{'state':self.state,'state_detail':'native','path':str(path),'cwd':'C:/repo','name':'CLI','created_at':0}}
+        live = Live()
+        source.live = live
+        initial = source.poll()
+        self.assertTrue(initial, 'A configured native service must expose its CLI root')
+        self.assertEqual(initial[0].state, 'attn')
+        live.state = 'run'
+        self.assertEqual(source.poll()[0].state, 'run')
+        self.assertIn('authorization', source.poll()[0].capabilities)
+
+    def test_unscoped_or_old_hook_cannot_clear_current_question(self):
+        sid, _ = self.session(1, events=[
+            {'type':'event_msg','payload':{'type':'task_started','turn_id':'turn-1'}},
+            {'type':'event_msg','payload':{'type':'item_completed','turn_id':'turn-1','item':{'type':'AgentMessage','id':'q','questions':[{'title':'Choose'}]}}},
+        ])
+        source = self.source()
+        source._runtime_dir = self.home/'tool-runtime'
+        self.assertEqual(source.poll()[0].state, 'attn')
+        from runtime_paths import publish_event, home_events_root
+        root = home_events_root(source._runtime_dir, self.home)
+        publish_event(root, {'session_id':sid,'hook_event_name':'Interrupt'})
+        self.assertEqual(source.poll()[0].state, 'attn')
+        publish_event(root, {'session_id':sid,'hook_event_name':'Interrupt','turn_id':'old'})
+        self.assertEqual(source.poll()[0].state, 'attn')
+        publish_event(root, {'session_id':sid,'hook_event_name':'Interrupt','turn_id':'turn-1'})
+        self.assertEqual(source.poll()[0].state, 'stby')
+
 
 if __name__ == '__main__':
     unittest.main()

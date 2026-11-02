@@ -103,12 +103,12 @@
 
 **Interfaces:** `runtime_root() -> Path`；`codex_home_key(home: Path) -> str`；`publish_event(root: Path, event: dict) -> Path`；`hook_main(stdin, stdout, root: Path) -> int`；`WaitReducer.apply(event: dict) -> None`，`resolve(session: SessionSnapshot) -> SessionSnapshot`。事件白名单及恢复转换以 Task 1 固化的兼容契约为准，不额外推断不存在的回执。
 
-- [ ] 写失败测试：白名单脱敏和 1 MiB stdin 上限；异常输入/不可写目录仍返回 0 且输出 `{}`；并发事件分别原子发布、读不到半 JSON；非法 session ID/路径穿越/重解析目录被拒绝；规范化相同 home 的键相同、不同 home 隔离。
-- [ ] 写失败测试：Task 1 的真实脱敏序列准确重现红→绿/黄；批准后的长工具仍执行时为绿；拒绝/中断/下一回合清理旧等待；并发等待不串线，旧回合延迟事件不能重新置红，异步提问不能因工具立即返回而误清，墙钟回拨不改变已确认的因果顺序。
-- [ ] 运行插件 unittest，确认失败；实现事件发布、归并及源能力提示。使用单调时间与回合/调用归属处理乱序，不能只按墙钟排序；事件文件清理由工具自己负责，保留当前未收敛状态，已退出会话才清理其已归并文件，删除前核对绝对路径属于本工具运行根。
-- [ ] 将 WaitReducer 接入 CodexSource 的快照汇总；未收到可确认的 hook 注册/事件时，明确显示等待状态未确认。根据验证结果添加最小必要注册事件，不为每个普通工具启动 Python；不得修改 CLI 全局文件或自动取得 hook 信任。
-- [ ] 重跑插件 unittest，核对输出目录中不存在样本秘密文本，故障路径不会把原始 stdin 写入 error.log。
-- [ ] 提交：`feat(scope): observe Codex wait states with isolated plugin hooks`。
+- [x] 写失败测试：白名单脱敏和 1 MiB stdin 上限；异常输入/不可写目录仍返回 0 且输出 `{}`；并发事件分别原子发布、读不到半 JSON；非法 session ID/路径穿越/重解析目录被拒绝；规范化相同 home 的键相同、不同 home 隔离。
+- [x] 写失败测试：Task 1 的真实脱敏序列准确重现红→绿/黄；批准后的长工具仍执行时为绿；拒绝/中断/下一回合清理旧等待；并发等待不串线，旧回合延迟事件不能重新置红，异步提问不能因工具立即返回而误清，墙钟回拨不改变已确认的因果顺序。
+- [x] 运行插件 unittest，确认失败；实现事件发布、归并及源能力提示。使用单调时间与回合/调用归属处理乱序，不能只按墙钟排序；事件文件清理由工具自己负责，保留当前未收敛状态，已退出会话才清理其已归并文件，删除前核对绝对路径属于本工具运行根。
+- [x] 将 WaitReducer 接入 CodexSource 的快照汇总；未收到可确认的 hook 注册/事件时，明确显示等待状态未确认。根据验证结果添加最小必要注册事件，不为每个普通工具启动 Python；不得修改 CLI 全局文件或自动取得 hook 信任。
+- [x] 重跑插件 unittest，核对输出目录中不存在样本秘密文本，故障路径不会把原始 stdin 写入 error.log。
+- [x] 提交：`feat(scope): observe Codex wait states with isolated plugin hooks`。
 
 ## Task 5：统一浮窗、后台快照与配置兼容
 
