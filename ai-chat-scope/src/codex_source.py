@@ -304,8 +304,6 @@ class CodexSource:
                 row_state = "attn"
                 if native is None or native.get("state") != "attn":
                     detail = "等待用户消息"
-            if "authorization" not in capabilities:
-                notes.add("Codex：授权提示需连接实时服务")
             snapshots.append(SessionSnapshot("codex", sid, cwd=cwd, title=title,
                 state=row_state, state_detail=detail, started_at=started,
                 freshness=freshness, capabilities=tuple(capabilities)))

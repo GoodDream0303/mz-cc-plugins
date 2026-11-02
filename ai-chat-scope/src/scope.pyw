@@ -148,6 +148,7 @@ class Scope:
         self.menu.add_command(label="置顶", command=self.toggle_pin)
         self.menu.add_command(label="重启", command=self.restart)
         self.menu.add_command(label="重置大小/位置", command=self.reset_geom)
+        self.menu.add_command(label="状态说明", command=self.show_status_info)
         self.menu.add_separator()
         self.menu.add_command(label="退出", command=self.quit_app)
         self._menu_kill = False     # 菜单顶部是否插着"关闭 CHn"项(+分隔线)
@@ -180,6 +181,18 @@ class Scope:
             self.menu.tk_popup(int(e.x_root), int(e.y_root))
         finally:
             self.menu.grab_release()
+
+    def show_status_info(self):
+        text = (
+            "CC：Claude Code；CX：Codex CLI。\n"
+            "红灯：需要授权或回答；绿灯：执行中；黄灯：待机；蓝灯：Claude 后台会话。\n\n"
+            "SYNC：正在同步会话记录；STALE：状态暂未更新。\n\n"
+            "Codex 的完整授权和同步问答提示需要连接已配置的本地实时服务。\n"
+            "未配置时，仍可显示执行、待机及已识别的异步待输入状态。"
+        )
+        if self.diagnostics:
+            text += "\n\n当前提示：\n" + "\n".join(self.diagnostics)
+        messagebox.showinfo("AI Chat Scope · 状态说明", text, parent=self.root)
 
     def kill_session(self, ch, ss):
         if row_action(ss) != "close":

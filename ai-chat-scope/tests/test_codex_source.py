@@ -42,6 +42,15 @@ class CodexSourceTests(unittest.TestCase):
         self.locks[sid] = 'released'
         self.assertEqual(source.poll(), [])
 
+    def test_unconfigured_optional_live_service_is_not_a_diagnostic(self):
+        self.session(1)
+        source = self.source()
+        self.addCleanup(source.close)
+        rows = source.poll()
+        self.assertEqual(len(rows), 1)
+        self.assertNotIn('authorization', rows[0].capabilities)
+        self.assertEqual(source.diagnostics, ())
+
     def test_new_session_is_discovered_during_continuous_polling(self):
         first, _ = self.session(1)
         source = self.source()
