@@ -77,12 +77,12 @@
 
 **Interfaces:** `ClaudeSource(home: Path).poll() -> list[SessionSnapshot]`，`mark_closed(pid: int, session_id: str) -> None`；`SessionSnapshot.key`、`to_gui_row()` 如公共接口定义。
 
-- [ ] 先执行 `git mv claude-scope ai-chat-scope`，核对内容未改变，以免预先创建测试目录导致目录移动失败；这一步只改路径。
-- [ ] 写失败测试：`test_parked_hides_only_when_live_bg_present` 覆盖 spare/parked 的四种组合；`test_waiting_overrides_background`、`test_explicit_title_beats_ai_title`、`test_partial_session_keeps_previous_snapshot`；`test_cross_provider_same_id_has_distinct_key`、`test_codex_has_no_fake_pid_or_close_capability`。所有数据在临时目录生成。
-- [ ] 运行 `python -B -m unittest discover -s ai-chat-scope/tests -p 'test_*.py' -v`，确认新接口测试因缺少实现失败。
-- [ ] 提取现有 Claude 读取逻辑，保留现有已验证的标题、后台、去重和关闭集合语义；让 scope.pyw 暂时通过 `to_gui_row()` 使用 ClaudeSource。只对有效 Claude PID 提供 `close` 能力；其他 GUI 行为此时保持原样。
-- [ ] 重跑插件测试，核对 `git diff --find-renames`，确认是移动/提取而非维护第二份 UI，旧源码目录不再保留重复产品代码。
-- [ ] 提交：`refactor(scope): rename monitor and isolate Claude session source`。
+- [x] 先执行 `git mv claude-scope ai-chat-scope`，核对内容未改变，以免预先创建测试目录导致目录移动失败；这一步只改路径。
+- [x] 写失败测试：`test_parked_hides_only_when_live_bg_present` 覆盖 spare/parked 的四种组合；`test_waiting_overrides_background`、`test_explicit_title_beats_ai_title`、`test_partial_session_keeps_previous_snapshot`；`test_cross_provider_same_id_has_distinct_key`、`test_codex_has_no_fake_pid_or_close_capability`。所有数据在临时目录生成。
+- [x] 运行 `python -B -m unittest discover -s ai-chat-scope/tests -p 'test_*.py' -v`，确认新接口测试因缺少实现失败。
+- [x] 提取现有 Claude 读取逻辑，保留现有已验证的标题、后台、去重和关闭集合语义；让 scope.pyw 暂时通过 `to_gui_row()` 使用 ClaudeSource。只对有效 Claude PID 提供 `close` 能力；其他 GUI 行为此时保持原样。
+- [x] 重跑插件测试，核对 `git diff --find-renames`，确认是移动/提取而非维护第二份 UI，旧源码目录不再保留重复产品代码。
+- [x] 提交：`refactor(scope): rename monitor and isolate Claude session source`。
 
 ## Task 3：Codex 活跃会话与常规状态采集
 
