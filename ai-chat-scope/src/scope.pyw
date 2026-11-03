@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-claude-scope (tkinter 轻量版)
+AI Chat Scope (tkinter 轻量版)
 多会话状态悬浮监视器:
   红=需要你(等待授权/回答)
-  蓝=等待后台(agent/workflow运行中)
+  蓝=Claude 后台会话
   绿=思考/执行中(自己busy)
   黄=待机(idle)
 无边框 / 置顶 / 半透明(滚轮或滑块调) / 可拖动 / 可缩放(右下角缩放整体,右边缘单独调宽)。
@@ -11,27 +11,33 @@ claude-scope (tkinter 轻量版)
        (status: waiting=等授权/回答 -> 红, idle -> 黄, busy/shell 等其余 -> 绿);
        ~/.claude/jobs/<id>/state.json 检测后台任务。
 状态优先级:红 > 蓝 > 绿 > 黄。
-窗口配置与日志放 %LOCALAPPDATA%\\claude-scope\\(与 CLI、插件版本目录均无关,升级不丢)。
+窗口配置与日志放 %LOCALAPPDATA%\\ai-chat-scope\\(与 CLI、插件版本目录均无关,升级不丢)。
 
-**安全约束:本程序只读 ~/.claude 文件、只操作自己的窗口与光标,绝不枚举或打开其它进程**
+**安全约束:只读 Claude/Codex 会话文件及显式配置的本地实时状态；不枚举或打开其他进程。**
 (早期版本用 OpenProcess/Toolhelp 查后台 shell,疑似被 EDR 拦截并连带影响 MCP/Dashboard,已彻底移除)。
 唯一例外:用户右键某行「关闭」并确认后,一次性启动外部命令结束该会话:后台会话 `claude stop <jobId>`;
 交互会话起子进程 `scope.pyw --quit-session <pid>` 往其控制台注入 Ctrl+C 正常退出,未退出时再经用户确认
 `taskkill /F /PID <pid> /FI "IMAGENAME eq claude.exe"`。本程序(浮窗进程)仍不持有任何进程句柄。
 设计为极低占用:after() 每秒轮询一次,无忙循环;数据无变化不重绘;无任何持续动画。
 """
-import os, re, sys, json, time, ctypes, shutil, subprocess, threading
+import os, re, sys, json, time, ctypes, shutil, subprocess, threading, argparse
+sys.dont_write_bytecode = True
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import messagebox
+from runtime_paths import runtime_root, load_window_config, save_window_config
+from monitor import Monitor, create_sources, row_signature, row_action, gui_rows
+from win32_support import claim_single_instance
+from claude_source import registry_matches
 
 HOME = os.path.expanduser("~")
 SESSIONS_DIR = os.path.join(HOME, ".claude", "sessions")
 PROJECTS_DIR = os.path.join(HOME, ".claude", "projects")
 JOBS_DIR = os.path.join(HOME, ".claude", "jobs")
 # 配置/日志放与 CLI 无关的固定目录:插件目录带版本号(升级即重置),~/.claude 又专属 Claude
-RUNTIME_DIR = os.path.join(os.environ.get("LOCALAPPDATA") or HOME, "claude-scope")
+RUNTIME_DIR = str(runtime_root())
 CONFIG_PATH = os.path.join(RUNTIME_DIR, "config.json")
+LEGACY_CONFIG_PATH = os.path.join(os.environ.get("LOCALAPPDATA") or HOME, "claude-scope", "config.json")
 
 POLL_MS = 1000
 
@@ -77,252 +83,18 @@ def cursor_pos():
     return p.x, p.y
 
 
-# ---------------- 标题回退(仅当 sessions.json 无 name 时) ----------------
-_title_cache = {}  # sid -> (path, mtime, title)
-
-def _enc_cwd(cwd):
-    # 与 Claude Code 一致:所有非字母数字字符都换成 "-"(如 AI_Skill_Repo -> AI-Skill-Repo)
-    return re.sub(r"[^A-Za-z0-9]", "-", cwd or "")
-
-def fallback_title(sid, cwd):
-    path = os.path.join(PROJECTS_DIR, _enc_cwd(cwd), sid + ".jsonl")
-    if not os.path.exists(path):
-        try:
-            path = next((p for d in os.listdir(PROJECTS_DIR)
-                         for p in [os.path.join(PROJECTS_DIR, d, sid + ".jsonl")]
-                         if os.path.exists(p)), None)
-        except OSError:
-            path = None
-    if not path:
-        return None
-    try:
-        mtime = os.path.getmtime(path)
-    except OSError:
-        return None
-    c = _title_cache.get(sid)
-    if c and c[0] == path and c[1] == mtime:
-        return c[2]
-    ai_title = last_prompt = None
-    try:
-        with open(path, "rb") as f:           # 只读末尾 64KB:最新标题/提问都在文件尾
-            f.seek(0, 2)
-            size = f.tell()
-            f.seek(max(0, size - 65536))
-            lines = f.read().decode("utf-8", "replace").split("\n")
-        for l in reversed(lines):
-            if not l:
-                continue
-            if '"ai-title"' not in l and (last_prompt is not None or '"last-prompt"' not in l):
-                continue
-            try:
-                o = json.loads(l)
-            except ValueError:
-                continue
-            if o.get("type") == "ai-title" and o.get("aiTitle", "").strip():
-                ai_title = o["aiTitle"].strip()
-                break
-            if last_prompt is None and o.get("type") == "last-prompt" and o.get("lastPrompt", "").strip():
-                last_prompt = " ".join(o["lastPrompt"].split())
-    except OSError:
-        pass
-    title = ai_title or last_prompt
-    _title_cache[sid] = (path, mtime, title)
-    return title
-
-
-# ---------------- 后台任务(agent/workflow) ----------------
-def read_bg_jobs():
-    """
-    返回 dict: sessionId -> {"name": ..., "state": ..., "tempo": ...}
-    """
-    jobs = {}
-    try:
-        job_ids = os.listdir(JOBS_DIR)
-    except OSError:
-        return jobs
-    for jid in job_ids:
-        if jid == "pins.json":
-            continue
-        state_file = os.path.join(JOBS_DIR, jid, "state.json")
-        if not os.path.exists(state_file):
-            continue
-        try:
-            with open(state_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            sid = data.get("sessionId")
-            if not sid:
-                continue
-            state = data.get("state", "")
-            tempo = data.get("tempo", "")
-            name = data.get("name", "")
-            # 只记录运行中的后台任务,排除终态(done/failed/cancelled等)
-            if state in ("working", "pending", "starting") and tempo not in ("idle", "done"):
-                jobs[sid] = {"name": name, "state": state, "tempo": tempo}
-        except (OSError, ValueError):
-            pass
-    return jobs
-
-
-def _is_converted_interactive(bg_info):
-    """判断一个 bg 会话是否为「转换态交互会话」(左键切走的),而非纯后台任务。
-    判据:bgIsolation 字段存在 或 respawnFlags 含 --reply-on-resume。
-    """
-    if not bg_info:
-        return False
-    # 优先用 bgIsolation:转换态有此键(值"none"),纯--bg任务无此键
-    if "bgIsolation" in bg_info:
-        return True
-    # 备用判据:respawnFlags 含 --reply-on-resume
-    flags = bg_info.get("respawnFlags", [])
-    return "--reply-on-resume" in flags
-
-
-# ---------------- 标签消歧 ----------------
-def segs_of(cwd):
-    return [x for x in (cwd or "").replace("\\", "/").rstrip("/").split("/") if x and not x.endswith(":")]
-
-def assign_labels(items):
-    MAXD = 2
-    segs = [segs_of(s["cwd"]) for s in items]
-    depth = [1] * len(items)
-
-    def make(i):
-        seg = segs[i]
-        if not seg:
-            return "pid:%d" % items[i]["pid"]
-        return "/".join(seg[max(0, len(seg) - depth[i]):])
-
-    for _ in range(MAXD):
-        labels = [make(i) for i in range(len(items))]
-        groups = {}
-        for i, l in enumerate(labels):
-            groups.setdefault(l, []).append(i)
-        any_ext = False
-        for ids in groups.values():
-            if len(ids) < 2 or len({items[i]["cwd"] for i in ids}) < 2:
-                continue
-            for i in ids:
-                if depth[i] < min(len(segs[i]), MAXD):
-                    depth[i] += 1
-                    any_ext = True
-        if not any_ext:
-            break
-    labels = [make(i) for i in range(len(items))]
-    cnt = {}
-    for l in labels:
-        cnt[l] = cnt.get(l, 0) + 1
-    for i, s in enumerate(items):
-        s["label"] = labels[i] + (" #%d" % s["pid"] if cnt[labels[i]] > 1 else "")
-
-
-# ---------------- 采集会话 ----------------
-_session_cache = {}  # filename -> 上次成功解析的 json(用于读到半截写入时沿用上一帧)
-_killed = set()      # 右键关闭成功的 (pid, sessionId):强杀后会话文件可能残留,等 CLI 清理前不显示
-
-def read_sessions():
-    bg_jobs = read_bg_jobs()
-    out = []
-    present = set()
-    try:
-        files = os.listdir(SESSIONS_DIR)
-    except OSError:
-        return out
-    entries = []
-    for fn in files:
-        if not fn.endswith(".json"):
-            continue
-        try:
-            with open(os.path.join(SESSIONS_DIR, fn), "r", encoding="utf-8") as f:
-                data = json.load(f)
-            _session_cache[fn] = data
-        except (OSError, ValueError):
-            data = _session_cache.get(fn)   # 文件正被写入而解析失败 -> 用上次的好数据,避免闪烁
-            if data is None:
-                continue
-        entries.append((fn, data))
-    bg_job_ids = {d.get("jobId") for _, d in entries if d.get("kind") == "bg" and not d.get("spare")}
-    for fn, data in entries:
-        if data.get("spare"):   # 预热的备用后台进程,尚未接任务,不显示
-            continue
-        # 已把会话移到后台的窗口:对话在那个后台会话里显示;后台会话已不在时照常显示窗口本身
-        if data.get("parkedJobId") and data["parkedJobId"] in bg_job_ids:
-            continue
-        kind = data.get("kind")
-        sid = data.get("sessionId") or fn[:-5]
-        key = (data.get("pid") or 0, sid)
-        present.add(key)
-        if key in _killed:
-            continue
-        # Claude Code 写入的 status: busy / waiting(等授权或回答) / idle / shell 等
-        status = data.get("status") or "idle"
-
-        # 状态优先级: 红(waiting) > 蓝(纯后台任务) > 绿(busy/shell 等) > 黄(idle)
-        # 转换态交互会话(左键切走的)按普通会话显示(绿/黄),蓝灯只给纯后台任务
-        bg_info = None
-        if status == "waiting":
-            state = "attn"
-        elif kind == "bg":
-            # 读 jobs/<id>/state.json 获取完整字段,用于判别转换态
-            job_id = data.get("jobId")
-            full_bg_info = None
-            if job_id:
-                try:
-                    job_state_path = os.path.join(JOBS_DIR, job_id, "state.json")
-                    with open(job_state_path, "r", encoding="utf-8") as jf:
-                        full_bg_info = json.load(jf)
-                except (OSError, ValueError):
-                    pass
-            # 判别:转换态当普通会话(绿/黄),纯后台任务才显示蓝灯
-            if full_bg_info and _is_converted_interactive(full_bg_info):
-                # 转换态交互会话 → 按 status 显示绿/黄
-                state = "stby" if status == "idle" else "run"
-            else:
-                # 纯后台任务 → 蓝灯
-                state = "bg"
-                bg_info = bg_jobs.get(sid, {"name": data.get("name", ""), "state": status, "tempo": ""})
-        elif status == "idle":
-            state = "stby"
-        else:
-            state = "run"
-
-        out.append({"id": sid, "pid": data.get("pid") or 0, "cwd": data.get("cwd") or "",
-                    "name": data.get("name") or "", "name_src": data.get("nameSource"),
-                    "state": state, "bg_info": bg_info, "kind": kind, "job_id": data.get("jobId"),
-                    "started": data.get("startedAt") or 0, "label": ""})
-
-    _killed.intersection_update(present)   # 会话文件已被清理的,不再记
-    assign_labels(out)
-    for s in out:
-        # name 由 /rename、--name 等指定(nameSource 非 derived/auto)时最优先;否则优先用 transcript
-        # 的 ai-title(可含中文):自动 name 是 ASCII slug,中文标题会退化成"目录名-编号"占位串。
-        # 路径名(assign_labels)兜底。
-        if s["name"] and s["name_src"] not in (None, "derived", "auto"):
-            title = s["name"]
-        else:
-            title = fallback_title(s["id"], s["cwd"]) or s["name"]
-        if title:
-            s["label"] = title
-
-    out.sort(key=lambda s: (s["started"], s["pid"]))   # 稳定顺序,行不随状态跳动
-
-    # 去重:同一个 sessionId 只保留最新的一条(解决缓存导致的重复显示)
-    seen = {}
-    for s in out:
-        sid = s["id"]
-        # 保留 started 时间更晚的(更新的会话),或第一次出现的
-        if sid not in seen or s["started"] >= seen[sid]["started"]:
-            seen[sid] = s
-    out = list(seen.values())
-    out.sort(key=lambda s: (s["started"], s["pid"]))   # 去重后重新排序
-
-    return out
+# Provider adapters keep file state out of the Tk window.
+from session_types import to_gui_row
 
 
 # ---------------- GUI ----------------
 class Scope:
-    def __init__(self, root):
+    def __init__(self, root, monitor, claude_source, config=None):
         self.root = root
-        self.cfg = self.load_cfg()
+        self.monitor = monitor
+        self.claude_source = claude_source
+        self.cfg = config if config is not None else self.load_cfg()
+        self.diagnostics = ("正在读取会话状态",)
         self.W = max(160, int(self.cfg.get("width", self.cfg.get("base_w", 340))))  # 宽度独立(像素)
         self.s = min(3.0, max(0.6, float(self.cfg.get("scale", 1.0))))              # 大小独立(字号/行高)
         self.X = int(self.cfg.get("x", 80))
@@ -376,6 +148,7 @@ class Scope:
         self.menu.add_command(label="置顶", command=self.toggle_pin)
         self.menu.add_command(label="重启", command=self.restart)
         self.menu.add_command(label="重置大小/位置", command=self.reset_geom)
+        self.menu.add_command(label="状态说明", command=self.show_status_info)
         self.menu.add_separator()
         self.menu.add_command(label="退出", command=self.quit_app)
         self._menu_kill = False     # 菜单顶部是否插着"关闭 CHn"项(+分隔线)
@@ -391,30 +164,55 @@ class Scope:
         i = self._get_row_at(e.x, e.y)
         if i is not None and i < len(self.sessions):
             ss = self.sessions[i]
+            action = row_action(ss)
             label = ss["label"] or "(无标题)"
             if len(label) > 20:
                 label = label[:20] + "…"
-            self.menu.insert_command(0, label="关闭 CH%d「%s」" % (i + 1, label),
-                                     command=lambda: self.kill_session(i + 1, ss))
-            self.menu.insert_separator(1)
-            self._menu_kill = True
+            if action == "close":
+                self.menu.insert_command(0, label="关闭 CC%d「%s」" % (i + 1, label),
+                                         command=lambda: self.kill_session(i + 1, ss))
+            elif action == "copy_id":
+                self.menu.insert_command(0, label="复制 Codex 会话 ID", command=lambda: self.copy_session_id(ss))
+            if action is not None:
+                self.menu.insert_separator(1)
+                self._menu_kill = True
         self.menu.entryconfigure(2 if self._menu_kill else 0, label=("取消置顶" if self.pinned else "置顶"))
         try:
             self.menu.tk_popup(int(e.x_root), int(e.y_root))
         finally:
             self.menu.grab_release()
 
+    def show_status_info(self):
+        text = (
+            "CC：Claude Code；CX：Codex CLI。\n"
+            "红灯：需要授权或回答；绿灯：执行中；黄灯：待机；蓝灯：Claude 后台会话。\n\n"
+            "SYNC：正在同步会话记录；STALE：状态暂未更新。\n\n"
+            "Codex 的完整授权和同步问答提示需要连接已配置的本地实时服务。\n"
+            "未配置时，仍可显示执行、待机及已识别的异步待输入状态。"
+        )
+        if self.diagnostics:
+            text += "\n\n当前提示：\n" + "\n".join(self.diagnostics)
+        messagebox.showinfo("AI Chat Scope · 状态说明", text, parent=self.root)
+
     def kill_session(self, ch, ss):
+        if row_action(ss) != "close":
+            return
         if ss.get("kind") == "bg" and ss.get("job_id"):
             mode, how = "stop", "claude stop %s" % ss["job_id"]
         else:
             mode, how = "quit", "发送 Ctrl+C 正常退出(失败可选强制结束)"
-        if messagebox.askyesno("claude-scope", "关闭 CH%d「%s」?\n\nPID:%d\n方式:%s"
+        if messagebox.askyesno("AI Chat Scope", "关闭 CC%d「%s」?\n\nPID:%d\n方式:%s"
                                % (ch, ss["label"] or "(无标题)", ss["pid"], how), parent=self.root):
             threading.Thread(target=self._run_kill, args=(ss, mode), daemon=True).start()
 
     def _run_kill(self, ss, mode):
         """mode: stop=后台会话 claude stop;quit=交互会话注入 Ctrl+C;kill=taskkill 强杀"""
+        if row_action(ss) != "close" or mode not in ("stop", "quit", "kill"):
+            return
+        if not registry_matches(self.claude_source.sessions_dir, ss["pid"], ss["id"]):
+            self._kill_done.append((ss, "identity", [], False,
+                "会话已变化、退出或暂时无法核对，请刷新后重试。"))
+            return
         pid = str(ss["pid"])
         if mode == "stop":
             cmd = [shutil.which("claude") or "claude", "stop", ss["job_id"]]
@@ -428,7 +226,7 @@ class Scope:
             out = (r.stdout + r.stderr).strip()
             if mode == "quit":
                 # 正常退出时 CLI 会删自己的会话文件;不查进程,只看文件 5 秒内是否消失
-                f = os.path.join(SESSIONS_DIR, pid + ".json")
+                f = os.path.join(self.claude_source.sessions_dir, pid + ".json")
                 for _ in range(10):
                     if not os.path.exists(f):
                         break
@@ -446,11 +244,11 @@ class Scope:
         while self._kill_done:
             ss, mode, cmd, ok, out = self._kill_done.pop(0)
             if ok:
-                _killed.add((ss["pid"], ss["id"]))
+                self.claude_source.mark_closed(ss["pid"], ss["id"])
                 self._sig = None
                 continue
             if mode == "quit":
-                if messagebox.askyesno("claude-scope", "「%s」未能正常退出(%s)。\n\n是否强制结束?终端可能残留鼠标乱码,需关闭该终端标签。"
+                if messagebox.askyesno("AI Chat Scope", "「%s」未能正常退出(%s)。\n\n是否强制结束?终端可能残留鼠标乱码,需关闭该终端标签。"
                                        % (ss["label"] or ss["pid"], out), parent=self.root):
                     threading.Thread(target=self._run_kill, args=(ss, "kill"), daemon=True).start()
                 continue
@@ -460,13 +258,17 @@ class Scope:
                     f.write("%s [kill] %s\n%s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), " ".join(cmd), out))
             except OSError:
                 pass
-            messagebox.showerror("claude-scope", "关闭「%s」失败:\n%s" % (ss["label"] or ss["pid"], out or "(无输出)"),
+            messagebox.showerror("AI Chat Scope", "关闭「%s」失败:\n%s" % (ss["label"] or ss["pid"], out or "(无输出)"),
                                  parent=self.root)
 
     def toggle_pin(self):
         self.pinned = not self.pinned
         self.root.attributes("-topmost", self.pinned)
         self.save_cfg(); self.draw()
+
+    def copy_session_id(self, session):
+        self.root.clipboard_clear()
+        self.root.clipboard_append(session["id"])
 
     def quit_app(self):
         self.save_cfg(); self.root.destroy()
@@ -482,7 +284,8 @@ class Scope:
     def restart(self):
         self.save_cfg()
         try:
-            subprocess.Popen([sys.executable, os.path.abspath(__file__)],
+            arguments = [value for value in sys.argv[1:] if value != "--wait-for-instance"]
+            subprocess.Popen([sys.executable, "-B", os.path.abspath(__file__)] + arguments + ["--wait-for-instance"],
                              close_fds=True, creationflags=0x00000008)
         except Exception:
             log_error("restart")
@@ -507,19 +310,15 @@ class Scope:
 
     # ---- 配置 ----
     def load_cfg(self):
-        try:
-            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except (OSError, ValueError):
-            return {}
+        return load_window_config(CONFIG_PATH, LEGACY_CONFIG_PATH)
 
     def save_cfg(self):
         try:
-            os.makedirs(RUNTIME_DIR, exist_ok=True)
-            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-                json.dump({"x": self.X, "y": self.Y, "width": self.W,
+            config = dict(self.cfg)
+            config.update({"x": self.X, "y": self.Y, "width": self.W,
                            "scale": round(self.s, 3), "opacity": round(self.opacity, 3),
-                           "pinned": self.pinned}, f, ensure_ascii=False, indent=2)
+                           "pinned": self.pinned})
+            save_window_config(CONFIG_PATH, config)
         except OSError:
             pass
 
@@ -527,8 +326,13 @@ class Scope:
     def poll(self):
         try:
             self._handle_kills()
-            sessions = read_sessions()
-            sig = tuple((s["id"], s["state"], s["label"], s.get("bg_info")) for s in sessions) + (self.W, round(self.s, 2))
+            packet = self.monitor.latest()
+            if packet is not None:
+                snapshots, diagnostics = packet
+                self.sessions = gui_rows(snapshots)
+                self.diagnostics = diagnostics
+            sessions = self.sessions
+            sig = (row_signature(sessions, self.diagnostics), self.W, round(self.s, 2))
             if sig != self._sig:
                 self._sig = sig
                 self.sessions = sessions
@@ -554,9 +358,16 @@ class Scope:
             return ""
         if self.f_name.measure(text) <= maxpx:
             return text
-        while text and self.f_name.measure(text + "…") > maxpx:
-            text = text[:-1]
-        return text + "…"
+        if self.f_name.measure("…") > maxpx:
+            return ""
+        low, high = 0, len(text)
+        while low < high:
+            middle = (low + high + 1) // 2
+            if self.f_name.measure(text[:middle] + "…") <= maxpx:
+                low = middle
+            else:
+                high = middle - 1
+        return text[:low] + "…"
 
     def draw(self):
         s = self.s
@@ -566,7 +377,8 @@ class Scope:
         sp = round(8 * s)
         n = max(1, len(self.sessions))
         self.W = max(160, self.W)        # 宽度独立于缩放
-        self.H = hdr + n * row + sp
+        footer = max(14, round(16 * s)) if self.diagnostics else 0
+        self.H = hdr + n * row + sp + footer
         W, H = self.W, self.H
         self.root.geometry("%dx%d" % (W, H))
         cv = self.cv
@@ -581,8 +393,9 @@ class Scope:
             cv.create_line(6, gy, W - 6, gy, fill=C_GRID)
 
         cy0 = hdr // 2
-        cv.create_text(pad, cy0, anchor="w", text="CLAUDE·SCOPE", fill=C_RUN, font=self.f_brand)
-        bx = self.f_brand.measure("CLAUDE·SCOPE") + pad + round(8 * s)
+        brand = "AI CHAT SCOPE" if W >= round(270 * s) else "AI·SCOPE"
+        cv.create_text(pad, cy0, anchor="w", text=brand, fill=C_RUN, font=self.f_brand)
+        bx = self.f_brand.measure(brand) + pad + round(8 * s)
         rd = max(2, round(3 * s))
         cv.create_oval(bx - rd, cy0 - rd, bx + rd, cy0 + rd, fill=C_RUN, outline="")
 
@@ -613,6 +426,12 @@ class Scope:
             self.op_track = (tx1, tx2)
 
         cv.create_line(6, hdr, W - 6, hdr, fill=C_BORDER)
+        self.diag_bbox = None
+        if footer:
+            self.diag_bbox = (0, H - footer - sp, W, H)
+            cv.create_text(pad, H - sp - footer // 2, anchor="w",
+                           text=self.fit_text("；".join(self.diagnostics), W - 2 * pad),
+                           fill=C_DIM, font=self.f_ch)
 
         if not self.sessions:
             cv.create_text(W // 2, hdr + row // 2, text="— 无活动会话 —", fill=C_DIM, font=self.f_ch)
@@ -628,12 +447,15 @@ class Scope:
         for i, ss in enumerate(self.sessions):
             cy = hdr + row * i + row // 2
             col = STATE_COLOR[ss["state"]]
-            cv.create_text(pad, cy, anchor="w", text="CH%d" % (i + 1), fill=C_DIM, font=self.f_ch)
+            badge = "CC" if ss["provider"] == "claude" else "CX"
+            badge_color = C_STBY if ss["provider"] == "claude" else C_BG
+            cv.create_text(pad, cy, anchor="w", text="%s%d" % (badge, i + 1), fill=badge_color, font=self.f_ch)
             self.draw_led(led_x, cy, col, s)
             label = self.fit_text(ss["label"] or "(无标题)", name_max)
             nm = C_NAME if ss["state"] != "stby" else "#9ec4b3"
             cv.create_text(name_x, cy, anchor="w", text=label, fill=nm, font=self.f_name)
-            cv.create_text(W - pad, cy, anchor="e", text=STATE_WORD[ss["state"]], fill=col, font=self.f_state)
+            word = "SYNC" if ss.get("freshness") == "syncing" else "STALE" if ss.get("freshness") == "stale" else STATE_WORD[ss["state"]]
+            cv.create_text(W - pad, cy, anchor="e", text=word, fill=col, font=self.f_state)
             # 记录行区域
             y1 = hdr + row * i
             y2 = y1 + row
@@ -711,7 +533,7 @@ class Scope:
             self.tooltip_label = tk.Label(self.tooltip, text=text,
                                           bg="#1a2f22", fg="#cfeede",
                                           font=("Microsoft YaHei UI", 8),
-                                          bd=1, relief="solid", padx=6, pady=3)
+                                          bd=1, relief="solid", padx=6, pady=3, wraplength=420, justify="left")
             self.tooltip_label.pack()
         # 定位到鼠标右下方
         cx, cy = cursor_pos()
@@ -744,15 +566,21 @@ class Scope:
             row_idx = self._get_row_at(e.x, e.y)
             if row_idx is not None and row_idx < len(self.sessions):
                 ss = self.sessions[row_idx]
-                # 只有蓝灯(后台任务)才显示 tooltip
+                tip_text = "%s\n%s\n会话 ID: %s\n状态: %s\n目录: %s" % (
+                    "Claude Code" if ss["provider"] == "claude" else "Codex CLI",
+                    ss["label"], ss["id"], ss.get("state_detail", ""), ss.get("cwd", "")[:512])
                 if ss["state"] == "bg" and ss.get("bg_info"):
                     bg = ss["bg_info"]
-                    tip_text = "后台任务: %s\n状态: %s" % (bg.get("name", "(无名称)"), bg.get("state", "未知"))
+                    tip_text += "\n后台任务: %s\n状态: %s" % (bg.get("name", "(无名称)"), bg.get("state", "未知"))
                     if bg.get("tempo"):
                         tip_text += "\n节奏: %s" % bg["tempo"]
-                    self.show_tooltip(e.x, e.y, tip_text)
-                else:
-                    self.hide_tooltip()
+                if ss.get("freshness") != "fresh":
+                    tip_text += "\n状态正在同步或暂未更新"
+                if ss["provider"] == "codex" and "authorization" not in ss.get("capabilities", ()):
+                    tip_text += "\n授权提示未启用"
+                self.show_tooltip(e.x, e.y, tip_text)
+            elif self.diag_bbox and self._in(self.diag_bbox, e.x, e.y):
+                self.show_tooltip(e.x, e.y, "\n".join(self.diagnostics))
             else:
                 self.hide_tooltip()
 
@@ -870,10 +698,27 @@ def quit_session_main(pid):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="AI Chat Scope")
+    parser.add_argument("--wait-for-instance", action="store_true")
+    parser.add_argument("--codex-endpoint")
+    parser.add_argument("--codex-token-file")
+    args = parser.parse_args()
+    if bool(args.codex_endpoint) != bool(args.codex_token_file):
+        parser.error("--codex-endpoint and --codex-token-file must be supplied together")
+    guard = claim_single_instance()
+    if guard is None and args.wait_for_instance:
+        deadline = time.monotonic() + 4
+        while guard is None and time.monotonic() < deadline:
+            time.sleep(.05)
+            guard = claim_single_instance()
+    if guard is None:
+        return 0
     os.makedirs(RUNTIME_DIR, exist_ok=True)
+    fault_log = None
     try:
         import faulthandler
-        faulthandler.enable(file=open(os.path.join(RUNTIME_DIR, "fault.log"), "a", buffering=1))
+        fault_log = open(os.path.join(RUNTIME_DIR, "fault.log"), "a", buffering=1)
+        faulthandler.enable(file=fault_log)
     except Exception:
         pass
     try:
@@ -881,11 +726,25 @@ def main():
     except Exception:
         log_error("winapi")
     sys.excepthook = lambda *a: log_error("excepthook")
-    root = tk.Tk()
-    root.report_callback_exception = lambda *a: log_error("tk-callback")
-    root.title("claude-scope")
-    Scope(root)
-    root.mainloop()
+    config = load_window_config(CONFIG_PATH, LEGACY_CONFIG_PATH)
+    if args.codex_endpoint:
+        config["codex"] = {"endpoint": args.codex_endpoint, "token_file": args.codex_token_file}
+    sources = create_sources(config)
+    monitor = Monitor(sources)
+    try:
+        root = tk.Tk()
+        root.report_callback_exception = lambda *a: log_error("tk-callback")
+        root.title("AI Chat Scope")
+        monitor.start()
+        Scope(root, monitor, sources[0], config)
+        root.mainloop()
+    finally:
+        monitor.stop()
+        guard.close()
+        if fault_log is not None:
+            faulthandler.disable()
+            fault_log.close()
+    return 0
 
 
 if __name__ == "__main__":
