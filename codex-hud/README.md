@@ -5,6 +5,11 @@ WT tabs or separate PowerShell windows. The official CLI and native statusline
 remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
 task names retain their original language.
 
+> Version 0.5.1 adds stable PowerShell startup across plugin upgrades and safe
+> fallback to official Codex when HUD preflight fails. Existing version-bound
+> profiles need one setup migration and shell reload; ordinary later upgrades
+> keep the normal `codex` and `codex resume` commands without repeated setup.
+>
 > Version 0.5.0 includes a checksum-pinned compact terminal backend, six-row initial
 > sizing, separate quota-window controls and prerequisite-gated first-run setup.
 > See [validation](docs/validation.md) for tested scope and remaining real-session

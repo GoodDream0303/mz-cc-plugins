@@ -1,6 +1,6 @@
 # Validation: exact per-source HUD
 
-## Transparent startup candidate — source only, 2026-11-03
+## 0.5.1 transparent startup validation — 2026-11-03
 
 - Node 24 full suite: 161/161 passed. Node 20.19.0 resolver, entry, host-fallback
   and package/setup compatibility scope: 21/21 passed.
@@ -35,8 +35,8 @@ bundle; external portable paths remain explicit.
 These tests use fake official launchers and isolated profiles/configurations.
 They do not start a real model, reinstall the marketplace package, rewrite the
 live profiles or validate Hook trust. Full fresh-Windows marketplace installation
-and real terminal interaction remain manual acceptance checks. The previously
-published 0.5.0 does not acquire this source change until a subsequent release.
+and real terminal interaction remain manual acceptance checks. Version 0.5.0
+does not include these startup changes; they are introduced in 0.5.1.
 
 ## Compact backend, six-row defaults and first-run setup — 2026-11-03
 
