@@ -17,3 +17,7 @@
 主循环不枚举或打开其他进程。只有用户确认关闭 Claude 后走原来的子进程流程，Codex 没有关闭入口。
 
 运行目录为 `%LOCALAPPDATA%\ai-chat-scope\`；`AI_CHAT_SCOPE_RUNTIME` 为独立测试覆盖该目录。源会话及旧配置不被改写。使用标准库，无构建步骤，详见[插件 README](../README.md)。
+
+Windows hook 走 `cmd` 到 `py -3`/`python`/`python3` 的直接路径，保留宿主的3秒预算，避免每次额外启动 PowerShell 和 Python 版本探测进程。内联 `-c` 参数保持无空白且不用 shell 重定向字符，因此版本比较使用 `version_info.__ge__`；路径仅在 Python 内从环境读取，不插入 shell。`-I -B` 隔离调用项目的 Python 模块并禁止字节码文件。缺少解释器或运行失败时返回空 JSON，不改变授权决定；GUI/setup 仍使用 scope.ps1。
+
+子 CMD 进程设置 `NoDefaultCurrentDirectoryInExePath=1`，使解释器仅按 PATH 解析，避免调用项目中的同名 py/python/python3 程序抢先执行；不修改用户的全局环境。该开关与 Python `-I` 分别覆盖可执行文件和模块查找，均有真实临时项目回归。

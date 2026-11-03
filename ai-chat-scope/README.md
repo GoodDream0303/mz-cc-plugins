@@ -1,6 +1,8 @@
 # AI Chat Scope
 
-Windows 上的轻量置顶悬浮窗，在一个列表里查看多个 **Claude Code 与 Codex CLI** 会话。版本 2.1.0，由 claude-scope 更名。
+Windows 上的轻量置顶悬浮窗，在一个列表里查看多个 **Claude Code 与 Codex CLI** 会话。当前开发版本 2.1.1，由 claude-scope 更名；正式市场版本仍为 2.1.0。
+
+2.1.1 修复 Windows hook 多层 PowerShell 启动在多会话并发时超过 3 秒的问题：直接使用 py/Python/python3 执行被动 hook，不再为每次 hook 启动额外 PowerShell 和解释器探测。setup 和窗口启动入口保持不变。
 
 2.1.0 新增首次 setup、Python/py 解释器发现、真实 Tk 与运行目录检查、配置初始化、启动失败日志和自定义 Claude 数据目录支持。已有配置保持不变，不自动安装系统依赖。
 
@@ -73,6 +75,8 @@ powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '<实际
 自定义变量应设置在启动浮窗的同一环境中。无需两个 CLI 都安装；某个来源尚无会话目录时仅提示，之后可继续发现会话。初始化不会创建或修改 CLI 的数据目录、全局配置或权限。CLI 数据格式的本机验证版本仍为 Codex CLI 0.166.0，不承诺所有其他版本。
 
 setup 失败以终端的具体诊断为准。后台窗口在 Python 导入或启动阶段失败时，检查运行目录的 `startup.log`；窗口运行后的异常见 `error.log`。不会把缺少 Python/tkinter 当成 hook 审批问题。基础状态监视不依赖 hook 审批；hook 启用和更新信任由用户在 `/hooks` 审阅。
+
+`hook timed out after 3s` 是 hook 执行超时，与信任校验是两种错误。`plugin contents changed; hook approval required` 应核对当前会话的插件版本和信任哈希；插件升级期间一直打开的旧会话可能仍持有旧版本状态，可保存工作后正常退出该 CLI，再恢复会话检查，勿为此强制重启所有会话或绕过信任。2.1.1 修改了 hook 入口，正式更新后仍需按宿主提示审阅当前定义。
 
 ## 从 claude-scope 升级
 

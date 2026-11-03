@@ -1,7 +1,7 @@
 {
   "name": "ai-chat-scope",
   "description": "Windows 悬浮窗监视 Claude Code 与 Codex CLI 多会话状态。",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "author": {
     "name": "mzzhu2"
   },
