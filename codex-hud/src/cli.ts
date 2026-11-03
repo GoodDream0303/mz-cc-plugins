@@ -126,7 +126,7 @@ async function start(args:string[],demo=false):Promise<void>{
 export async function main(args=process.argv.slice(2)):Promise<void>{
  const command=args[0]??'help',rest=args.slice(1);
  switch(command){
-  case 'entry-check':assertActiveEntry(fileURLToPath(new URL('../bin/hud.mjs',import.meta.url)));return;
+  case 'entry-check':if(!rest.includes('--runtime-only'))assertActiveEntry(fileURLToPath(new URL('../bin/hud.mjs',import.meta.url)));return;
   case 'codex-entry':process.exitCode=await launchHostedCodex(decodeInvocation(option(rest,'--invocation64')),{configFile:configFile(rest)});return;
   case 'host-owner':process.exitCode=await runHostOwner(decodeInvocation(option(rest,'--invocation64')),configFile(rest));return;
   case 'host-frontend':process.exitCode=await runHostFrontend(decodeInvocation(option(rest,'--invocation64')));return;

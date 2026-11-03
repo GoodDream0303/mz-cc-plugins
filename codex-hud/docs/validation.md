@@ -1,5 +1,43 @@
 # Validation: exact per-source HUD
 
+## Transparent startup candidate — source only, 2026-11-03
+
+- Node 24 full suite: 161/161 passed. Node 20.19.0 resolver, entry, host-fallback
+  and package/setup compatibility scope: 21/21 passed.
+- The first Node 20 run had a Windows executable deletion failure in fixture
+  teardown (18/19); runtime assertions passed. Test cleanup now retries transient
+  filesystem errors with a fixed bound, and the final compatibility run is green.
+- One independent whole-change review found an unvalidated `bin/hud.mjs` launch
+  path. The fix was reproduced RED, then verified on PS5/PS7 with both syntax and
+  startup exceptions. The resolver now runs the actual session-free entry check
+  before selecting that package; arbitrary session exits are still never retried.
+- A real read-only installation lookup exceeded the initial four-second budget
+  (4.285 seconds), causing safe but unnecessary fallback. The bounded lookup
+  budget is now eight seconds, with a 4.2-second synthetic regression. The final
+  real installed-runtime lookup and entry check passed in 4.202 seconds. This
+  metadata query adds startup latency; it does not launch a model session.
+
+The stable loader and standalone resolver are deployed by setup outside versioned
+caches. PS5/PS7 fixtures verify that one loaded function follows an actual
+installation change after deletion of its previous cache. Higher residual
+versions, disabled/uninstalled plugins and invalid package identity do not win
+over official installation metadata. The official command is resolved again
+after its installation path changes.
+
+Isolated fixtures cover damaged configuration, missing backend, corrupt plugin
+imports, deleted/corrupt resolver, missing bootstrap, literal/empty/quoted PS5
+arguments, pipeline input and official exit status. A separate native fixture
+checks that loss of Node does not block a native official executable. Backend
+preflight failures fall back, but a launched backend's nonzero exit is not
+retried as a second session. Package-managed backend paths follow the current
+bundle; external portable paths remain explicit.
+
+These tests use fake official launchers and isolated profiles/configurations.
+They do not start a real model, reinstall the marketplace package, rewrite the
+live profiles or validate Hook trust. Full fresh-Windows marketplace installation
+and real terminal interaction remain manual acceptance checks. The previously
+published 0.5.0 does not acquire this source change until a subsequent release.
+
 ## Compact backend, six-row defaults and first-run setup — 2026-11-03
 
 [Current evidence](evidence/2026-11-03-compact/summary.json) belongs to the bundled

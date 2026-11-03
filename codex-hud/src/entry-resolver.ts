@@ -3,8 +3,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import {execFileSync,spawn} from 'node:child_process';
-import {fileURLToPath,pathToFileURL} from 'node:url';
+import {execFileSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 
 export function resolveOfficial(command:string):{file:string;prefix:string[]} {
  const resolved=fs.realpathSync(command);if(path.extname(resolved).toLowerCase()==='.exe')return {file:resolved,prefix:[]};
@@ -49,13 +49,6 @@ async function main():Promise<void> {
  const request=JSON.parse(Buffer.from(encoded,'base64').toString('utf8'));
  if(typeof request.command!=='string'||!path.isAbsolute(request.command))throw new Error('Invalid official command');
  const official=resolveOfficial(request.command);
- if(mode==='official'){
-  if(!Array.isArray(request.args)||!request.args.every((value:unknown)=>typeof value==='string'&&!value.includes('\0')))throw new Error('Invalid official arguments');
-  const child=spawn(official.file,[...official.prefix,...request.args],{stdio:'inherit',windowsHide:false});
-  const interrupt=()=>{};process.on('SIGINT',interrupt);
-  try{process.exitCode=await new Promise<number>((resolve,reject)=>{child.once('error',reject);child.once('exit',(code,signal)=>resolve(code??(signal?130:1)));});}finally{process.off('SIGINT',interrupt);}
-  return;
- }
  const home=process.env.CODEX_HOME??path.join(os.homedir(),'.codex');
  if(request.pluginId!==undefined){
   if(typeof request.pluginId!=='string'||!/^codex-hud@[a-zA-Z0-9_-]+$/.test(request.pluginId))throw new Error('Invalid HUD plugin identity');
@@ -64,12 +57,13 @@ async function main():Promise<void> {
  if(mode!=='resolve'||typeof request.hint!=='string'||!path.isAbsolute(request.hint))throw new Error('Invalid HUD entry request');
  let cli=request.hint;
  if(cacheIdentity(cli,home)){
-  const output=execFileSync(official.file,[...official.prefix,'plugin','list','--json'],{encoding:'utf8',timeout:4000,maxBuffer:4*1024*1024,windowsHide:true,stdio:['ignore','pipe','pipe']});
+  const output=execFileSync(official.file,[...official.prefix,'plugin','list','--json'],{encoding:'utf8',timeout:8000,maxBuffer:4*1024*1024,windowsHide:true,stdio:['ignore','pipe','pipe']});
   cli=selectInstalledEntry(JSON.parse(output.replace(/^\uFEFF/,'')),cli,home);
  }
- // Preload the runtime before any process can launch a real session. A corrupt
- // import graph is a HUD failure, rather than a reason to block official Codex.
- await import(pathToFileURL(path.resolve(path.dirname(cli),'../dist/cli.js')).href);
+ // Check the actual launcher and its import graph using a session-free command.
+ // Installation authority was checked above; leftover cache versions cannot
+ // override it through the legacy entry-check version heuristic.
+ execFileSync(process.execPath,[cli,'entry-check','--runtime-only'],{encoding:'utf8',timeout:4000,maxBuffer:65536,windowsHide:true,stdio:['ignore','pipe','pipe']});
  console.log(JSON.stringify({cli}));
 }
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url))void main().catch(()=>{console.error('Codex HUD: runtime unavailable; using official Codex.');process.exitCode=1;});

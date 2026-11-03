@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
+import os from 'node:os';
 
 export const upstreamBackendCommit='20aa1d7254ee93f64dafa059ef89341d9767470a';
 export interface CompactBackendPin {format:1;version:'3.4.0-hud-compact-v1';upstreamCommit:string;sha256:string}
@@ -25,4 +26,11 @@ export function verifyBackend(binary:string,output:string,pin?:CompactBackendPin
 export function packagedBackendPath(directory=backendDirectory):string {
  const pin=packagedPin(directory),binary=path.join(directory,'psmux.exe');
  return pin&&verifyBackend(binary,'psmux '+pin.version+' (20aa1d7)',pin)?.kind==='compact'?binary:'';
+}
+export function effectiveBackendPath(binary:string,home=process.env.CODEX_HOME??path.join(os.homedir(),'.codex')):string {
+ const relative=path.relative(path.join(home,'plugins','cache'),binary).split(path.sep);
+ // Paths inside the plugin's versioned backend directory are package-managed.
+ // User portable installations outside that directory remain explicit choices.
+ if(relative.length===5&&/^[a-zA-Z0-9_-]+$/.test(relative[0])&&relative[1]==='codex-hud'&&/^[a-zA-Z0-9_.+-]+$/.test(relative[2])&&relative[3]==='backend'&&relative[4]==='psmux.exe')return packagedBackendPath();
+ return binary;
 }

@@ -1,6 +1,6 @@
 # Transparent HUD Startup Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Keep normal Codex commands usable across plugin upgrades and HUD failures.
 
@@ -33,11 +33,11 @@
 
 **Interfaces:** Export `resolveOfficial(command:string):{file:string;prefix:string[]}`, `selectInstalledEntry(list:unknown,hint:string,home:string):string` and a resolver CLI returning a JSON `cli` path. The resolver uses only built-in Node modules so setup can copy its compiled file independently.
 
-- [ ] Write tests for official native/npm resolution, actual installed version overriding residual cache directories, disabled/missing/ambiguous packages, wrong manifest identity and invalid version/path inputs.
-- [ ] Build and run `node --test test/entry-resolver.test.mjs`; observe meaningful failures before implementation.
-- [ ] Implement bounded official `plugin list --json` lookup without routing through the HUD function. Explicit non-cache source checkouts retain development behavior.
-- [ ] Re-run resolver and existing host-launch tests; expect all passing.
-- [ ] Commit the resolver change.
+- [x] Write tests for official native/npm resolution, actual installed version overriding residual cache directories, disabled/missing/ambiguous packages, wrong manifest identity and invalid version/path inputs.
+- [x] Build and run `node --test test/entry-resolver.test.mjs`; observe meaningful failures before implementation.
+- [x] Implement bounded official `plugin list --json` lookup without routing through the HUD function. Explicit non-cache source checkouts retain development behavior.
+- [x] Re-run resolver and existing host-launch tests; expect all passing.
+- [x] Commit the resolver change.
 
 ### Task 2: Stable PowerShell entry and setup migration
 
@@ -45,21 +45,21 @@
 
 **Interfaces:** Setup returns a stable entry location and copies the PowerShell entry plus standalone resolver there before applying a profile. Existing profile planning/removal API remains usable. Each invocation resolves official/Node/current plugin anew and restores parent environment.
 
-- [ ] Write PS5/PS7 integration fixtures proving one loaded function switches A→B after A deletion; disabled/missing/damaged plugin and unavailable resolver fall back once; official executable path changes are honored; missing bootstrap leaves official command available.
-- [ ] Run the new tests and observe failures for the current version-bound entry.
-- [ ] Deploy fixed runtime files atomically during authorized setup, retain dry-run behavior and custom config/profile protections, and make profile loading tolerate a deleted bootstrap.
-- [ ] Implement per-invocation resolution, exact argv transport and pre-invocation fallback. Never catch an arbitrary nonzero official exit as a fallback request.
-- [ ] Run stable-entry, entry-install, host-launch, profile-setup and setup-cli tests; expect all passing.
-- [ ] Commit stable entry and initialization migration.
+- [x] Write PS5/PS7 integration fixtures proving one loaded function switches A→B after A deletion; disabled/missing/damaged plugin and unavailable resolver fall back once; official executable path changes are honored; missing bootstrap leaves official command available.
+- [x] Run the new tests and observe failures for the current version-bound entry.
+- [x] Deploy fixed runtime files atomically during authorized setup, retain dry-run behavior and custom config/profile protections, and make profile loading tolerate a deleted bootstrap.
+- [x] Implement per-invocation resolution, exact argv transport and pre-invocation fallback. Never catch an arbitrary nonzero official exit as a fallback request.
+- [x] Run stable-entry, entry-install, host-launch, profile-setup and setup-cli tests; expect all passing.
+- [x] Commit stable entry and initialization migration.
 
 ### Task 3: Host preflight fallback and first-use guidance
 
-**Files:** Modify `codex-hud/src/host-launch.ts`, `src/config.ts` or `src/backend-version.ts` as needed, `test/host-launch.test.mjs`, `README.md`, `docs/validation.md`, `skills/hud-start/SKILL.md`, `skills/hud-doctor/SKILL.md`; regenerate affected `dist`.
+**Files:** Modify `codex-hud/src/host-launch.ts`, `src/config.ts` or `src/backend-version.ts` as needed, `test/host-fallback.test.mjs`, `README.md`, `docs/validation.md`, `skills/hud-start/SKILL.md`, `skills/hud-doctor/SKILL.md`; regenerate affected `dist`.
 
 **Interfaces:** `launchHostedCodex` falls back on preflight errors only; once the backend may execute the owner, its result is propagated. Prior bundled cache paths resolve to the current packaged backend; custom paths stay explicit.
 
-- [ ] Write tests for corrupt settings, missing/rejected backend, old bundled path migration and custom path preservation; assert once-only official execution and original argv/status.
-- [ ] Observe RED, implement minimal preflight fallback and path handling, then verify GREEN.
-- [ ] Document the single initialization flow, one-time migration/reload, existing Node prerequisite, upgrade behavior and exact fallback boundary.
-- [ ] Run `npm test` and `git diff --check`; inspect every failure. Package tests must exclude source/build dependencies and use fake official Codex.
-- [ ] Review the complete diff, fix concrete findings and run affected checks; commit implementation and regenerated runtime without publishing or changing live sessions.
+- [x] Write tests for corrupt settings, missing/rejected backend, old bundled path migration and custom path preservation; assert once-only official execution and original argv/status.
+- [x] Observe RED, implement minimal preflight fallback and path handling, then verify GREEN.
+- [x] Document the single initialization flow, one-time migration/reload, existing Node prerequisite, upgrade behavior and exact fallback boundary.
+- [x] Run `npm test` and `git diff --check`; inspect every failure. Package tests must exclude source/build dependencies and use fake official Codex.
+- [x] Review the complete diff, fix concrete findings and run affected checks; commit implementation and regenerated runtime without publishing or changing live sessions.

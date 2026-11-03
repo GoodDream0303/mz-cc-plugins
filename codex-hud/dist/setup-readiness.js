@@ -3,7 +3,7 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { get, startupEnabled, validateConfig } from './config.js';
 import { resolveOfficial } from './host-launch.js';
-import { verifyBackend } from './backend-version.js';
+import { verifyBackend, effectiveBackendPath } from './backend-version.js';
 function isFile(file) { try {
     return fs.statSync(file).isFile();
 }
@@ -41,7 +41,7 @@ export function inspectSetup(config, options = {}) {
         required.push('configuration');
         steps.push('Repair the HUD configuration before applying setup.');
     }
-    const backend = get(config, 'host.psmuxPath'), psmux = { status: 'missing', path: typeof backend === 'string' ? backend : '' };
+    const backend = get(config, 'host.psmuxPath'), psmux = { status: 'missing', path: typeof backend === 'string' ? effectiveBackendPath(backend) : '' };
     if (psmux.path) {
         if (!path.isAbsolute(psmux.path))
             psmux.status = 'invalid-path';

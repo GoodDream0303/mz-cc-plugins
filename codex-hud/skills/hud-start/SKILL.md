@@ -7,9 +7,10 @@ Resolve this plugin root two directories above the skill. Use its direct
 `node "<plugin-root>/bin/hud.mjs"` entry; a global npm link may target older code.
 Published packages include dist. Build only an explicitly selected source checkout.
 
-On a new Windows environment, check that Node 20+ is available before invoking
-JavaScript. `bin/setup.ps1` is the PowerShell-first entry: it explains a missing
-Node prerequisite and accepts an explicit portable `-NodePath`. Published packages
+The target environment already has official Codex and Node 20+. Use that runtime;
+do not introduce dependency installation as a normal first-use step.
+`bin/setup.ps1` is the PowerShell-first entry and accepts an explicit portable
+`-NodePath` when needed. Published packages
 include a checksum-pinned compact backend; fresh defaults select it without a
 Rust installation. Preserve an existing explicit backend choice.
 
@@ -27,6 +28,19 @@ prerequisites, while hook trust and real interaction remain separate checks.
 
 One-time setup keeps the user's normal `codex` command. It internally creates an
 independent host per interactive invocation in that same PowerShell tab/window.
+After marketplace installation, guide this one initialization rather than adding
+a replacement launch command. The profile points to a stable loader beside its
+selected configuration. It resolves the actual enabled plugin from official
+installation metadata and rediscovers official Codex on each invocation. Normal
+plugin upgrades need no repeated setup. For old version-bound profiles, migrate
+once and reload/open that PowerShell once; do not claim another already-open
+shell's in-memory function was changed. A running ordinary Codex still cannot
+move retroactively into a terminal host; resume normally after initialization.
+HUD preflight failures fall back to official Codex. A nonzero official exit or
+uncertain backend outcome never starts another session. Saved package-managed
+backend paths follow the current verified bundle; external portable paths remain
+explicit. The copied entry is initialization runtime, not a local marketplace
+substitute; installation and updates still use the formal source.
 Preview initialization with `bin/setup.ps1 -Enable` in each PS5/PS7 host in use,
 or `setup --profile <absolute-profile-path> --initialize --enable` through Node.
 The preview includes both the loader and settings changes. Direct profile-only

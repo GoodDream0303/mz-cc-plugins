@@ -39,6 +39,12 @@ psmux. Apply setup to future launches, then verify the actual multi-session flow
 
 ## Installation and one-time PowerShell setup
 
+The target environment already has official Codex and Node 20+. Keep using
+`codex` and `codex resume <ID>`; no replacement launch command is introduced.
+After marketplace installation, ask the installed `hud-start` skill to guide the
+one-time initialization for the PowerShell hosts you use. Existing ordinary
+Codex processes keep running; initialization applies to subsequent launches.
+
 Requires native Windows x64 and Node 20+. Packages with the compact backend include
 `backend/psmux.exe`, its pinned checksum manifest and upstream license. Fresh
 configuration selects that verified bundled backend automatically. Existing
@@ -53,9 +59,9 @@ SHA256 is
 See [the fixed release](https://github.com/psmux/psmux/releases/tag/v3.4.0).
 No global PATH changes or automatic dependency installation are performed.
 
-Installing the package alone does not provision Node or change PowerShell
-profiles. On a fresh machine, install Node 20+ or select its portable executable.
-The bundled backend and shipped runtime need no Rust, npm install or build.
+Installing the package alone does not change PowerShell profiles. Initialization
+uses the existing Node runtime; an explicit portable executable can also be
+selected. The bundled backend and shipped runtime need no Rust, npm install or build.
 Run the PowerShell-first setup entry separately from each PS5/PS7 host you use:
 
 ```powershell
@@ -111,9 +117,35 @@ Do not silently replace the formal marketplace with a local installation.
 
 Setup preserves existing profile content/encoding and refuses modified managed
 blocks or conflicting functions/aliases. `setup --profile ... --remove --apply`
-removes only its own verified block. Cache upgrades are checked against the
-installed-version selection: an obsolete retained loader reports that setup must
-be regenerated, rather than silently using old code. Deleted paths fail visibly.
+removes only its own verified block. Initialization deploys a small PowerShell
+loader and a standalone resolver beside the selected configuration, outside the
+versioned cache. A cached installation's profile stores its plugin identity,
+rather than its current version path. Each invocation discovers the official
+command again and queries its bounded `plugin list --json` output to select the
+actual installed, enabled package. Residual cache directories are not authority.
+
+When migrating from a version-bound profile, apply initialization once and open
+a new PowerShell or reload its profile once. Other already-open shells cannot
+have their old in-memory functions replaced remotely. After this migration, a
+plugin upgrade or deletion of its old cache needs no repeated setup or profile
+reload. Existing Codex/HUD processes still keep their loaded runtime.
+
+Disabled/uninstalled plugins, unavailable metadata, corrupt runtime imports,
+invalid settings and backend preflight failures print a short notice and start
+official Codex without the HUD. Literal arguments, input and exit status are
+preserved through the existing Node runtime. Even a missing/corrupt resolver has
+an independent official-launch fallback; if Node itself is unavailable, the
+external official command is invoked using PowerShell's normal semantics. A
+deleted loader leaves the original external `codex` command visible on profile
+load. Official errors and nonzero exits are never retried. If a started backend
+may already have executed Codex, its result is propagated rather than risking a
+duplicate session. An OS spawn failure proves the backend did not execute and
+can fall back safely.
+
+Saved backend paths inside this plugin's versioned `backend/psmux.exe` directory
+are package-managed and follow the current verified bundled artifact at runtime;
+the saved configuration need not be rewritten. Explicit portable backend paths
+outside that directory are retained. The active backend remains checksum-checked.
 
 No prompts, invocation arguments, command output, credentials or environment dumps
 are persisted in HUD state. Bindings contain only allowlisted identity/lifecycle

@@ -250,7 +250,8 @@ export async function main(args = process.argv.slice(2)) {
     const command = args[0] ?? 'help', rest = args.slice(1);
     switch (command) {
         case 'entry-check':
-            assertActiveEntry(fileURLToPath(new URL('../bin/hud.mjs', import.meta.url)));
+            if (!rest.includes('--runtime-only'))
+                assertActiveEntry(fileURLToPath(new URL('../bin/hud.mjs', import.meta.url)));
             return;
         case 'codex-entry':
             process.exitCode = await launchHostedCodex(decodeInvocation(option(rest, '--invocation64')), { configFile: configFile(rest) });

@@ -3,7 +3,7 @@ import path from 'node:path';
 import {execFileSync,spawnSync} from 'node:child_process';
 import {get,startupEnabled,validateConfig,type Config} from './config.js';
 import {resolveOfficial} from './host-launch.js';
-import {verifyBackend} from './backend-version.js';
+import {verifyBackend,effectiveBackendPath} from './backend-version.js';
 
 export interface SetupDependencies {
  isFile?:(file:string)=>boolean;
@@ -38,7 +38,7 @@ export function inspectSetup(config:Config,options:InspectSetupOptions={}):Setup
  let configValid=options.configValid!==false;try{validateConfig(config);}catch{configValid=false;}
  const configuration:Prerequisite={status:configValid?'valid':'invalid'};
  if(configuration.status!=='valid'){required.push('configuration');steps.push('Repair the HUD configuration before applying setup.');}
- const backend=get(config,'host.psmuxPath'),psmux:Prerequisite={status:'missing',path:typeof backend==='string'?backend:''};
+ const backend=get(config,'host.psmuxPath'),psmux:Prerequisite={status:'missing',path:typeof backend==='string'?effectiveBackendPath(backend):''};
  if(psmux.path){
   if(!path.isAbsolute(psmux.path))psmux.status='invalid-path';
   else if((deps.isFile??isFile)(psmux.path)){
