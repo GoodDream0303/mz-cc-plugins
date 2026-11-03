@@ -123,7 +123,7 @@ export async function ensureHostDisplay(input, config, options = {}) {
         if (pane.height < 12)
             throw new Error('Source pane is too short to keep Codex and its HUD visible');
         const sizing = planInitialPaneSize(config, emptySnapshot('pending'), { columns: pane.width, rows: pane.height });
-        const rows = Math.max(2, Math.min(pane.height - 11, Math.floor(pane.height * get(config, 'terminal.paneSize')), sizing.contentRows === undefined ? pane.height : sizing.contentRows + 1));
+        const rows = sizing.mode === 'rows' ? sizing.rows : Math.max(2, Math.min(pane.height - 11, Math.floor(pane.height * get(config, 'terminal.paneSize')), sizing.contentRows === undefined ? pane.height : sizing.contentRows + 1));
         const display = createLaunch(record.cwd, config, path.dirname(record.proof.origin.hostDir), options.configFile ?? configPath());
         updateLaunch(display.file, d => { d.host = { recordFile: record.file, proof: record.proof, phase: 'opening' }; d.initialSizing = sizing; if (options.binding) {
             d.sessionId = options.binding.id;

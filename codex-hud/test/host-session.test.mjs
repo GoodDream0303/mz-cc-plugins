@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';
-import {defaultConfig} from '../dist/config.js';import {readLaunch,updateLaunch} from '../dist/runtime.js';
+import {defaultConfig,set} from '../dist/config.js';import {readLaunch,updateLaunch} from '../dist/runtime.js';
 const api=await import('../dist/host-session.js').catch(()=>({}));
 function fixture(t,id='00112233-4455-4677-8899-aabbccddeeff'){
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'hud-host-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
@@ -23,6 +23,22 @@ test('bootstrap opens its own waiting HUD without any session log or model reque
  const f=fixture(t),record=f.record();const result=await api.ensureHostDisplay(record,defaultConfig(),f.options);
  assert.equal(result.status,'opened');const d=readLaunch(result.launchFile);assert.equal(d.sessionId,undefined);assert.equal(d.transcriptPath,undefined);assert.equal(d.host.proof.owner.pid,201);assert.equal(d.host.hudPane,'%7');
  assert.equal((await api.ensureHostDisplay(api.readHost(record.file),defaultConfig(),f.options)).status,'already-open');assert.equal(f.state.splits,1);
+});
+test('new hosts split exactly six HUD rows by default and keep later manual resizing',async t=>{
+ for(const height of [20,40,80]){
+  const f=fixture(t),run=f.dependencies.run,calls=[];
+  f.dependencies.run=args=>{if(args[2]==='split-window')calls.push(args);const value=run(args);return args[2]==='display-message'&&args[args.indexOf('-t')+1]==='%1'?value.replace('\t40\t','\t'+height+'\t'):value;};
+  const record=f.record(),opened=await api.ensureHostDisplay(record,defaultConfig(),f.options);
+  assert.equal(calls[0][calls[0].indexOf('-l')+1],'6');assert.equal(readLaunch(opened.launchFile).initialSizing.rows,6);
+  assert.equal((await api.ensureHostDisplay(api.readHost(record.file),set(defaultConfig(),'terminal.initialRows',10),f.options)).status,'already-open');assert.equal(calls.length,1);
+ }
+});
+test('host sizing clamps row targets and retains explicit content and ratio modes',async t=>{
+ for(const [height,config,expected,mode] of [[14,defaultConfig(),'3','rows'],[40,set(defaultConfig(),'terminal.autoHeight',true),'2','content'],[40,set(set(defaultConfig(),'terminal.initialRows',0),'terminal.paneSize',0.3),'12','ratio']]){
+  const f=fixture(t),run=f.dependencies.run,calls=[];
+  f.dependencies.run=args=>{if(args[2]==='split-window')calls.push(args);const value=run(args);return args[2]==='display-message'&&args[args.indexOf('-t')+1]==='%1'?value.replace('\t40\t','\t'+height+'\t'):value;};
+  const opened=await api.ensureHostDisplay(f.record(),config,f.options);assert.equal(calls[0][calls[0].indexOf('-l')+1],expected);assert.equal(readLaunch(opened.launchFile).initialSizing.mode,mode);
+ }
 });
 test('two physical owners of the same resumed thread retain independent displays',async t=>{
  assert.equal(typeof api.bindHostSession,'function','owner-specific data binding is missing');

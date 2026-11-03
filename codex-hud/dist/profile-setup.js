@@ -48,7 +48,7 @@ export function profileChange(file, options, mode = 'install') {
     }
     else if (before.includes(end))
         throw new Error('Managed HUD profile block is incomplete');
-    const loader = '. ' + expression(options.entry) + ' -HudCli ' + expression(options.cli) + ' -NodePath ' + expression(options.node);
+    const loader = '. ' + expression(options.entry) + ' -HudCli ' + expression(options.cli) + ' -NodePath ' + expression(options.node) + (options.configFile ? ' -ConfigPath ' + expression(options.configFile) : '');
     const block = [begin, '# block-sha256: ' + hash(loader), '# separator-added: ' + (separator ? '1' : '0'), loader, end].join(eol) + eol;
     return { file: path.resolve(file), before, after: mode === 'remove' ? (start < 0 ? before : prefix + (separator && suffix ? eol : '') + suffix) : prefix + (separator ? eol : '') + block + suffix, encoding: original.encoding, block, removedBlock };
 }

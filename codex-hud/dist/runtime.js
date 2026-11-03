@@ -3,9 +3,10 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { get, configPath, loadConfig, startupEnabled } from './config.js';
+import { get, configPath, loadConfig, startupEnabled, defaultConfig } from './config.js';
 import { codexHome } from './sessions.js';
 import { readHostOrigin } from './psmux.js';
+import { inspectSetup } from './setup-readiness.js';
 const guid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function runtimeRoot() { return path.join(path.dirname(configPath()), 'runtime'); }
 function write(file, value) { const temp = file + '.' + randomUUID() + '.tmp'; try {
@@ -88,20 +89,17 @@ export function checkRuntime(options = {}) {
     }
     catch { }
     const file = options.configFile ?? configPath();
-    let status = fs.existsSync(file) ? 'valid' : 'defaults', enabled = false, legacyEnabled = false;
+    let status = fs.existsSync(file) ? 'valid' : 'defaults', enabled = false, legacyEnabled = false, config = defaultConfig();
     try {
-        const config = loadConfig(file);
+        config = loadConfig(file);
         enabled = startupEnabled(config);
         legacyEnabled = !!get(config, 'startup.enabled');
     }
     catch {
         status = 'invalid';
     }
-    let configured = false;
-    try {
-        configured = !!get(loadConfig(file), 'host.psmuxPath');
-    }
-    catch { }
+    const configured = status !== 'invalid' && !!get(config, 'host.psmuxPath');
+    const setup = inspectSetup(config, { ...options.setup, configValid: status !== 'invalid' && options.setup?.configValid !== false });
     let origin = 'unavailable';
     try {
         readHostOrigin();
@@ -131,5 +129,5 @@ export function checkRuntime(options = {}) {
             lastResult = result.status;
     }
     catch { }
-    return { node: process.version, terminal, hooksRequired: false, nativeStatusline: 'unchanged', host: { backend: 'psmux', configured, origin, verification: 'required-at-attach' }, autostart: { enabled, legacyEnabled, trigger: 'SessionStart', trust: 'unknown', hookFilesPresent: ['hooks/hooks.json', 'hooks/session-start.mjs', 'dist/autostart.js'].every(f => fs.existsSync(path.join(pluginRoot, f))), lastResult }, configuration: { status, path: file }, session: { status: current ? 'Codex environment available' : 'Select explicitly or start from inside Codex' }, display, notes: process.platform === 'win32' ? [] : ['Automatic split attachment requires native Windows and a verified psmux host'] };
+    return { node: process.version, terminal, hooksRequired: false, nativeStatusline: 'unchanged', host: { backend: 'psmux', configured, origin, verification: 'required-at-attach' }, autostart: { enabled, legacyEnabled, trigger: 'SessionStart', trust: 'unknown', hookFilesPresent: ['hooks/hooks.json', 'hooks/session-start.mjs', 'dist/autostart.js'].every(f => fs.existsSync(path.join(pluginRoot, f))), lastResult }, configuration: { status, path: file }, session: { status: current ? 'Codex environment available' : 'Select explicitly or start from inside Codex' }, display, setup, notes: setup.steps };
 }

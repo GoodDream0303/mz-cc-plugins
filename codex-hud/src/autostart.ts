@@ -25,7 +25,7 @@ export function isMainSession(meta:Record<string,any>|undefined,id:string):boole
 export async function autoStart(event:HookEvent,options:AutostartOptions={}):Promise<AutostartResult>{
  if(event.hook_event_name!=='SessionStart'||!['startup','resume','clear','fork'].includes(String(event.source))||event.agent_id||event.subagent_id||event.agent_transcript_path)return {status:'ignored',reason:'not-main-start'};
  if(process.platform!=='win32')return {status:'ignored',reason:'not-windows'};
- const file=options.configFile??configPath(),config=loadConfig(file);if(!startupEnabled(config))return {status:'disabled'};
+ const file=options.configFile??configPath(options.environment),config=loadConfig(file);if(!startupEnabled(config))return {status:'disabled'};
  if(typeof event.session_id!=='string'||!idPattern.test(event.session_id)||typeof event.transcript_path!=='string'||!path.isAbsolute(event.transcript_path))return {status:'ignored',reason:'missing-transcript'};
  let meta:Record<string,any>|undefined;
  const deadline=Date.now()+2000;

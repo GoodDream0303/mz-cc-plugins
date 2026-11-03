@@ -20,13 +20,14 @@ import {decodeInvocation,launchHostedCodex,runHostOwner,runHostFrontend} from '.
 import {profileChange,applyProfileChange} from './profile-setup.js';
 import {fileURLToPath} from 'node:url';
 import {assertActiveEntry} from './entry-install.js';
+import {inspectSetup} from './setup-readiness.js';
 import {sessionMetadata,isMainSession} from './autostart.js';
 
 function option(args:string[],key:string):string|undefined{const i=args.indexOf(key);return i>=0?args[i+1]:args.find(v=>v.startsWith(key+'='))?.slice(key.length+1);}
 function launchFile(args:string[]):string|undefined{const encoded=option(args,'--launch64');return encoded?Buffer.from(encoded,'base64').toString('utf8'):option(args,'--launch');}
 function configFile(args:string[]):string{return option(args,'--config')??configPath();}
 function preview(config:Config):string[]{
- return render({...emptySnapshot('preview'),model:'Codex Demo',effort:'high',cwd:'C:/projects/firmware',context:{used:45000,window:200000},latest:{input:42000,cached:30000,output:3000,reasoning:1000,total:45000},totals:{input:120000,cached:90000,output:10000,reasoning:3000,total:130000},quotas:[{id:'demo',minutes:300,usedPercent:25,resetsAt:Math.floor(Date.now()/1000)+3600}],agents:[{id:'demo',name:'reviewer',status:'unknown'}],todos:[{step:'Validate firmware',status:'in_progress'}],mcpUsed:['docs']},config,{width:process.stdout.columns??100,height:100,color:!!process.stdout.isTTY}).lines;
+ return render({...emptySnapshot('preview'),model:'Codex Demo',effort:'high',cwd:'C:/projects/firmware',context:{used:45000,window:200000},latest:{input:42000,cached:30000,output:3000,reasoning:1000,total:45000},totals:{input:120000,cached:90000,output:10000,reasoning:3000,total:130000},quotas:[{id:'demo:5h',minutes:300,usedPercent:25,resetsAt:Math.floor(Date.now()/1000)+3600},{id:'demo:7d',minutes:10080,usedPercent:35,resetsAt:Math.floor(Date.now()/1000)+86400}],agents:[{id:'demo',name:'reviewer',status:'unknown'}],todos:[{step:'Validate firmware',status:'in_progress'}],mcpUsed:['docs']},config,{width:process.stdout.columns??100,height:100,color:!!process.stdout.isTTY}).lines;
 }
 async function chooseSession(root:string):Promise<string>{
  const sessions=(await listSessions(root)).filter(s=>!s.parentId).slice(0,20);if(!sessions.length)throw new Error('No sessions found');
@@ -92,7 +93,7 @@ async function demoRunner(d:LaunchDescriptor):Promise<void>{
  const id='demo-'+d.id;const root=path.join(path.dirname(d.file),'demo-sessions',d.id);fs.mkdirSync(root,{recursive:true});const file=path.join(root,id+'.jsonl');
  const row=(type:string,payload:unknown)=>JSON.stringify({timestamp:new Date().toISOString(),type,payload})+'\n';
  fs.writeFileSync(file,row('session_meta',{id,cwd:d.cwd,title:'List commonly used Codex plugins',timestamp:new Date().toISOString(),cli_version:'preview'})+row('turn_context',{model:'Codex HUD Demo',effort:'high',cwd:d.cwd})+row('event_msg',{type:'token_count',info:{last_token_usage:{input_tokens:40000,cached_input_tokens:30000,output_tokens:5000,total_tokens:45000},total_token_usage:{input_tokens:120000,cached_input_tokens:90000,output_tokens:10000,total_tokens:130000},model_context_window:200000},rate_limits:{primary:{used_percent:25,window_minutes:300,resets_at:Math.floor(Date.now()/1000)+3600},secondary:{used_percent:10,window_minutes:10080,resets_at:Math.floor(Date.now()/1000)+86400}}}));
- fs.appendFileSync(file,row('response_item',{type:'function_call',call_id:'demo-plan',name:'update_plan',arguments:JSON.stringify({plan:[{step:'列出 Codex 常用插件',status:'in_progress'},{step:'Verify configuration',status:'pending'}]})})+row('response_item',{type:'function_call_output',call_id:'demo-plan',output:'{}'}));
+ fs.appendFileSync(file,row('response_item',{type:'function_call',call_id:'demo-plan',name:'update_plan',arguments:JSON.stringify({plan:[{step:'鍒楀嚭 Codex 甯哥敤鎻掍欢',status:'in_progress'},{step:'Verify configuration',status:'pending'}]})})+row('response_item',{type:'function_call_output',call_id:'demo-plan',output:'{}'}));
  // Demo is a user-facing layout preview, never a model invocation.
  updateLaunch(d.file,v=>{v.state='running';v.heartbeat=Date.now();});
  const newHome=readLaunch(d.file).codexHome;fs.mkdirSync(path.join(newHome,'sessions'),{recursive:true});fs.copyFileSync(file,path.join(newHome,'sessions',id+'.jsonl'));
@@ -130,11 +131,31 @@ export async function main(args=process.argv.slice(2)):Promise<void>{
   case 'host-owner':process.exitCode=await runHostOwner(decodeInvocation(option(rest,'--invocation64')),configFile(rest));return;
   case 'host-frontend':process.exitCode=await runHostFrontend(decodeInvocation(option(rest,'--invocation64')));return;
   case 'setup':{
-   const profile=option(rest,'--profile');if(!profile)throw new Error('setup --profile ABSOLUTE_PATH [--apply] [--remove]');
-   const loader={entry:fileURLToPath(new URL('../bin/powershell-entry.ps1',import.meta.url)),cli:fileURLToPath(new URL('../bin/hud.mjs',import.meta.url)),node:process.execPath};
-   const change=profileChange(profile,loader,rest.includes('--remove')?'remove':'install');
-   if(rest.includes('--apply'))applyProfileChange(change);
-   console.log(JSON.stringify({file:change.file,action:rest.includes('--remove')?'remove':'install',applied:rest.includes('--apply'),changed:change.before!==change.after,loader,block:rest.includes('--remove')?change.removedBlock:change.block,removedBlock:change.removedBlock},null,2));return;
+   const profile=option(rest,'--profile');if(!profile)throw new Error('setup --profile ABSOLUTE_PATH [--psmux ABSOLUTE_PATH] [--enable] [--apply] [--remove]');
+   const backend=option(rest,'--psmux'),enable=rest.includes('--enable'),remove=rest.includes('--remove'),initialize=rest.includes('--initialize')||backend!==undefined||enable;
+   if(remove&&initialize)throw new Error('Use --remove separately from --psmux or --enable');
+   const settingsFile=configFile(rest),settingsBefore=fs.existsSync(settingsFile)?fs.readFileSync(settingsFile):undefined;let original:Config,configValid=true;
+   try{original=loadConfig(settingsFile);}catch(error){if(!remove)throw error;original=defaultConfig();configValid=false;}let proposed=original;
+   const configChanges:Record<string,{before:unknown;after:unknown}>={};
+   for(const [key,value]of [...(backend!==undefined?[['host.psmuxPath',backend] as const]:[]),...(enable?[['host.autoStart','enabled'] as const,['startup.enabled',false] as const]:[])]){
+    if(get(proposed,key)!==value)configChanges[key]={before:get(proposed,key),after:value};proposed=set(proposed,key,value);
+   }
+   const readiness=inspectSetup(proposed,{configValid});
+   const loader={entry:fileURLToPath(new URL('../bin/powershell-entry.ps1',import.meta.url)),cli:fileURLToPath(new URL('../bin/hud.mjs',import.meta.url)),node:process.execPath,configFile:path.resolve(settingsFile)};
+   const change=profileChange(profile,loader,remove?'remove':'install'),apply=rest.includes('--apply'),blocked=apply&&initialize&&!readiness.ready;
+   if(apply&&!blocked){
+    if(initialize){const current=fs.existsSync(settingsFile)?fs.readFileSync(settingsFile):undefined;if(current===undefined?settingsBefore!==undefined:settingsBefore===undefined||!current.equals(settingsBefore))throw new Error('HUD configuration changed during setup review; rerun setup before applying');}
+    applyProfileChange(change);
+    if(initialize&&Object.keys(configChanges).length){
+     try{saveConfig(settingsFile,proposed);}catch(error){
+      // Roll back only the exact profile block just written, refusing concurrent edits.
+      try{applyProfileChange({...change,before:change.after,after:change.before});}catch{throw new Error('Configuration save failed and the profile changed concurrently; inspect the profile before retrying setup');}
+      throw error;
+     }
+    }
+   }
+   console.log(JSON.stringify({mode:initialize?'initialize':'profile-only',file:change.file,action:remove?'remove':'install',applied:apply&&!blocked,changed:change.before!==change.after,loader,block:remove?change.removedBlock:change.block,removedBlock:change.removedBlock,configFile:settingsFile,configChanges,readiness},null,2));
+   if(blocked)process.exitCode=1;return;
   }
   case 'start':return start(rest);
   case 'demo':return start(rest,true);
@@ -162,7 +183,7 @@ export async function main(args=process.argv.slice(2)):Promise<void>{
   }
   case 'stop':{const id=option(rest,'--launch');if(!id||!/^[a-f0-9-]{36}$/i.test(id))throw new Error('stop --launch <launch ID>');requestStop(path.join(runtimeRoot(),id+'.json'));console.log('HUD stop requested; Codex keeps running');return;}
   case 'help':case '--help':case '-h':
-   console.log('mz-codex-hud\n  start [--session CURRENT_ID]\n  watch|once [--session ID] [--json] [--width N]\n  list\n  setup --profile ABSOLUTE_PATH [--apply] [--remove]\n  configure\n  config show | config set KEY VALUE\n  import-claude [--path CONFIG] [--yes]\n  doctor\n  demo [--duration MILLISECONDS]\n  stop --launch ID\nAutomatic opening requires the configured PowerShell host entry. SessionStart binds current telemetry.\nNative statusline is unchanged. All commands accept --config FILE.');return;
+   console.log('mz-codex-hud\n  start [--session CURRENT_ID]\n  watch|once [--session ID] [--json] [--width N]\n  list\n  setup --profile ABSOLUTE_PATH [--initialize] [--psmux ABSOLUTE_PATH] [--enable] [--apply] [--remove]\n  configure\n  config show | config set KEY VALUE\n  import-claude [--path CONFIG] [--yes]\n  doctor\n  demo [--duration MILLISECONDS]\n  stop --launch ID\nAutomatic opening requires the configured PowerShell host entry. SessionStart binds current telemetry.\nNative statusline is unchanged. All commands accept --config FILE.');return;
   default:throw new Error('Unknown command: '+command);
  }
 }

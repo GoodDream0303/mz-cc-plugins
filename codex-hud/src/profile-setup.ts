@@ -1,5 +1,5 @@
 import fs from 'node:fs';import path from 'node:path';import {createHash,randomUUID} from 'node:crypto';
-export interface ProfileOptions {entry:string;cli:string;node:string}
+export interface ProfileOptions {entry:string;cli:string;node:string;configFile?:string}
 export interface ProfileChange {file:string;before:string;after:string;encoding:'utf8'|'utf16le';block:string;removedBlock?:string}
 const begin='# >>> mz-codex-hud >>>',end='# <<< mz-codex-hud <<<';
 const hash=(value:string)=>createHash('sha256').update(value).digest('hex');
@@ -22,7 +22,7 @@ export function profileChange(file:string,options:ProfileOptions,mode:'install'|
   separator=lines[2].endsWith('1');prefix=before.slice(0,start);suffix=before.slice(finish+end.length);if(suffix.startsWith('\r\n'))suffix=suffix.slice(2);else if(suffix.startsWith('\n'))suffix=suffix.slice(1);
   if(separator){if(prefix.endsWith('\r\n'))prefix=prefix.slice(0,-2);else if(prefix.endsWith('\n'))prefix=prefix.slice(0,-1);else throw new Error('Managed profile separator was edited');}
  }else if(before.includes(end))throw new Error('Managed HUD profile block is incomplete');
- const loader='. '+expression(options.entry)+' -HudCli '+expression(options.cli)+' -NodePath '+expression(options.node);
+ const loader='. '+expression(options.entry)+' -HudCli '+expression(options.cli)+' -NodePath '+expression(options.node)+(options.configFile?' -ConfigPath '+expression(options.configFile):'');
  const block=[begin,'# block-sha256: '+hash(loader),'# separator-added: '+(separator?'1':'0'),loader,end].join(eol)+eol;
  return {file:path.resolve(file),before,after:mode==='remove'?(start<0?before:prefix+(separator&&suffix?eol:'')+suffix):prefix+(separator?eol:'')+block+suffix,encoding:original.encoding,block,removedBlock};
 }

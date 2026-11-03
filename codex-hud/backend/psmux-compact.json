@@ -1,0 +1,29 @@
+{
+  "format": 1,
+  "version": "3.4.0-hud-compact-v1",
+  "upstreamCommit": "20aa1d7254ee93f64dafa059ef89341d9767470a",
+  "sha256": "7bb642e5c36a7af4f0466a95a8d2d11e159885e953682748a2575c5a9afd1055",
+  "sourcePatch": "patches/psmux-3.4.0-hud-compact-v1.patch",
+  "sourcePatchSha256": "ee86aca1c968d388bddee08d1cd177de6b5f0ae0a12c1b06eae66dba40fcf5ea",
+  "capabilities": {
+    "stackedSeparatorRows": 0,
+    "statusOffReserveRows": 0,
+    "liveDragResizesPty": true,
+    "resizeGesture": "alt-drag",
+    "protocol": "psmux-3.4"
+  },
+  "validation": {
+    "compactFocusedRust": {
+      "passed": 25,
+      "failed": 0
+    },
+    "normalFocusedRust": {
+      "passed": 12,
+      "failed": 0
+    },
+    "cleanSystemPathVersionCheck": true,
+    "nativeProcessChecks": 8,
+    "nativeDesktopChecks": 4,
+    "actualPointerAcceptance": "passed-manual-fixture-movement-and-release"
+  }
+}

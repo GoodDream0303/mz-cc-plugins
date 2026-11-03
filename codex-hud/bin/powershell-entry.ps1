@@ -1,9 +1,9 @@
-param([Parameter(Mandatory=$true)][string]$HudCli,[Parameter(Mandatory=$true)][string]$NodePath)
+param([Parameter(Mandatory=$true)][string]$HudCli,[Parameter(Mandatory=$true)][string]$NodePath,[string]$ConfigPath)
 $hudExisting=Get-Command codex -ErrorAction SilentlyContinue
 if($hudExisting -and $hudExisting.CommandType -in @('Function','Alias')){
  if($hudExisting.CommandType -ne 'Function' -or -not [object]::ReferenceEquals($hudExisting.ScriptBlock,$global:MzCodexHudFunction)){throw 'An existing codex function or alias requires review before installing the HUD entry'}
 }
-$hudOfficial=Get-Command codex -CommandType ExternalScript,Application -All -ErrorAction SilentlyContinue | Where-Object {$_.Path -match '\.(ps1|exe)$'} | Select-Object -First 1
+$hudOfficial=Get-Command codex -CommandType ExternalScript,Application -All -ErrorAction SilentlyContinue | Where-Object {$_.Path -match '\.(ps1|cmd|exe)$'} | Select-Object -First 1
 if(-not $hudOfficial){throw 'The original official Codex command was not found'}
 if(-not (Test-Path -LiteralPath $HudCli) -or -not (Test-Path -LiteralPath $NodePath)){throw 'The HUD entry path is unavailable; rerun setup for the installed plugin'}
 $hudPreviousExit=Get-Variable LASTEXITCODE -Scope Global -ErrorAction SilentlyContinue
@@ -20,8 +20,16 @@ $hudCommand={
  $hudArguments=@($args)
  $hudInvocation=@{command=$hudOfficialPath;args=$hudArguments}
  $hudEncoded=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((ConvertTo-Json -InputObject $hudInvocation -Depth 4 -Compress)))
- if($MyInvocation.ExpectingInput){$input | & $NodePath $HudCli codex-entry --invocation64 $hudEncoded}
- else {& $NodePath $HudCli codex-entry --invocation64 $hudEncoded}
+ $hudParentPath=$env:PATH
+ $hudParentConfig=$env:MZ_HUD_CONFIG_FILE
+ try {
+  # Native Codex installations may use a portable Node outside PATH. Its hooks
+  # still invoke node by name, so expose the pinned runtime to this child tree.
+  $env:PATH=(Split-Path -Parent $NodePath)+[IO.Path]::PathSeparator+$hudParentPath
+  if($ConfigPath){$env:MZ_HUD_CONFIG_FILE=$ConfigPath}
+  if($MyInvocation.ExpectingInput){$input | & $NodePath $HudCli codex-entry --invocation64 $hudEncoded}
+  else {& $NodePath $HudCli codex-entry --invocation64 $hudEncoded}
+ } finally {$env:PATH=$hudParentPath;$env:MZ_HUD_CONFIG_FILE=$hudParentConfig}
  $global:LASTEXITCODE=$LASTEXITCODE
 }.GetNewClosure()
 Set-Item -Path Function:global:codex -Value $hudCommand

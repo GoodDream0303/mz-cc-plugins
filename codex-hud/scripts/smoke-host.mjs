@@ -2,6 +2,7 @@
 // A copied Node executable named codex.exe is a fixture, NOT official Codex.
 import fs from 'node:fs';import path from 'node:path';import os from 'node:os';import assert from 'node:assert/strict';import {randomUUID,createHash} from 'node:crypto';import {spawnSync} from 'node:child_process';import {fileURLToPath} from 'node:url';import {setTimeout as delay} from 'node:timers/promises';
 import {defaultConfig,set,saveConfig} from '../dist/config.js';import {readHost} from '../dist/host-session.js';import {readLaunch,requestStop} from '../dist/runtime.js';
+import {verifyBackend} from '../dist/backend-version.js';
 const self=fileURLToPath(import.meta.url),product=path.resolve(path.dirname(self),'..');
 const read=file=>JSON.parse(fs.readFileSync(file,'utf8'));
 async function wait(check,message,ms=25000){const until=Date.now()+ms;do{const value=await check();if(value)return value;await delay(100);}while(Date.now()<until);throw Error(message);}
@@ -9,7 +10,14 @@ if(process.argv[2]==='--fixture'){
  const [role,root,node]=process.argv.slice(3),host=path.join(process.env.MZ_HUD_HOST_DIR,process.env.MZ_HUD_ORIGIN+'.json');
  console.log('SYNTHETIC CODEX '+role+' - no official CLI or model request');
  fs.writeFileSync(path.join(root,'ready-'+role+'.json'),JSON.stringify({pid:process.pid,host}));
- while(!fs.existsSync(path.join(root,'stop-'+role))){
+ // Like the production TUI, consume raw TTY input so Windows delivers resize events.
+ const interactive=!!process.stdin.isTTY;if(interactive){process.stdin.setRawMode(true);process.stdin.resume();}
+ let nextFrame=0;const expires=Number(process.env.MZ_HUD_SMOKE_EXPIRES_AT??0),onResize=()=>{nextFrame=0;};process.stdout.on('resize',onResize);
+ while(!fs.existsSync(path.join(root,'stop-'+role))&&(!expires||Date.now()<expires)){
+  if(process.env.MZ_HUD_SMOKE_FOOTER==='1'&&process.stdout.isTTY&&Date.now()>=nextFrame){
+   // Raw input above keeps Node's cached TTY dimensions updated on Windows.
+   const rows=Math.max(3,process.stdout.getWindowSize()[1]);process.stdout.write('\x1b[H\x1b[2J\x1b[?25lSYNTHETIC CODEX '+role+' - isolated display fixture, no model request\x1b['+(rows-1)+';1HDEMO STATUS | native footer text remains intact\x1b['+rows+';1H? shortcuts [fixture]');nextFrame=Date.now()+250;
+  }
   const request=path.join(root,'request-'+role+'.json'),result=path.join(root,'result-'+role+'.json');
   if(fs.existsSync(request)&&!fs.existsSync(result)){
    const event=read(request),child=spawnSync(node,[path.join(product,'hooks/session-start.mjs')],{input:JSON.stringify(event),env:{...process.env,CODEX_THREAD_ID:event.session_id},encoding:'utf8',windowsHide:true,timeout:20000});
@@ -17,11 +25,11 @@ if(process.argv[2]==='--fixture'){
   }
   await delay(50);
  }
- process.exitCode=0;
+ process.stdout.off('resize',onResize);if(interactive){process.stdin.setRawMode(false);process.stdin.pause();}if(process.stdout.isTTY)process.stdout.write('\x1b[?25h');process.exitCode=0;
 }else{
  const index=process.argv.indexOf('--psmux'),binary=index<0?undefined:process.argv[index+1];if(!binary||!path.isAbsolute(binary))throw Error('smoke-host.mjs --psmux ABSOLUTE_PINNED_EXE [--zip VERIFIED_ZIP]');
  const zipIndex=process.argv.indexOf('--zip');if(zipIndex>=0){const digest=createHash('sha256').update(fs.readFileSync(process.argv[zipIndex+1])).digest('hex');assert.equal(digest,'a66b6be7c13c6fa0dc3660a267b9e34eaa91a4eb7f07fbd55a0468018bd0f721');}
- assert.match(spawnSync(binary,['-V'],{encoding:'utf8',windowsHide:true}).stdout,/psmux 3\.4\.0 \(20aa1d7/);
+ const backend=verifyBackend(binary,spawnSync(binary,['-V'],{encoding:'utf8',windowsHide:true}).stdout);assert.ok(backend,'Backend must match an accepted build and artifact pin');
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'hud-production-host-')),runtime=path.join(root,'runtime'),hostDir=path.join(runtime,'hosts'),fake=path.join(root,'codex.exe'),configFile=path.join(root,'local/mz-codex-hud/config.json'),codexHome=path.join(root,'codex-home'),cwd=path.join(root,'samecwd');
  fs.mkdirSync(cwd,{recursive:true});fs.mkdirSync(codexHome);fs.cpSync(process.execPath,fake);saveConfig(configFile,set(set(set(defaultConfig(),'host.psmuxPath',binary),'startup.enabled',false),'host.autoStart','enabled'));
  const parked=path.join(root,'first-viewer-parked'),preload=path.join(root,'park-first-viewer.mjs');
@@ -33,6 +41,12 @@ if(process.argv[2]==='--fixture'){
   if(!allowFailure&&(result.status!==0||result.error))throw Error('psmux '+args[0]+' failed: '+(result.error?.message??result.stderr));return result;
  }
  function descriptor(role){const item=roles.get(role),record=readHost(path.join(hostDir,item.id+'.json'));return record.launchFile?readLaunch(record.launchFile):undefined;}
+ function geometry(role,rows=6){
+  const d=descriptor(role),source=d.host.proof.origin.pane,hud=d.host.hudPane;
+  const readPane=id=>{const values=command(role,['display-message','-p','-t',id,'#{pane_top}|#{pane_bottom}|#{pane_height}']).stdout.trim().split('|').map(Number);return {top:values[0],bottom:values[1],height:values[2]};};
+  const owner=readPane(source),viewer=readPane(hud);assert.equal(viewer.height,rows);assert.equal(viewer.top-owner.bottom-1,backend.kind==='compact'?0:1);
+  assert.equal(owner.bottom-owner.top+1,owner.height);assert.equal(viewer.bottom-viewer.top+1,viewer.height);return {owner,viewer};
+ }
  async function ready(role){return wait(()=>{try{const d=descriptor(role);return d?.state==='running'&&fs.existsSync(path.join(root,'ready-'+role+'.json'))?d:undefined;}catch{return;}},role+' did not create a waiting HUD');}
  async function bind(role,id,percent){
   const request=path.join(root,'request-'+role+'.json'),result=path.join(root,'result-'+role+'.json'),transcript=path.join(root,role+'-'+id+'.jsonl');
@@ -45,7 +59,7 @@ if(process.argv[2]==='--fixture'){
  try{
   for(const role of ['A','B']){
    const id=randomUUID(),namespace='mzhudsmoke'+role+id.replaceAll('-','').slice(0,16),dataDir=path.join(root,'state',role),env={...process.env};for(const key of Object.keys(env))if(/^TMUX|^PSMUX_/i.test(key))delete env[key];
-   Object.assign(env,{MZ_HUD_ORIGIN:id,MZ_HUD_NAMESPACE:namespace,MZ_HUD_HOST_DIR:hostDir,MZ_HUD_PSMUX:binary,PSMUX_DATA_DIR:dataDir,PSMUX_CONFIG_FILE:config,PSMUX_NO_WARM:'1',LOCALAPPDATA:path.join(root,'local'),CODEX_HOME:codexHome});
+   Object.assign(env,{MZ_HUD_ORIGIN:id,MZ_HUD_NAMESPACE:namespace,MZ_HUD_HOST_DIR:hostDir,MZ_HUD_PSMUX:binary,MZ_HUD_CONFIG_FILE:configFile,PSMUX_DATA_DIR:dataDir,PSMUX_CONFIG_FILE:config,PSMUX_NO_WARM:'1',LOCALAPPDATA:path.join(root,'local'),CODEX_HOME:codexHome});
    if(role==='A'&&process.argv.includes('--kill-first-viewer'))env.NODE_OPTIONS='--import='+new URL('file:///'+preload.replaceAll('\\','/')).href;
    roles.set(role,{id,namespace,env});const encoded=Buffer.from(JSON.stringify({command:fake,args:[self,'--fixture',role,root,process.execPath]})).toString('base64');
    command(role,['new-session','-d','-s','codex','-x','120','-y','40','-c',cwd,'--',process.execPath,path.join(product,'bin/hud.mjs'),'host-owner','--invocation64',encoded,'--config',configFile]);
@@ -55,6 +69,12 @@ if(process.argv[2]==='--fixture'){
    }else await ready(role);
   }
   const a=descriptor('A'),b=descriptor('B');assert.equal(a.sessionId,undefined);assert.equal(b.sessionId,undefined);assert.notEqual(a.id,b.id);assert.notEqual(a.host.proof.server.pid,b.host.proof.server.pid);checks.push('two real source owners each open an independent waiting HUD before a hook');
+  geometry('A');const untouchedB=geometry('B');checks.push('both HUDs start at six rows with the backend-specific separator geometry');
+  if(backend.kind==='compact'){
+   command('A',['resize-window','-t','codex','-x','120','-y','60']);command('A',['resize-pane','-t',a.host.hudPane,'-y','6']);geometry('A');
+   command('A',['resize-pane','-t',a.host.hudPane,'-y','8']);geometry('A',8);command('A',['resize-window','-t','codex','-x','120','-y','40']);command('A',['resize-pane','-t',a.host.hudPane,'-y','6']);geometry('A');
+   assert.deepEqual(geometry('B'),untouchedB);checks.push('compact rows stay adjacent and explicit six/eight-row resizing remains exact after viewport changes without changing the other server');
+  }
   await bind('A','synthetic-thread-a',20);await bind('B','synthetic-thread-b',70);assert.equal(descriptor('A').sessionId,'synthetic-thread-a');checks.push('native hook process ancestry binds A20% and B70% independently (synthetic CLI)');
   const launchA=descriptor('A').file;await bind('A','synthetic-shared-thread',30);await bind('B','synthetic-shared-thread',30);assert.equal(descriptor('A').file,launchA);assert.notEqual(descriptor('A').file,descriptor('B').file);checks.push('same thread in two source owners retains two displays; rebind does not duplicate');
   requestStop(descriptor('A').file);await wait(()=>descriptor('A').state==='exited','A HUD did not close');assert.equal(descriptor('B').state,'running');

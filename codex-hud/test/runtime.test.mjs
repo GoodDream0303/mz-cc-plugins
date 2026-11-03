@@ -16,7 +16,8 @@ test('closing HUD never changes or ends the native Codex session',t=>{
 });
 test('ordinary start refuses an unknown physical host even with a valid current session',{skip:process.platform!=='win32'},t=>{
  const root=temp(t),home=path.join(root,'home');fs.mkdirSync(home);fs.writeFileSync(path.join(home,'config.toml'),'[features]\nhooks = false\n');fs.writeFileSync(path.join(root,'session.jsonl'),JSON.stringify({type:'session_meta',payload:{id:'current-thread',cwd:root}})+'\n');
- const result=spawnSync(process.execPath,['bin/hud.mjs','start','--sessions-root',root,'--dry-run'],{cwd:path.resolve(import.meta.dirname,'..'),env:{...process.env,LOCALAPPDATA:root,CODEX_HOME:home,CODEX_THREAD_ID:'current-thread',WT_WINDOW_ID:'unrelated-window'},encoding:'utf8'});
+ // Keep the unknown-host precondition even when the test runner itself is hosted.
+ const result=spawnSync(process.execPath,['bin/hud.mjs','start','--sessions-root',root,'--dry-run'],{cwd:path.resolve(import.meta.dirname,'..'),env:{...process.env,LOCALAPPDATA:root,CODEX_HOME:home,CODEX_THREAD_ID:'current-thread',MZ_HUD_ORIGIN:'',WT_WINDOW_ID:'unrelated-window'},encoding:'utf8'});
  assert.notEqual(result.status,0);assert.match(result.stderr,/host|psmux|pane/i);
 });
 test('demo chooses its isolated home before Terminal starts',{skip:process.platform!=='win32'},t=>{

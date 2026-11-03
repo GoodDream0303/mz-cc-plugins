@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { randomUUID } from 'node:crypto';
+import { packagedBackendPath } from './backend-version.js';
 const defs = [];
 function def(key, value, section, label, extra = {}) {
     const english = key.split('.').at(-1).replace(/^show(?=[A-Z])/, '').replace(/([a-z])([A-Z])/g, '$1 $2');
@@ -33,7 +34,7 @@ const unavailable = {
 const flags = {
     showModel: false, showProject: false, showAddedDirs: false, showContextBar: true, showConfigCounts: false,
     showCost: false, showRoutedCost: false, showDailyCost: false, showDuration: false, showSpeed: false,
-    showTokenBreakdown: true, showUsage: true, usageBarEnabled: true, showResetLabel: true, usageCompact: false,
+    showTokenBreakdown: true, showUsage: true, showFiveHourUsage: true, showSevenDayUsage: true, usageBarEnabled: true, showResetLabel: true, usageCompact: false,
     showModelScopedUsage: false, showTools: false, showSkills: false, showMcp: false, showAgents: false, showTodos: false,
     showSessionName: false, showAuth: false, showAuthUser: false, showCodexVersion: false,
     showEffortLevel: false, showMemoryUsage: false, showPromptCache: false, showSessionTokens: false,
@@ -48,8 +49,9 @@ const labels = {
     showCodexVersion: 'Codex 版本', showCompactions: '压缩次数', showAuth: '订阅类型', showProvider: '服务商',
     showSessionStartDate: '会话开始时间', showLastResponseAt: '最后响应时间'
 };
+const quotaLabels = { showUsage: 'Quota master switch', showFiveHourUsage: '5-hour quota', showSevenDayUsage: '7-day quota' };
 for (const [key, value] of Object.entries(flags))
-    def('display.' + key, value, 'display', labels[key] ?? key, { reason: unavailable[key] });
+    def('display.' + key, value, 'display', labels[key] ?? key, { reason: unavailable[key], ...(quotaLabels[key] ? { label: quotaLabels[key] } : {}) });
 for (const [key, value, choices] of [
     ['contextValue', 'percent', ['percent', 'tokens', 'remaining', 'both']], ['usageValue', 'percent', ['percent', 'remaining']],
     ['effortFormat', 'full', ['full', 'symbol', 'text']], ['modelFormat', 'full', ['full', 'compact', 'short']],
@@ -61,7 +63,7 @@ for (const [key, value, choices] of [
 for (const [key, value, max] of [
     ['toolNameMaxLength', 0, 200], ['toolsMaxVisible', 4, 30], ['authUserLength', 8, 100],
     ['contextWarningThreshold', 70, 100], ['contextCriticalThreshold', 85, 100], ['usageThreshold', 0, 100],
-    ['sevenDayThreshold', 80, 100], ['environmentThreshold', 0, 100]
+    ['sevenDayThreshold', 0, 100], ['environmentThreshold', 0, 100]
 ])
     def('display.' + key, value, 'display', key, { min: 0, max });
 for (const key of ['modelOverride', 'providerName', 'customLine', 'advisorOverride', 'externalUsagePath', 'externalUsageWritePath'])
@@ -71,12 +73,13 @@ for (const [key, value] of Object.entries({ context: 'green', usage: 'brightBlue
 def('colors.barFilled', '█', 'colors', '进度条填充');
 def('colors.barEmpty', '░', 'colors', '进度条空白');
 def('terminal.paneSize', 0.22, 'terminal', '下方面板比例', { min: 0.1, max: 0.75 });
-def('terminal.autoHeight', true, 'terminal', 'Fit initial pane to content');
+def('terminal.initialRows', 6, 'terminal', 'Initial HUD rows', { min: 0, max: 1000 });
+def('terminal.autoHeight', false, 'terminal', 'Fit initial pane to content');
 def('terminal.refreshMs', 1000, 'terminal', '刷新间隔（毫秒）', { min: 250, max: 60000 });
 def('terminal.margin', 4, 'terminal', '预留列数', { min: 0, max: 20 });
 def('startup.enabled', true, 'startup', 'Auto open HUD', { label: 'Legacy startup', reason: 'Preserved for compatibility; use exact-host Auto start and keep this false while 0.3.4 sessions exist' });
 def('startup.window', 'last', 'startup', 'Terminal target', { pattern: /^[a-zA-Z0-9_.-]{1,100}$/, reason: 'Legacy value preserved; attachment uses the verified source pane' });
-def('host.psmuxPath', '', 'startup', 'Portable psmux executable');
+def('host.psmuxPath', packagedBackendPath(), 'startup', 'Portable psmux executable');
 def('host.autoStart', 'inherit', 'startup', 'Exact host automatic opening', { choices: ['inherit', 'enabled', 'disabled'] });
 export const definitions = defs;
 export const unsupported = unavailable;
@@ -159,6 +162,8 @@ export function validateConfig(value) {
             throw new Error('Invalid type: ' + d.key);
         if (typeof v === 'number' && (!Number.isFinite(v) || v < (d.min ?? -Infinity) || v > (d.max ?? Infinity)))
             throw new Error('Out of range: ' + d.key);
+        if (d.key === 'terminal.initialRows' && !Number.isInteger(v))
+            throw new Error('Expected whole rows: ' + d.key);
         if (typeof v === 'string' && v.length > 1000)
             throw new Error('Text is too long: ' + d.key);
         if (typeof v === 'string' && d.pattern && !d.pattern.test(v))
@@ -167,7 +172,15 @@ export function validateConfig(value) {
     return config;
 }
 export function set(config, key, value) { const copy = structuredClone(config); put(copy, key, value); return validateConfig(copy); }
-export function configPath() { return path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), '.local', 'share'), 'mz-codex-hud', 'config.json'); }
+export function configPath(environment = process.env) {
+    const selected = environment.MZ_HUD_CONFIG_FILE;
+    if (selected) {
+        if (!path.isAbsolute(selected))
+            throw new Error('HUD configuration override must be an absolute path');
+        return selected;
+    }
+    return path.join(environment.LOCALAPPDATA ?? path.join(os.homedir(), '.local', 'share'), 'mz-codex-hud', 'config.json');
+}
 export function loadConfig(file = configPath()) {
     try {
         const stat = fs.statSync(file);
@@ -211,7 +224,7 @@ export function preset(name, base = defaultConfig()) {
         throw new Error('Unknown preset: ' + name);
     const config = structuredClone(base);
     for (const d of defs.filter(d => d.key.startsWith('display.show') && d.kind === 'boolean'))
-        put(config, d.key, !d.reason && (name === 'full' || ['display.showContextBar', ...(name === 'essential' ? ['display.showUsage', 'display.showSessionTokens'] : [])].includes(d.key)));
+        put(config, d.key, !d.reason && (name === 'full' || ['display.showContextBar', ...(name === 'essential' ? ['display.showUsage', 'display.showFiveHourUsage', 'display.showSevenDayUsage', 'display.showSessionTokens'] : [])].includes(d.key)));
     return validateConfig(config);
 }
 export function importClaude(value) {

@@ -1,27 +1,62 @@
 import {createInterface} from 'node:readline/promises';
-import {stdin,stdout} from 'node:process';
-import {definitions,get,loadConfig,preset,saveConfig,set,type Config} from './config.js';
+import {stdin} from 'node:process';
+import {definitions,get,loadConfig,preset,saveConfig,set,type Config,type Definition} from './config.js';
+import {menuLanguage,menuText,menuOptionAvailable,optionHelp,type MenuLanguage} from './menu-help.js';
+function valueText(value:unknown,language:MenuLanguage):string {
+ const copy=menuText(language);return typeof value==='boolean'?(value?copy.on:copy.off):JSON.stringify(value);
+}
+function valueError(error:Error,definition:Definition,language:MenuLanguage):string {
+ if(language==='en')return error.message;const copy=menuText(language),detail=optionHelp(definition,language);
+ if(error.message.startsWith('Out of range:'))return copy.outOfRange+' ('+definition.min+'–'+definition.max+'): '+detail.label;
+ if(definition.choices)return copy.invalidChoice+': '+detail.choices.map(c=>JSON.stringify(c.value)).join(', ');
+ if(definition.kind==='number')return copy.invalidNumber+' ('+definition.min+'–'+definition.max+'): '+detail.label;
+ if(definition.kind==='array')return copy.invalidArray+': '+JSON.stringify(detail.example);
+ return copy.invalidValue+': '+detail.label+'; '+copy.inputExample+': '+JSON.stringify(detail.example);
+}
 export async function configure(file:string,preview:(config:Config)=>string[]=()=>[]):Promise<boolean> {
  if(!stdin.isTTY)throw new Error('Interactive configuration requires a terminal; use config set instead');
- const rl=createInterface({input:stdin,output:stdout});let config=loadConfig(file);
+ const rl=createInterface({input:stdin,output:process.stdout});let config=loadConfig(file);
  try {
   for(;;) {
-   console.log('\nCodex HUD | 1 Layout  2 Display  3 Git  4 Colors  5 Terminal  6 Preset  7 Startup  p Preview  s Save  q Cancel');
-   const answer=(await rl.question('> ')).trim();
-   if(answer==='q')return false;if(answer==='s'){saveConfig(file,config);return true;}
-   if(answer==='p'){console.log(preview(config).join('\n'));continue;}
-   if(answer==='6'){const choice=await rl.question('full / essential / minimal: ');try{config=preset(choice.trim(),config);}catch(e){console.error((e as Error).message);}continue;}
-   const section=({'1':'layout','2':'display','3':'git','4':'colors','5':'terminal','7':'startup'} as Record<string,string>)[answer];if(!section)continue;
-   const options=definitions.filter(d=>d.section===section);
-   options.forEach((d,i)=>console.log((i+1)+'. '+d.label+' = '+JSON.stringify(get(config,d.key))+(d.reason?' [Unavailable: '+d.reason+']':'')));
-   const choice=Number(await rl.question('Select an item (Enter to go back): '));const d=options[choice-1];if(!d)continue;
-   if(d.reason){console.log(d.reason);continue;}
-   try {
-    const current=get(config,d.key);
-    if(d.kind==='boolean')config=set(config,d.key,!current);
-    else{const raw=await rl.question(d.key+' new value'+(d.choices?' '+JSON.stringify(d.choices):'')+': ');let value:unknown=raw;try{value=JSON.parse(raw);}catch{}config=set(config,d.key,value);}
-    console.log(preview(config).join('\n'));
-   }catch(e){console.error((e as Error).message);}
+   let language=menuLanguage(get(config,'language')),copy=menuText(language);
+   console.log('\n'+copy.title);
+   const answer=(await rl.question('> ')).trim().toLowerCase();
+   if(answer==='q'){console.log(copy.cancelled);return false;}if(answer==='s'){saveConfig(file,config);console.log(copy.saved);return true;}
+   if(answer==='v'){console.log(preview(config).join('\n'));continue;}
+   if(answer==='p'||answer==='n'){console.log(copy.pageOnly);continue;}
+   if(answer==='6'){
+    console.log(copy.presetHelp);const choice=(await rl.question(copy.preset)).trim();
+    if(!choice)console.log(copy.kept);else try{config=preset(choice,config);console.log(copy.changed);}catch{console.error(copy.invalidPreset);}continue;
+   }
+   const section=({'1':'layout','2':'display','3':'git','4':'colors','5':'terminal','7':'startup'} as Record<string,string>)[answer];if(!section){console.error(copy.invalidSelection);continue;}
+   const options=definitions.filter(d=>d.section===section&&menuOptionAvailable(d)),pageSize=8,pages=Math.max(1,Math.ceil(options.length/pageSize));let page=0;
+   for(;;){
+    language=menuLanguage(get(config,'language'));copy=menuText(language);
+    console.log('['+(page+1)+'/'+pages+']');
+    options.slice(page*pageSize,(page+1)*pageSize).forEach((d,index)=>{
+     const detail=optionHelp(d,language);
+     console.log((page*pageSize+index+1)+'. '+detail.label+' = '+valueText(get(config,d.key),language)+' ('+d.key+')');
+     console.log('   '+copy.example+': '+JSON.stringify(detail.example)+' → '+detail.effect);
+    });
+    const rawChoice=(await rl.question(copy.select)).trim().toLowerCase();if(!rawChoice)break;
+    if(rawChoice==='s'){saveConfig(file,config);console.log(copy.saved);return true;}
+    if(rawChoice==='q'){console.log(copy.cancelled);return false;}
+    if(rawChoice==='v'){console.log(preview(config).join('\n'));continue;}
+    if(rawChoice==='n'){if(page===pages-1)console.log(copy.lastPage);else page++;continue;}
+    if(rawChoice==='p'){if(page===0)console.log(copy.firstPage);else page--;continue;}
+    const choice=/^[1-9]\d*$/.test(rawChoice)?Number(rawChoice):NaN,d=options[choice-1];
+    if(!d||choice<=page*pageSize||choice>(page+1)*pageSize){console.error(copy.invalidSelection);continue;}
+    const detail=optionHelp(d,language);
+    console.log('\n'+detail.label+' ('+d.key+')');console.log(copy.current+': '+valueText(get(config,d.key),language));
+    console.log(copy.inputExample+': '+JSON.stringify(detail.example));console.log(copy.effect+': '+detail.effect);
+    if(detail.choices.length)console.log(copy.choices+': '+detail.choices.map(c=>JSON.stringify(c.value)+' = '+c.label).join('; '));
+    if(d.min!==undefined||d.max!==undefined)console.log(copy.range+': '+(d.min??'−∞')+'–'+(d.max??'∞'));
+    try{
+     if(d.kind==='boolean')config=set(config,d.key,!get(config,d.key));
+     else{const raw=await rl.question(d.key+' '+copy.newValue+': ');if(!raw.trim()){console.log(copy.kept);continue;}let value:unknown=raw;try{value=JSON.parse(raw);}catch{}config=set(config,d.key,value);}
+     console.log(menuText(menuLanguage(get(config,'language'))).changed);console.log(preview(config).join('\n'));
+    }catch(error){console.error(valueError(error as Error,d,language));}
+   }
   }
  }finally{rl.close();}
 }

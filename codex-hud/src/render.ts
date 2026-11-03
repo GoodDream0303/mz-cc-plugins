@@ -62,12 +62,14 @@ export function render(s:HudSnapshot,c:Config,o:RenderOptions={}):RenderResult {
  if(on('showSessionTokens')&&s.totals)tokenParts.push(ink(label('Session tokens ','会话 Token ','會話 Token ')+num(s.totals.total)+' (in:'+num(s.totals.input)+' cache:'+num(s.totals.cached)+' out:'+num(s.totals.output)+')','label'));
  if(tokenParts.length){groups.set('context',tokenParts.join(' | '));fields.set('context',tokenParts);}
  if(on('showUsage')){
-  const quotas=s.quotas.filter(q=>q.usedPercent>=(q.minutes>=10080?get(c,'display.sevenDayThreshold'):get(c,'display.usageThreshold'))).map((q:Quota)=>{
+  const enabled=(minutes:number)=>minutes===300?on('showFiveHourUsage'):minutes===10080?on('showSevenDayUsage'):true;
+  const quotas=s.quotas.filter(q=>enabled(q.minutes)&&q.usedPercent>=(q.minutes>=10080?get(c,'display.sevenDayThreshold'):get(c,'display.usageThreshold'))).map((q:Quota)=>{
    const remaining=get(c,'display.usageValue')==='remaining';const p=remaining?100-q.usedPercent:q.usedPercent;
    const progress=get(c,'display.usageBarEnabled')&&!get(c,'display.usageCompact')?bar(p)+' ':'';
    let reset='';if(q.resetsAt){const ended=q.resetsAt*1000<=now;reset=' ('+(ended?label('awaiting refresh','待刷新'):((on('showResetLabel')?label('resets ','重置 '):'')+timestamp(q.resetsAt*1000)))+')';}
    return ink(windowLabel(q.minutes)+': '+progress+percent(p)+'%'+(remaining?' '+label('left','剩余','剩餘'):'')+reset,q.usedPercent>=90?'critical':'usage');
-  });if(quotas.length){groups.set('usage',quotas.join(' | '));fields.set('usage',quotas);}else if(!s.quotas.length)groups.set('usage',ink(label('Quota: ','额度: ','額度: ')+unknown,'label'));
+  });
+  if(quotas.length){groups.set('usage',quotas.join(' | '));fields.set('usage',quotas);}
  }
  if(on('showMcp')){
   const configured=s.environment?.mcp.filter(m=>m.enabled).map(m=>m.name)??[];const disabled=s.environment?.mcp.filter(m=>!m.enabled).length??0;

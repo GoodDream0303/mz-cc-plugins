@@ -12,7 +12,7 @@ test('autostart attaches metadata thread identity quietly and stores no transcri
 });
 test('autostart sizes using its exact source pane geometry',async t=>{
  const f=fixture(t);await autoStart(f.event,f.options);const launched=readLaunch(descriptors(f.runtime)[0]);
- assert.equal(launched.initialSizing.mode,'content');assert.equal(launched.initialSizing.parentRows,40);assert.equal(launched.sessionId,'current-thread');
+ assert.equal(launched.initialSizing.mode,'rows');assert.equal(launched.initialSizing.rows,6);assert.equal(launched.initialSizing.parentRows,40);assert.equal(launched.sessionId,'current-thread');
 });
 test('parallel frontends in the same directory each own a HUD across all start sources',async t=>{
  const first=fixture(t),fixtures=['startup','resume','clear','fork'].map((source,i)=>{

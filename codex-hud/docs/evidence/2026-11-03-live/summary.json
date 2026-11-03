@@ -1,0 +1,81 @@
+{
+  "verdict": "PASS_LIMITED_LIVE_INSPECTION",
+  "checkedAt": "2026-11-03T04:32:05.698Z",
+  "pluginVersion": "0.4.0",
+  "scope": "Existing official npm Codex native processes on one Windows machine",
+  "newCodexStarted": false,
+  "modelPromptSubmitted": false,
+  "checks": [
+    {
+      "name": "Installed package and manifest version",
+      "status": "passed",
+      "actual": "Both report 0.4.0"
+    },
+    {
+      "name": "PowerShell 5 and 7 profile setup previews",
+      "status": "passed",
+      "actual": "Both report changed=false and applied=false"
+    },
+    {
+      "name": "Sampled source and installed runtime equality",
+      "status": "passed",
+      "files": ["bin/hud.mjs", "dist/runtime.js", "hooks/session-start.mjs"],
+      "actual": "All three match after CRLF/LF normalization; full package not compared"
+    },
+    {
+      "name": "Live source ownership and independent HUD identity",
+      "status": "passed",
+      "registeredRunningHosts": 8,
+      "verifiedOfficialNativeChildren": 8,
+      "verifiedSourceAndHudPairs": 8,
+      "boundMainConversations": 4,
+      "waitingForConversationMetadata": 4,
+      "currentThreadMatchesCurrentDisplay": true,
+      "method": "verifyHost(hook) with a live process snapshot; PsmuxClient.pane for source and HUD; viewer process incarnation and heartbeat; sessionMetadata/isMainSession for bound transcripts"
+    },
+    {
+      "name": "Current-session attachment dry run",
+      "status": "passed",
+      "command": "node <installed-plugin>/bin/hud.mjs start --dry-run",
+      "actual": "mode=attach, backend=psmux, status=validated"
+    },
+    {
+      "name": "Repeated current-session attachment",
+      "status": "passed",
+      "command": "node <installed-plugin>/bin/hud.mjs start (twice)",
+      "actual": ["HUD already-open.", "HUD already-open."],
+      "hostsCompared": 8,
+      "allLaunchAndViewerIdentitiesUnchanged": true,
+      "allSessionBindingsUnchanged": true,
+      "allOwnerAndHudGeometryUnchanged": true,
+      "allHeartbeatsAdvanced": true
+    },
+    {
+      "name": "Close and reopen only the proven current HUD",
+      "status": "passed",
+      "command": "stop --launch <verified-current-launch>; wait for exact pane absence; start",
+      "exactOldPaneAbsent": true,
+      "registeredSourceIncarnationsSurvived": true,
+      "actual": "HUD opened.",
+      "newLaunchAndViewerAndPane": true,
+      "newViewerLiveAndBoundToCurrentThread": true,
+      "neighbourHostsCompared": 7,
+      "allNeighbourIdentitiesBindingsAndGeometryUnchanged": true
+    }
+  ],
+  "configuration": {
+    "exactHostAutoStart": "enabled",
+    "legacyStartupEnabled": false,
+    "doctorConfiguration": "valid",
+    "doctorHookTrust": "unknown",
+    "profileTrustApprovalOrDaemonSettingsChanged": false
+  },
+  "limitations": [
+    "No visual placement, focus or keyboard/mouse/scroll/copy acceptance; user feedback is pending.",
+    "Native statusline usability was not visually checked.",
+    "Observed direct native-child ancestry does not establish other shared-daemon per-client routing.",
+    "Existing bound transcripts were checked; native startup events were not replayed.",
+    "Cold-start, formal upgrade and full crash recovery were not exercised.",
+    "Counts describe a live snapshot, not a promise that these resources remain available."
+  ]
+}

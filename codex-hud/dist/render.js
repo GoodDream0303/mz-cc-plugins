@@ -95,7 +95,8 @@ export function render(s, c, o = {}) {
         fields.set('context', tokenParts);
     }
     if (on('showUsage')) {
-        const quotas = s.quotas.filter(q => q.usedPercent >= (q.minutes >= 10080 ? get(c, 'display.sevenDayThreshold') : get(c, 'display.usageThreshold'))).map((q) => {
+        const enabled = (minutes) => minutes === 300 ? on('showFiveHourUsage') : minutes === 10080 ? on('showSevenDayUsage') : true;
+        const quotas = s.quotas.filter(q => enabled(q.minutes) && q.usedPercent >= (q.minutes >= 10080 ? get(c, 'display.sevenDayThreshold') : get(c, 'display.usageThreshold'))).map((q) => {
             const remaining = get(c, 'display.usageValue') === 'remaining';
             const p = remaining ? 100 - q.usedPercent : q.usedPercent;
             const progress = get(c, 'display.usageBarEnabled') && !get(c, 'display.usageCompact') ? bar(p) + ' ' : '';
@@ -110,8 +111,6 @@ export function render(s, c, o = {}) {
             groups.set('usage', quotas.join(' | '));
             fields.set('usage', quotas);
         }
-        else if (!s.quotas.length)
-            groups.set('usage', ink(label('Quota: ', '额度: ', '額度: ') + unknown, 'label'));
     }
     if (on('showMcp')) {
         const configured = s.environment?.mcp.filter(m => m.enabled).map(m => m.name) ?? [];

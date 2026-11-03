@@ -1,6 +1,29 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {render} from '../dist/render.js';import {displayWidth,sanitize,wrapAnsi} from '../dist/terminal-text.js';import {defaultConfig,set,importClaude,preset} from '../dist/config.js';import {emptySnapshot} from '../dist/types.js';
 function sample(){return {...emptySnapshot('abc-session'),model:'gpt-example',effort:'high',cwd:'C:/项目/固件😀',context:{used:30,window:200},totals:{input:100,cached:80,output:20,reasoning:5,total:120},latest:{input:25,cached:20,output:5,reasoning:1,total:30},quotas:[{id:'codex:primary',minutes:10080,usedPercent:15,resetsAt:2000000000}],mcpUsed:['docs'],agents:[{id:'a',name:'分析',status:'unknown'}],todos:[{step:'验证驱动',status:'in_progress'}],tools:[{id:'t',name:'secret-tool',status:'running'}]};}
+test('default quota display shows both reported windows even at zero usage',()=>{
+ const snapshot={...sample(),quotas:[{id:'codex:primary',minutes:10080,usedPercent:0},{id:'codex:secondary',minutes:300,usedPercent:0}]};
+ const text=render(snapshot,defaultConfig(),{width:200,height:50,color:false}).lines.join('\n');
+ assert.match(text,/5h:.*0%/);assert.match(text,/7d:.*0%/);
+});
+test('quota window switches are independent while the umbrella and thresholds still apply',()=>{
+ const snapshot={...sample(),quotas:[{id:'codex:primary',minutes:10080,usedPercent:21},{id:'codex:secondary',minutes:300,usedPercent:12}]};
+ const output=config=>render(snapshot,config,{width:200,height:50,color:false}).lines.join('\n');
+ const fiveOff=output(set(defaultConfig(),'display.showFiveHourUsage',false));assert.doesNotMatch(fiveOff,/5h:/);assert.match(fiveOff,/7d:/);
+ const sevenOff=output(set(defaultConfig(),'display.showSevenDayUsage',false));assert.match(sevenOff,/5h:/);assert.doesNotMatch(sevenOff,/7d:/);
+ const allOff=output(set(defaultConfig(),'display.showUsage',false));assert.doesNotMatch(allOff,/5h:|7d:/);
+ const threshold=output(importClaude({display:{usageThreshold:20,sevenDayThreshold:80}}).config);assert.doesNotMatch(threshold,/5h:|7d:/);
+ const noData=set(set(defaultConfig(),'display.showFiveHourUsage',false),'display.showSevenDayUsage',false);
+ assert.doesNotMatch(render(emptySnapshot('abc'),noData,{width:200,height:50,color:false}).lines.join('\n'),/Quota:/);
+});
+test('configured quota windows are shown only when reported, including weekly-only accounts',()=>{
+ const output=(snapshot,config=defaultConfig())=>render(snapshot,config,{width:200,height:50,color:false}).lines.join('\n');
+ const weekly=output(sample());assert.doesNotMatch(weekly,/5h:/);assert.match(weekly,/7d: [^|\n]*15%/);
+ const missing=output(emptySnapshot('abc'));assert.doesNotMatch(missing,/5h:|7d:/);
+ assert.doesNotMatch(output(sample(),set(defaultConfig(),'display.showFiveHourUsage',false)),/5h:/);
+ const chinese=output(emptySnapshot('abc'),set(defaultConfig(),'language','zh-Hans'));assert.doesNotMatch(chinese,/5h:|7d:/);
+ const custom=output({...emptySnapshot('abc'),quotas:[{id:'other:primary',minutes:60,usedPercent:8}]});assert.match(custom,/1h: [^|\n]*8%/);assert.doesNotMatch(custom,/5h:|7d:/);
+});
 test('merged telemetry keeps a quota field together without dangling separators',()=>{
  const config=set(set(defaultConfig(),'display.showSessionTokens',true),'display.sevenDayThreshold',0);
  const out=render(sample(),config,{width:74,height:30,color:false,now:1999996400000}).lines;
@@ -29,7 +52,7 @@ test('optional session name never falls back to displaying a session ID',()=>{
 });
 test('renderer respects imported activity preferences and weekly-only quota labels',()=>{
  const {config}=importClaude({display:{showTools:false,showAgents:true,showTodos:true,showMcp:true,showSessionTokens:true,sevenDayThreshold:0}});const text=render(sample(),config,{width:140,height:50,color:false}).lines.join('\n');
- assert.ok(!text.includes('secret-tool'));assert.match(text,/MCP/);assert.match(text,/分析/);assert.match(text,/验证驱动/);assert.match(text,/7d/);assert.doesNotMatch(text,/\b5h\s*:/);assert.match(text,/120/);assert.ok(!text.includes('200 Token'));
+ assert.ok(!text.includes('secret-tool'));assert.match(text,/MCP/);assert.match(text,/分析/);assert.match(text,/验证驱动/);assert.match(text,/7d/);assert.doesNotMatch(text,/5h:/);assert.match(text,/120/);assert.ok(!text.includes('200 Token'));
 });
 test('renderer uses latest context and cannot inflate it with cumulative counters',()=>{
  const text=render(sample(),defaultConfig(),{width:120,height:50,color:false}).lines.join('\n');assert.match(text,/15%/);assert.ok(!text.includes('60%'));

@@ -37,7 +37,7 @@ export async function autoStart(event, options = {}) {
         return { status: 'ignored', reason: 'not-main-start' };
     if (process.platform !== 'win32')
         return { status: 'ignored', reason: 'not-windows' };
-    const file = options.configFile ?? configPath(), config = loadConfig(file);
+    const file = options.configFile ?? configPath(options.environment), config = loadConfig(file);
     if (!startupEnabled(config))
         return { status: 'disabled' };
     if (typeof event.session_id !== 'string' || !idPattern.test(event.session_id) || typeof event.transcript_path !== 'string' || !path.isAbsolute(event.transcript_path))

@@ -1,0 +1,1226 @@
+diff --git a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -9,6 +9,10 @@
+ readme = "README.md"
+ keywords = ["terminal", "multiplexer", "tmux", "windows", "powershell"]
+ categories = ["command-line-utilities"]
++
++[features]
++# Isolated HUD prototype. Ordinary builds retain upstream pane geometry.
++hud-compact = []
+ 
+ [workspace]
+ members = [".", "crates/portable-pty-psmux", "crates/vt100-psmux"]
+diff --git a/src/main.rs b/src/main.rs
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -7,6 +7,7 @@
+ mod cli;
+ mod session;
+ mod tree;
++mod hud_compact;
+ mod choose_tree;
+ mod style;
+ mod border_lines;
+@@ -6751,3 +6752,7 @@
+ #[cfg(test)]
+ #[path = "../tests-rs/test_ready_poll_backoff.rs"]
+ mod tests_ready_poll_backoff;
++
++#[cfg(all(test, feature = "hud-compact"))]
++#[path = "../tests-rs/test_hud_compact_lifecycle.rs"]
++mod test_hud_compact_lifecycle;
+diff --git a/src/hud_compact.rs b/src/hud_compact.rs
+new file mode 100644
+--- /dev/null
++++ b/src/hud_compact.rs
+@@ -0,0 +1,205 @@
++//! Shared character-cell policy for the opt-in HUD compact backend.
++//! Kept dependency-free so geometry and gesture policy can be checked with
++//! `rustc --edition=2021 --test --cfg 'feature="hud-compact"' src/hud_compact.rs`.
++
++pub const ENABLED: bool = cfg!(feature = "hud-compact");
++
++/// Rows excluded from client-size for the server's own status bar.
++pub fn client_status_reserve(visible: bool, configured_lines: usize) -> u16 {
++    let drawn = if visible { configured_lines as u16 } else { 0 };
++    // The compact client draws no status row when status is off. Reporting
++    // one fewer row would leave its pane rects taller than the server PTYs,
++    // producing a persistent blank footer row after border dragging.
++    if ENABLED { drawn } else { drawn.max(1) }
++}
++
++pub fn separator_gap(is_horizontal: bool) -> u16 {
++    if ENABLED && !is_horizontal { 0 } else { 1 }
++}
++
++pub fn separator_position(is_horizontal: bool, origin: u16, length: u16) -> Option<u16> {
++    if ENABLED && !is_horizontal {
++        length.checked_sub(1).and_then(|last| origin.checked_add(last))
++    } else {
++        origin.checked_add(length)
++    }
++}
++
++pub fn drag_allowed(is_horizontal: bool, alt: bool) -> bool {
++    !ENABLED || is_horizontal || alt
++}
++
++pub fn drag_pair_resizable(sizes: &[u16], index: usize) -> bool {
++    sizes.get(index).zip(index.checked_add(1).and_then(|next| sizes.get(next)))
++        .is_some_and(|(&first, &second)| first > 0 && second > 0)
++}
++
++/// Weights for a newly created stacked split. Normal builds preserve the
++/// upstream percentage calculation; compact cell-count requests use actual
++/// cell weights to avoid rounding away a requested HUD row.
++pub fn requested_split_weights(parent_length: u16, requested: u16, percent: bool) -> [u16; 2] {
++    if ENABLED && !percent && parent_length >= 2 {
++        let second = requested.clamp(1, parent_length - 1);
++        return [parent_length - second, second];
++    }
++    let pct = if percent {
++        requested.clamp(1, 99)
++    } else if parent_length > 0 {
++        ((requested as u32 * 100) / parent_length as u32).clamp(1, 99) as u16
++    } else { 50 };
++    [100 - pct, pct]
++}
++
++/// Relative (offset, length) pairs, preserving upstream proportional sizing,
++/// last-child remainder and minimum-cell redistribution.
++pub fn split_cells(is_horizontal: bool, sizes: &[u16], length: u16, min_cell: u16) -> Vec<(u16, u16)> {
++    let n = sizes.len();
++    if n == 0 { return Vec::new(); }
++    if n == 1 { return vec![(0, length)]; }
++    let gap = separator_gap(is_horizontal);
++    let available = length.saturating_sub((n - 1) as u16 * gap);
++    let total: u32 = sizes.iter().map(|&s| s as u32).sum();
++    if total == 0 { return vec![(0, length); n]; }
++    let mut cells = Vec::with_capacity(n);
++    let mut running: u16 = 0;
++    for (i, &weight) in sizes.iter().enumerate() {
++        let size = if i == n - 1 {
++            available.saturating_sub(running)
++        } else {
++            let size = (available as u32 * weight as u32 / total) as u16;
++            running = running.saturating_add(size);
++            size
++        };
++        cells.push(size);
++    }
++    if available >= n as u16 * min_cell {
++        loop {
++            let Some(short) = cells.iter().position(|&size| size < min_cell) else { break; };
++            // Choose the first largest sibling, as the original layout does.
++            let mut largest = 0;
++            for index in 0..n {
++                if cells[index] > cells[largest] { largest = index; }
++            }
++            if cells[largest] <= min_cell { break; }
++            cells[largest] -= 1;
++            cells[short] += 1;
++        }
++    }
++    let mut offset = 0;
++    cells.into_iter().enumerate().map(|(index, size)| {
++        let start = offset + index as u16 * gap;
++        offset += size;
++        (start, size)
++    }).collect()
++}
++
++/// Capture drag weights from the current viewport, rather than the dimensions
++/// at which the split was originally created.
++pub fn drag_sizes(is_horizontal: bool, sizes: &[u16], length: u16) -> Vec<u16> {
++    if ENABLED && !is_horizontal {
++        split_cells(false, sizes, length, 1).into_iter().map(|(_, size)| size).collect()
++    } else {
++        sizes.to_vec()
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn hidden_status_reports_the_same_rows_that_the_client_draws() {
++        assert_eq!(client_status_reserve(false, 1), if ENABLED { 0 } else { 1 });
++        assert_eq!(client_status_reserve(false, 3), if ENABLED { 0 } else { 1 });
++        assert_eq!(client_status_reserve(true, 0), if ENABLED { 0 } else { 1 });
++        assert_eq!(client_status_reserve(true, 1), 1);
++        assert_eq!(client_status_reserve(true, 3), 3);
++    }
++
++    #[test]
++    fn status_visibility_transitions_change_the_reported_reserve() {
++        let sequence = [(true, 1), (false, 1), (true, 3), (false, 3)];
++        let reserves: Vec<u16> = sequence.into_iter()
++            .map(|(visible, lines)| client_status_reserve(visible, lines)).collect();
++        assert_eq!(reserves, if ENABLED { vec![1, 0, 3, 0] } else { vec![1, 1, 3, 1] });
++    }
++
++    #[test]
++    fn stacked_panes_reclaim_exactly_one_separator_row() {
++        let cells = split_cells(false, &[4, 1], 30, 1);
++        if ENABLED {
++            assert_eq!(cells, vec![(0, 24), (24, 6)]);
++            assert_eq!(cells.iter().map(|(_, height)| *height).sum::<u16>(), 30);
++        } else {
++            assert_eq!(cells, vec![(0, 23), (24, 6)]);
++        }
++    }
++
++    #[test]
++    fn side_by_side_panes_keep_one_separator_column() {
++        assert_eq!(split_cells(true, &[1, 1], 11, 2), vec![(0, 5), (6, 5)]);
++    }
++
++    #[test]
++    fn nested_stacks_use_adjacent_rows_at_every_level() {
++        let outer = split_cells(false, &[2, 1], 12, 1);
++        let inner = split_cells(false, &[1, 1], outer[0].1, 1);
++        if ENABLED {
++            assert_eq!(outer, vec![(0, 8), (8, 4)]);
++            assert_eq!(inner, vec![(0, 4), (4, 4)]);
++            assert_eq!(inner[1].0 + inner[1].1, outer[1].0);
++        } else {
++            assert_eq!(outer, vec![(0, 7), (8, 4)]);
++            assert_eq!(inner, vec![(0, 3), (4, 3)]);
++        }
++    }
++
++    #[test]
++    fn compact_boundary_hit_row_belongs_to_upper_pane() {
++        assert_eq!(separator_position(false, 4, 6), Some(if ENABLED { 9 } else { 10 }));
++        assert_eq!(separator_position(true, 4, 6), Some(10));
++        if ENABLED { assert_eq!(separator_position(false, 4, 0), None); }
++    }
++
++    #[test]
++    fn ordinary_selection_never_starts_compact_resize() {
++        assert_eq!(drag_allowed(false, false), !ENABLED);
++        assert!(drag_allowed(false, true));
++        assert!(drag_allowed(true, false));
++    }
++
++    #[test]
++    fn one_row_panes_remain_one_row_and_empty_splits_are_safe() {
++        assert!(split_cells(false, &[], 2, 1).is_empty());
++        assert_eq!(split_cells(false, &[1], 1, 1), vec![(0, 1)]);
++        if ENABLED { assert_eq!(split_cells(false, &[0, 100], 2, 1), vec![(0, 1), (1, 1)]); }
++    }
++
++    #[test]
++    fn compact_cell_requests_avoid_integer_percentage_rounding() {
++        let weights = requested_split_weights(130, 5, false);
++        if ENABLED {
++            assert_eq!(weights, [125, 5]);
++            assert_eq!(split_cells(false, &weights, 130, 1), vec![(0, 125), (125, 5)]);
++        } else { assert_eq!(weights, [97, 3]); }
++        assert_eq!(requested_split_weights(130, 25, true), [75, 25]);
++    }
++
++    #[test]
++    fn compact_drag_after_resize_moves_in_current_cell_units() {
++        let sizes = drag_sizes(false, &[24, 6], 60);
++        if ENABLED {
++            assert_eq!(sizes, vec![48, 12]);
++            assert_eq!(split_cells(false, &[sizes[0] + 1, sizes[1] - 1], 60, 1), vec![(0, 49), (49, 11)]);
++        } else { assert_eq!(sizes, vec![24, 6]); }
++        assert_eq!(drag_sizes(true, &[24, 6], 60), vec![24, 6]);
++    }
++
++    #[test]
++    fn zero_cell_adjacent_pairs_cannot_reach_resize_clamping() {
++        assert!(!drag_pair_resizable(&[1, 0, 1], 0));
++        assert!(!drag_pair_resizable(&[1, 0, 1], 1));
++        assert!(!drag_pair_resizable(&[], 0));
++        assert!(drag_pair_resizable(&[1, 1], 0));
++    }
++}
+diff --git a/src/tree.rs b/src/tree.rs
+--- a/src/tree.rs
++++ b/src/tree.rs
+@@ -4,77 +4,19 @@
+ use crate::types::{AppState, Pane, Node, LayoutKind, DragState};
+ use crate::platform::process_kill;
+ 
+-/// Split an area into sub-rects with 1px gaps between them for separator lines.
+-/// Matches tmux-style gapless panes with single-character separators.
++/// Shared server/client cell geometry. The opt-in compact build reclaims
++/// horizontal separator rows; ordinary builds keep upstream one-cell gaps.
+ pub fn split_with_gaps(is_horizontal: bool, sizes: &[u16], area: Rect) -> Vec<Rect> {
+-    let n = sizes.len();
+-    if n == 0 { return vec![]; }
+-    if n == 1 { return vec![area]; }
+-
+-    let gaps = (n - 1) as u16;
+-    let total_available = if is_horizontal {
+-        area.width.saturating_sub(gaps)
+-    } else {
+-        area.height.saturating_sub(gaps)
+-    };
+-
+-    let total_pct: u32 = sizes.iter().map(|&s| s as u32).sum();
+-    if total_pct == 0 { return vec![area; n]; }
+-
+-    // Compute proportional sizes first.
+-    let mut child_sizes: Vec<u16> = Vec::with_capacity(n);
+-    let mut running: u16 = 0;
+-    for (i, &pct) in sizes.iter().enumerate() {
+-        let size = if i == n - 1 {
+-            total_available.saturating_sub(running)
+-        } else {
+-            let s = ((total_available as u32 * pct as u32) / total_pct) as u16;
+-            running = running.saturating_add(s);
+-            s
+-        };
+-        child_sizes.push(size);
+-    }
+-
+-    // If total space allows the minimum for every child, guarantee it by
+-    // stealing from the largest siblings. This prevents previews of windows
+-    // with many nested splits from completely hiding deeply-nested panes when
+-    // the preview area is small, and on the horizontal axis it is what keeps a
+-    // cell from ever being one column wide: a pseudoconsole squeezed to one
+-    // column with a wide glyph in it never echoes again after it grows back
+-    // (see `crate::pane::MIN_PTY_COLS`). Rows keep tmux's minimum of one.
+-    let min_cell: u16 = if is_horizontal { crate::pane::MIN_PTY_COLS } else { 1 };
+-    if total_available >= n as u16 * min_cell {
+-        loop {
+-            let mut short_idx: Option<usize> = None;
+-            for (i, &s) in child_sizes.iter().enumerate() {
+-                if s < min_cell { short_idx = Some(i); break; }
+-            }
+-            let Some(si) = short_idx else { break };
+-            // Find the largest child that can spare a cell and stay at the minimum.
+-            let mut max_idx = 0usize;
+-            let mut max_val = 0u16;
+-            for (i, &s) in child_sizes.iter().enumerate() {
+-                if s > max_val { max_val = s; max_idx = i; }
+-            }
+-            if max_val <= min_cell { break; }
+-            child_sizes[max_idx] -= 1;
+-            child_sizes[si] += 1;
+-        }
+-    }
+-
+-    let mut rects = Vec::with_capacity(n);
+-    let mut offset: u16 = 0;
+-    for (i, &size) in child_sizes.iter().enumerate() {
+-        let child_rect = if is_horizontal {
+-            Rect::new(area.x + offset + i as u16, area.y, size, area.height)
+-        } else {
+-            Rect::new(area.x, area.y + offset + i as u16, area.width, size)
+-        };
+-        rects.push(child_rect);
+-        offset += size;
+-    }
+-
+-    rects
++    let length = if is_horizontal { area.width } else { area.height };
++    let minimum = if is_horizontal { crate::pane::MIN_PTY_COLS } else { 1 };
++    crate::hud_compact::split_cells(is_horizontal, sizes, length, minimum)
++        .into_iter().map(|(offset, size)| {
++            if is_horizontal {
++                Rect::new(area.x + offset, area.y, size, area.height)
++            } else {
++                Rect::new(area.x, area.y + offset, area.width, size)
++            }
++        }).collect()
+ }
+ 
+ pub fn active_pane_mut<'a>(node: &'a mut Node, path: &Vec<usize>) -> Option<&'a mut Pane> {
+@@ -497,11 +439,9 @@
+                 let total_px = if is_horizontal { area.width } else { area.height };
+                 for i in 0..children.len().saturating_sub(1) {
+                     if i < rects.len() {
+-                        let pos = if is_horizontal {
+-                            rects[i].x + rects[i].width
+-                        } else {
+-                            rects[i].y + rects[i].height
+-                        };
++                        let origin = if is_horizontal { rects[i].x } else { rects[i].y };
++                        let length = if is_horizontal { rects[i].width } else { rects[i].height };
++                        let Some(pos) = crate::hud_compact::separator_position(is_horizontal, origin, length) else { continue; };
+                         out.push((path.clone(), *kind, i, pos, total_px));
+                     }
+                 }
+@@ -626,21 +566,27 @@
+             if new_children.is_empty() { (None, newly_dead) }
+             else if new_children.len() == 1 { (Some(new_children.remove(0)), newly_dead) }
+             else {
+-                // Redistribute removed pane's percentage proportionally among survivors
+-                let total: u16 = new_sizes.iter().sum();
+-                if total == 0 || total == 100 {
+-                    // Already fine or all zero — just normalize
+-                    if total == 0 {
+-                        new_sizes = vec![100 / new_children.len() as u16; new_children.len()];
+-                        let rem = 100 - new_sizes.iter().sum::<u16>();
+-                        if let Some(last) = new_sizes.last_mut() { *last += rem; }
++                // Relative cell weights already redistribute space without
++                // rounding. Re-normalizing an unchanged compact branch to 100
++                // also changes its HUD height when an unrelated pane exits.
++                if !(crate::hud_compact::ENABLED && kind == LayoutKind::Vertical
++                    && new_sizes.iter().any(|&size| size != 0)) {
++                    // Redistribute removed pane's percentage proportionally among survivors
++                    let total: u16 = new_sizes.iter().sum();
++                    if total == 0 || total == 100 {
++                        // Already fine or all zero — just normalize
++                        if total == 0 {
++                            new_sizes = vec![100 / new_children.len() as u16; new_children.len()];
++                            let rem = 100 - new_sizes.iter().sum::<u16>();
++                            if let Some(last) = new_sizes.last_mut() { *last += rem; }
++                        }
++                    } else {
++                        // Scale proportionally to sum to 100
++                        let mut scaled: Vec<u16> = new_sizes.iter().map(|&s| (s as u32 * 100 / total as u32) as u16).collect();
++                        let rem = 100u16.saturating_sub(scaled.iter().sum::<u16>());
++                        if let Some(last) = scaled.last_mut() { *last += rem; }
++                        new_sizes = scaled;
+                     }
+-                } else {
+-                    // Scale proportionally to sum to 100
+-                    let mut scaled: Vec<u16> = new_sizes.iter().map(|&s| (s as u32 * 100 / total as u32) as u16).collect();
+-                    let rem = 100u16.saturating_sub(scaled.iter().sum::<u16>());
+-                    if let Some(last) = scaled.last_mut() { *last += rem; }
+-                    new_sizes = scaled;
+                 }
+                 (Some(Node::Split { kind, sizes: new_sizes, children: new_children }), newly_dead)
+             }
+diff --git a/src/client.rs b/src/client.rs
+--- a/src/client.rs
++++ b/src/client.rs
+@@ -1295,7 +1295,7 @@
+                         return true;
+                     }
+                 } else {
+-                    let sep_y = rects[i].y + rects[i].height;
++                    let Some(sep_y) = crate::hud_compact::separator_position(false, rects[i].y, rects[i].height) else { continue; };
+                     if y == sep_y && x >= area.x && x < area.x + area.width {
+                         return true;
+                     }
+@@ -1356,11 +1356,13 @@
+         let total_px = if is_horizontal { area.width } else { area.height };
+         for i in 0..children.len().saturating_sub(1) {
+             if i < rects.len() {
+-                let pos = if is_horizontal {
+-                    rects[i].x + rects[i].width
+-                } else {
+-                    rects[i].y + rects[i].height
+-                };
++                if crate::hud_compact::ENABLED && !is_horizontal
++                    && (rects[i].height == 0 || rects.get(i + 1).is_none_or(|rect| rect.height == 0)) {
++                    continue;
++                }
++                let origin = if is_horizontal { rects[i].x } else { rects[i].y };
++                let length = if is_horizontal { rects[i].width } else { rects[i].height };
++                let Some(pos) = crate::hud_compact::separator_position(is_horizontal, origin, length) else { continue; };
+                 out.push((path.clone(), kind.clone(), i, pos, total_px, effective_sizes.clone(), area));
+             }
+         }
+@@ -1445,7 +1447,8 @@
+                     }
+                 }
+             }
+-        } else {
++        } else if !crate::hud_compact::ENABLED {
++            // Compact separators are text underlines, not replaceable box glyphs.
+             // Horizontal separator line at row `pos`, spanning this split's own area width.
+             let pos = rects[i].y + rects[i].height;
+             if pos >= buf_area.y && pos < buf_area.y + buf_area.height {
+@@ -2543,6 +2546,33 @@
+                             }
+                         }
+                     }
++                } else if crate::hud_compact::ENABLED {
++                    // Reuse the upper pane's final row without replacing any
++                    // character, text colour, background or existing attribute.
++                    if bc.horizontal == ' ' || rects.get(i + 1).is_none_or(|rect| rect.height == 0) { continue; }
++                    let Some(sep_y) = crate::hud_compact::separator_position(false, rects[i].y, rects[i].height) else { continue; };
++                    if sep_y < buf.area.y || sep_y >= buf.area.y + buf.area.height { continue; }
++                    let boundary = rects[i].y + rects[i].height;
++                    let mid_x = area.x + area.width / 2;
++                    for x in area.x.max(buf.area.x)..(area.x + area.width).min(buf.area.x + buf.area.width) {
++                        let active = if both_leaves && total_panes == 2 && border_indicators.uses_colour() {
++                            if x < mid_x {
++                                matches!(&children[i], LayoutJson::Leaf { active, .. } if *active)
++                            } else {
++                                matches!(children.get(i + 1), Some(LayoutJson::Leaf { active, .. }) if *active)
++                            }
++                        } else {
++                            border_indicators.highlights_active() && active_rect.map_or(false, |ar| {
++                                x >= ar.x && x < ar.x + ar.width
++                                    && (boundary == ar.y + ar.height || boundary == ar.y)
++                            })
++                        };
++                        let colour = if active { active_border_style.fg } else { border_style.fg }.unwrap_or(Color::Reset);
++                        let idx = (sep_y - buf.area.y) as usize * buf.area.width as usize + (x - buf.area.x) as usize;
++                        if let Some(cell) = buf.content.get_mut(idx) {
++                            cell.set_style(cell.style().add_modifier(Modifier::UNDERLINED).underline_color(colour));
++                        }
++                    }
+                 } else {
+                     let sep_y = rects[i].y + rects[i].height;
+                     if sep_y < buf.area.y + buf.area.height {
+@@ -3191,7 +3221,10 @@
+     // better than the base to show.
+     let mut session_label = name.clone();
+     let mut last_sent_size: (u16, u16) = SIZE_NOT_REPORTED;
+-    let mut last_status_lines: u16 = 1; // track server's status_lines for correct client-size height
++    // Until the first state frame arrives, use that frame schema's defaults.
++    // The first known status change invalidates last_sent_size below.
++    let mut last_status_lines = crate::hud_compact::client_status_reserve(
++        default_status_visible(), default_status_lines());
+     let mut last_dump_time = Instant::now() - Duration::from_millis(250);
+     let mut force_dump = true;
+     let mut last_tree: Vec<WinTree> = Vec::new();
+@@ -6558,17 +6591,32 @@
+                                                 me.row >= bpos.saturating_sub(tol) && me.row <= bpos + tol
+                                                 && me.column >= barea.x && me.column < barea.x + barea.width
+                                             };
+-                                            if hit {
++                                            if hit && crate::hud_compact::drag_allowed(bkind == "Horizontal", me.modifiers.contains(KeyModifiers::ALT)) {
++                                                let initial_sizes = crate::hud_compact::drag_sizes(bkind == "Horizontal", bsizes, *btotal);
++                                                if crate::hud_compact::ENABLED && bkind == "Vertical"
++                                                    && !crate::hud_compact::drag_pair_resizable(&initial_sizes, *bidx) { continue; }
+                                                 client_drag = Some(ClientDragState {
+                                                     path: bpath.clone(),
+                                                     kind: bkind.clone(),
+                                                     index: *bidx,
+                                                     start_pos: if bkind == "Horizontal" { me.column } else { me.row },
+-                                                    initial_sizes: bsizes.clone(),
++                                                    initial_sizes,
+                                                     total_pixels: *btotal,
+                                                 });
+                                                 border_drag = true;
+                                                 on_border = true;
++                                                if crate::hud_compact::ENABLED && bkind == "Vertical" {
++                                                    deferred_left_click = None;
++                                                    copy_drag_pane = None;
++                                                    copy_drag_last = None;
++                                                    copy_drag_repeat_at = None;
++                                                    copy_mode_drag_pending = None;
++                                                    client_drawn_sel = None;
++                                                    rsel_pane_rect = None;
++                                                    rsel_pane_id = None;
++                                                    rsel_block = false;
++                                                    rsel_dragged = false;
++                                                }
+                                                 rsel_start = None;
+                                                 rsel_end = None;
+                                                 selection_changed = true;
+@@ -6822,23 +6870,26 @@
+                             MouseEventKind::Drag(MouseButton::Left) => {
+                                 if border_drag {
+                                     if let Some(ref d) = client_drag {
+-                                        let current_pos = if d.kind == "Horizontal" { me.column } else { me.row };
+-                                        let pixel_delta = current_pos as i32 - d.start_pos as i32;
+-                                        let total_pct: i32 = d.initial_sizes.iter().map(|&s| s as i32).sum();
+-                                        let total_px = d.total_pixels.max(1) as i32;
+-                                        let pct_delta = (pixel_delta * total_pct) / total_px;
+-                                        let min_pct = 5i32;
+-
+-                                        let mut new_sizes = d.initial_sizes.clone();
+-                                        let left = (d.initial_sizes[d.index] as i32 + pct_delta)
+-                                            .clamp(min_pct, d.initial_sizes[d.index] as i32 + d.initial_sizes[d.index + 1] as i32 - min_pct) as u16;
+-                                        let right = d.initial_sizes[d.index] + d.initial_sizes[d.index + 1] - left;
+-                                        new_sizes[d.index] = left;
+-                                        new_sizes[d.index + 1] = right;
+-
+-                                        let path_str = if d.path.is_empty() { "_".to_string() } else { d.path.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(".") };
+-                                        let sizes_str = new_sizes.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(",");
+-                                        cmd_batch.push(format!("split-sizes {} {}\n", path_str, sizes_str));
++                                        if !crate::hud_compact::ENABLED || d.kind == "Horizontal"
++                                            || crate::hud_compact::drag_pair_resizable(&d.initial_sizes, d.index) {
++                                            let current_pos = if d.kind == "Horizontal" { me.column } else { me.row };
++                                            let pixel_delta = current_pos as i32 - d.start_pos as i32;
++                                            let total_pct: i32 = d.initial_sizes.iter().map(|&s| s as i32).sum();
++                                            let total_px = d.total_pixels.max(1) as i32;
++                                            let pct_delta = (pixel_delta * total_pct) / total_px;
++                                            let min_pct = if crate::hud_compact::ENABLED && d.kind == "Vertical" { 1i32 } else { 5i32 };
++    
++                                            let mut new_sizes = d.initial_sizes.clone();
++                                            let left = (d.initial_sizes[d.index] as i32 + pct_delta)
++                                                .clamp(min_pct, d.initial_sizes[d.index] as i32 + d.initial_sizes[d.index + 1] as i32 - min_pct) as u16;
++                                            let right = d.initial_sizes[d.index] + d.initial_sizes[d.index + 1] - left;
++                                            new_sizes[d.index] = left;
++                                            new_sizes[d.index + 1] = right;
++    
++                                            let path_str = if d.path.is_empty() { "_".to_string() } else { d.path.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(".") };
++                                            let sizes_str = new_sizes.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(",");
++                                            cmd_batch.push(format!("split-sizes {} {}\n", path_str, sizes_str));
++                                        }
+                                     }
+                                 } else if rsel_start.is_none() || !client_mouse_selection {
+                                     if client_copy_mode || copy_mode_drag_pending.is_some() {
+@@ -7146,7 +7197,7 @@
+                                             me.row >= bpos.saturating_sub(tol) && me.row <= bpos + tol
+                                             && me.column >= barea.x && me.column < barea.x + barea.width
+                                         };
+-                                        if hit {
++                                        if hit && crate::hud_compact::drag_allowed(bkind == "Horizontal", me.modifiers.contains(KeyModifiers::ALT)) {
+                                             new_hover = Some((*bpos, bkind.clone(), *barea));
+                                             break;
+                                         }
+@@ -7821,7 +7872,7 @@
+         // If server's status_lines changed, re-send client-size with the
+         // correct content-area height so the server's pane rects match the
+         // client's render area exactly.
+-        let new_sl = (status_lines as u16).max(1);
++        let new_sl = crate::hud_compact::client_status_reserve(state.status_visible, state.status_lines);
+         if new_sl != last_status_lines {
+             last_status_lines = new_sl;
+             // Force a client-size re-send on the next iteration
+@@ -8041,7 +8092,13 @@
+                         for x in harea.x..harea.x + harea.width {
+                             let idx = (row - buf.area.y as usize) * w + (x - buf.area.x) as usize;
+                             if idx < buf.content.len() {
+-                                buf.content[idx].set_style(pane_border_hover_style);
++                                if crate::hud_compact::ENABLED {
++                                    let cell = &mut buf.content[idx];
++                                    cell.set_style(cell.style().add_modifier(Modifier::UNDERLINED)
++                                        .underline_color(pane_border_hover_style.fg.unwrap_or(Color::Yellow)));
++                                } else {
++                                    buf.content[idx].set_style(pane_border_hover_style);
++                                }
+                             }
+                         }
+                     }
+@@ -10479,3 +10536,7 @@
+ #[cfg(test)]
+ #[path = "../tests-rs/test_issue783_prompt_edit_unify.rs"]
+ mod test_issue783_prompt_edit_unify;
++
++#[cfg(all(test, feature = "hud-compact"))]
++#[path = "../tests-rs/test_hud_compact_render.rs"]
++mod test_hud_compact_render;
+diff --git a/src/types.rs b/src/types.rs
+--- a/src/types.rs
++++ b/src/types.rs
+@@ -24,14 +24,31 @@
+ ///   `psmux 3.3.7 (a1b2c3d 2026-07-20, dirty)`   ← built from a modified tree
+ ///   `psmux 3.3.7 (unknown commit)`               ← built without a git checkout
+ pub fn build_version_string() -> String {
++    let version = if cfg!(feature = "hud-compact") {
++        concat!(env!("CARGO_PKG_VERSION"), "-hud-compact-v1")
++    } else { VERSION };
+     if GIT_HASH == "unknown" {
+-        return format!("psmux {VERSION} (unknown commit)");
++        return format!("psmux {version} (unknown commit)");
+     }
+     let dirty_suffix = if GIT_DIRTY == "true" { ", dirty" } else { "" };
+     if GIT_DATE == "unknown" {
+-        format!("psmux {VERSION} ({GIT_HASH}{dirty_suffix})")
++        format!("psmux {version} ({GIT_HASH}{dirty_suffix})")
+     } else {
+-        format!("psmux {VERSION} ({GIT_HASH} {GIT_DATE}{dirty_suffix})")
++        format!("psmux {version} ({GIT_HASH} {GIT_DATE}{dirty_suffix})")
++    }
++}
++
++#[cfg(test)]
++mod hud_compact_version_tests {
++    #[test]
++    fn compact_build_is_distinct_and_normal_build_keeps_its_version() {
++        let version = super::build_version_string();
++        if cfg!(feature = "hud-compact") {
++            assert!(version.starts_with("psmux 3.4.0-hud-compact-v1 ("));
++        } else {
++            assert!(version.starts_with("psmux 3.4.0 ("));
++            assert!(!version.contains("hud-compact"));
++        }
+     }
+ }
+ 
+diff --git a/src/pane.rs b/src/pane.rs
+--- a/src/pane.rs
++++ b/src/pane.rs
+@@ -1800,9 +1800,9 @@
+             match kind {
+                 LayoutKind::Vertical => {
+                     // Splitting vertically divides height; need room for 2 panes + 1 divider
+-                    if cur_rows < MIN_SPLIT_ROWS * 2 + 1 {
++                    if cur_rows < MIN_SPLIT_ROWS * 2 + crate::hud_compact::separator_gap(false) {
+                         return Err(io::Error::new(io::ErrorKind::Other,
+-                            format!("pane too small to split vertically ({cur_rows} rows, need {})", MIN_SPLIT_ROWS * 2 + 1)));
++                            format!("pane too small to split vertically ({cur_rows} rows, need {})", MIN_SPLIT_ROWS * 2 + crate::hud_compact::separator_gap(false))));
+                     }
+                 }
+                 LayoutKind::Horizontal => {
+@@ -1838,7 +1838,7 @@
+     };
+     let (rows, cols) = match kind {
+         LayoutKind::Vertical => {
+-            let half = (pane_rows.saturating_sub(1)) / 2; // subtract 1 for divider
++            let half = pane_rows.saturating_sub(crate::hud_compact::separator_gap(false)) / 2;
+             (half.max(MIN_PANE_DIM), pane_cols.max(MIN_PANE_DIM))
+         }
+         LayoutKind::Horizontal => {
+diff --git a/src/server/mod.rs b/src/server/mod.rs
+--- a/src/server/mod.rs
++++ b/src/server/mod.rs
+@@ -3184,6 +3184,12 @@
+                     // shell alone, never to the ConPTY host. See the #630 note on
+                     // CtrlReq::NewWindow above.
+                     let prev_path = app.windows[app.active_idx].active_path.clone();
++                    let compact_parent_length = if crate::hud_compact::ENABLED && k == LayoutKind::Vertical {
++                        let win = &app.windows[app.active_idx];
++                        let mut rects = Vec::new();
++                        tree::compute_rects(&win.root, win.area, &mut rects);
++                        rects.iter().find(|(path, _)| *path == prev_path).map(|(_, rect)| rect.height)
++                    } else { None };
+                     let split_succeeded = match split_active_with_env(&mut app, k, cmd.as_deref(), Some(&*pty_system), start_dir.as_deref(), &env_sets) {
+                         Err(e) => {
+                             let msg = format!("split-window: {e}");
+@@ -3208,8 +3214,11 @@
+                         };
+                         let win = &mut app.windows[app.active_idx];
+                         if let Some(Node::Split { sizes, .. }) = get_split_mut(&mut win.root, &prev_path) {
+-                            sizes[0] = 100 - pct;
+-                            sizes[1] = pct;
++                            let weights = compact_parent_length.map(|length| {
++                                crate::hud_compact::requested_split_weights(length, val, is_pct)
++                            }).unwrap_or([100 - pct, pct]);
++                            sizes[0] = weights[0];
++                            sizes[1] = weights[1];
+                         }
+                     }
+                     // -T: the just-created pane is currently active in this
+@@ -3266,6 +3275,12 @@
+                     // shell alone, never to the ConPTY host. See the #630 note on
+                     // CtrlReq::NewWindow above.
+                     let prev_path = app.windows[app.active_idx].active_path.clone();
++                    let compact_parent_length = if crate::hud_compact::ENABLED && k == LayoutKind::Vertical {
++                        let win = &app.windows[app.active_idx];
++                        let mut rects = Vec::new();
++                        tree::compute_rects(&win.root, win.area, &mut rects);
++                        rects.iter().find(|(path, _)| *path == prev_path).map(|(_, rect)| rect.height)
++                    } else { None };
+                     let split_succeeded = match split_active_with_env(&mut app, k, cmd.as_deref(), Some(&*pty_system), start_dir.as_deref(), &env_sets) {
+                         Err(e) => {
+                             app.status_message = Some((format!("split-window: {e}"), std::time::Instant::now(), None));
+@@ -3285,8 +3300,11 @@
+                         };
+                         let win = &mut app.windows[app.active_idx];
+                         if let Some(Node::Split { sizes, .. }) = get_split_mut(&mut win.root, &prev_path) {
+-                            sizes[0] = 100 - pct;
+-                            sizes[1] = pct;
++                            let weights = compact_parent_length.map(|length| {
++                                crate::hud_compact::requested_split_weights(length, val, is_pct)
++                            }).unwrap_or([100 - pct, pct]);
++                            sizes[0] = weights[0];
++                            sizes[1] = weights[1];
+                         }
+                     }
+                     // -T: set the new (currently active) pane's title.
+diff --git a/src/window_ops.rs b/src/window_ops.rs
+--- a/src/window_ops.rs
++++ b/src/window_ops.rs
+@@ -1254,6 +1254,10 @@
+                 if x >= pos.saturating_sub(tol) && x <= pos + tol { if let Some((left,right)) = split_sizes_at(&win.root, path.clone(), *idx) { app.drag = Some(DragState { split_path: path.clone(), kind: *kind, index: *idx, start_x: *pos, start_y: y, left_initial: left, _right_initial: right, total_pixels: *total_px }); } on_border = true; break; }
+             }
+             LayoutKind::Vertical => {
++                // The legacy global mouse command carries no modifier state.
++                // Compact resizing is owned by the client's explicit Alt-drag
++                // split-sizes path; a normal footer click stays a text click.
++                if crate::hud_compact::ENABLED { continue; }
+                 if y >= pos.saturating_sub(tol) && y <= pos + tol { if let Some((left,right)) = split_sizes_at(&win.root, path.clone(), *idx) { app.drag = Some(DragState { split_path: path.clone(), kind: *kind, index: *idx, start_x: x, start_y: *pos, left_initial: left, _right_initial: right, total_pixels: *total_px }); } on_border = true; break; }
+             }
+         }
+@@ -2191,6 +2195,7 @@
+ 
+ /// Set split sizes at a given tree path during border drag.
+ pub fn handle_split_set_sizes(app: &mut AppState, path: &[usize], sizes: &[u16]) {
++    let mut resize_now = false;
+     let win = &mut app.windows[app.active_idx];
+     let mut cur: &mut Node = &mut win.root;
+     for &idx in path.iter() {
+@@ -2207,9 +2212,15 @@
+     }
+     if let Node::Split { sizes: node_sizes, children, .. } = cur {
+         if sizes.len() == children.len() && sizes.len() == node_sizes.len() {
++            if crate::hud_compact::ENABLED && node_sizes.as_slice() == sizes { return; }
+             *node_sizes = sizes.to_vec();
+-        }
+-    }
++            resize_now = crate::hud_compact::ENABLED;
++        }
++    }
++    // A compact divider shares the source footer row. Keep the PTY/parser
++    // sized to each live drag layout, rather than waiting until mouse-up.
++    // resize_all_panes already skips physical resizes for unchanged cell sizes.
++    if resize_now { resize_all_panes(app); }
+ }
+ 
+ /// Finalize a border resize: apply PTY resizes to match the new layout.
+@@ -3163,15 +3174,50 @@
+     }
+ }
+ 
++/// Current cell weights of the requested vertical split, including nested
++/// parent geometry. Used only by the opt-in compact resize paths.
++fn compact_vertical_cells(root: &Node, path: &[usize], area: Rect) -> Option<Vec<u16>> {
++    let mut node = root;
++    let mut area = area;
++    for &index in path {
++        let Node::Split { kind, sizes, children } = node else { return None; };
++        let horizontal = *kind == LayoutKind::Horizontal;
++        let rects = crate::tree::split_with_gaps(horizontal, sizes, area);
++        area = *rects.get(index)?;
++        node = children.get(index)?;
++    }
++    match node {
++        Node::Split { kind: LayoutKind::Vertical, sizes, .. } =>
++            Some(crate::hud_compact::drag_sizes(false, sizes, area.height)),
++        _ => None,
++    }
++}
++
+ pub fn resize_pane_vertical(app: &mut AppState, amount: i16) {
+     let win = &mut app.windows[app.active_idx];
+     if win.active_path.is_empty() { return; }
+     
+     for depth in (0..win.active_path.len()).rev() {
+         let parent_path = win.active_path[..depth].to_vec();
++        let compact_cells = if crate::hud_compact::ENABLED {
++            compact_vertical_cells(&win.root, &parent_path, win.area)
++        } else { None };
+         if let Some(Node::Split { kind, sizes, .. }) = get_split_mut(&mut win.root, &parent_path) {
+             if *kind == LayoutKind::Vertical {
+                 let idx = win.active_path[depth];
++                if let Some(mut cells) = compact_cells {
++                    if idx >= cells.len() { return; }
++                    let left = if idx + 1 < cells.len() { idx } else if idx > 0 { idx - 1 } else { return; };
++                    if !crate::hud_compact::drag_pair_resizable(&cells, left) { return; }
++                    let total = cells[left] as i32 + cells[left + 1] as i32;
++                    let first = (cells[left] as i32 + amount as i32).clamp(1, total - 1);
++                    cells[left] = first as u16;
++                    cells[left + 1] = (total - first) as u16;
++                    // A rejected operation must retain the original weights,
++                    // especially while a nested parent has zero/one rows.
++                    *sizes = cells;
++                    return;
++                }
+                 if idx < sizes.len() {
+                     if idx + 1 < sizes.len() {
+                         let new_size = (sizes[idx] as i16 + amount).max(1) as u16;
+@@ -3233,9 +3279,23 @@
+     let target_kind = if axis == "x" { LayoutKind::Horizontal } else { LayoutKind::Vertical };
+     for depth in (0..win.active_path.len()).rev() {
+         let parent_path = win.active_path[..depth].to_vec();
++        let compact_cells = if crate::hud_compact::ENABLED && target_kind == LayoutKind::Vertical {
++            compact_vertical_cells(&win.root, &parent_path, win.area)
++        } else { None };
+         if let Some(Node::Split { kind, sizes, .. }) = get_split_mut(&mut win.root, &parent_path) {
+             if *kind == target_kind {
+                 let idx = win.active_path[depth];
++                if let Some(mut cells) = compact_cells {
++                    if idx >= cells.len() { return; }
++                    let neighbor = if idx + 1 < cells.len() { idx + 1 } else if idx > 0 { idx - 1 } else { return; };
++                    let total = cells[idx] as u32 + cells[neighbor] as u32;
++                    if total < 2 { return; }
++                    let requested = (target as u32).clamp(1, total - 1);
++                    cells[idx] = requested as u16;
++                    cells[neighbor] = (total - requested) as u16;
++                    *sizes = cells;
++                    return;
++                }
+                 if idx < sizes.len() {
+                     let old = sizes[idx];
+                     let new = target.max(1);
+diff --git a/tests-rs/test_hud_compact_render.rs b/tests-rs/test_hud_compact_render.rs
+new file mode 100644
+--- /dev/null
++++ b/tests-rs/test_hud_compact_render.rs
+@@ -0,0 +1,114 @@
++use super::*;
++use ratatui::backend::TestBackend;
++
++fn pane(id: usize, active: bool, lines: &[&str]) -> LayoutJson {
++    serde_json::from_value(serde_json::json!({
++        "type": "leaf", "id": id, "rows": lines.len(), "cols": 12,
++        "cursor_row": 0, "cursor_col": 0, "active": active,
++        "copy_mode": false, "scroll_offset": 0,
++        "rows_v2": lines.iter().map(|text| serde_json::json!({"runs": [{
++            "text": format!("{text:<12}"), "width": 12,
++            "fg": "red", "bg": "blue", "flags": 2
++        }]})).collect::<Vec<_>>()
++    })).unwrap()
++}
++
++fn layout() -> LayoutJson {
++    LayoutJson::Split {
++        kind: "Vertical".to_string(), sizes: vec![1, 1],
++        children: vec![pane(1, true, &["HELLO", "? shortcuts"]), pane(2, false, &["HUD", "row2"])],
++    }
++}
++
++#[test]
++fn compact_draw_preserves_footer_text_and_colors_without_separator_row() {
++    let mut terminal = Terminal::new(TestBackend::new(12, 4)).unwrap();
++    terminal.draw(|frame| {
++        render_layout_json(
++            frame, &layout(), Rect::new(0, 0, 12, 4), false,
++            Style::default().fg(Color::DarkGray), Style::default().fg(Color::Green),
++            false, Color::Cyan, Some(Rect::new(0, 0, 12, 2)), "", false,
++            "off", "", 2, crate::border_lines::border_chars("single"), None,
++            WindowContentStyles::default(), PaneBorderIndicators::Colour,
++        );
++    }).unwrap();
++    let buffer = terminal.backend().buffer();
++    let row = |y| (0..12).map(|x| buffer[(x, y)].symbol()).collect::<String>();
++    assert_eq!(row(1), "? shortcuts ");
++    assert_eq!(row(2), "HUD         ");
++    let footer = &buffer[(0, 1)];
++    assert_eq!(footer.fg, Color::Red);
++    assert_eq!(footer.bg, Color::Blue);
++    assert!(footer.modifier.contains(Modifier::BOLD));
++    assert!(footer.modifier.contains(Modifier::UNDERLINED));
++    assert!(!buffer[(0, 2)].modifier.contains(Modifier::UNDERLINED));
++}
++
++#[test]
++fn compact_hit_target_is_upper_last_row_and_not_the_hud_first_row() {
++    let mut borders = Vec::new();
++    collect_layout_borders(&layout(), Rect::new(0, 0, 12, 4), &mut vec![], &mut borders);
++    assert_eq!(borders.len(), 1);
++    assert_eq!(borders[0].3, 1);
++    let geometry = border_geometry_from_layout(&layout(), Rect::new(0, 0, 12, 4), Rect::new(0, 0, 12, 4), false);
++    // Compact rules are text attributes, not box-drawing cells. They must not
++    // enter the glyph replacement/intersection/arrow passes.
++    assert!(!geometry.contains_horizontal(12));
++}
++
++#[test]
++fn zero_cell_neighbor_has_no_compact_drag_target() {
++    let layout = LayoutJson::Split { kind: "Vertical".into(), sizes: vec![59, 1, 30],
++        children: vec![pane(1, true, &["A"]), pane(2, false, &["B"]), pane(3, false, &["C"])] };
++    let mut borders = Vec::new();
++    collect_layout_borders(&layout, Rect::new(0, 0, 12, 2), &mut vec![], &mut borders);
++    assert!(borders.is_empty(), "zero-cell pairs cannot resize: {borders:?}");
++}
++
++fn status_off_content_area(terminal: Rect) -> Rect {
++    Layout::default().direction(Direction::Vertical)
++        .constraints([Constraint::Min(1), Constraint::Length(0)])
++        .split(terminal)[0]
++}
++
++#[test]
++fn hidden_status_client_size_draw_area_and_drag_weights_agree() {
++    let terminal = Rect::new(0, 0, 12, 32);
++    let reported_height = terminal.height - crate::hud_compact::client_status_reserve(false, 1);
++    let content = status_off_content_area(terminal);
++    let server_cells = split_with_gaps(false, &[25, 7], Rect::new(0, 0, 12, reported_height));
++    let mut borders = Vec::new();
++    let layout = LayoutJson::Split { kind: "Vertical".into(), sizes: vec![25, 7],
++        children: vec![pane(1, true, &["source"]), pane(2, false, &["HUD"])] };
++    collect_layout_borders(&layout, content, &mut vec![], &mut borders);
++    assert_eq!(reported_height, content.height, "client-size and draw viewport diverged");
++    assert_eq!(borders[0].4, reported_height);
++    let drag = crate::hud_compact::drag_sizes(false, &borders[0].5, borders[0].4);
++    assert_eq!(drag, server_cells.iter().map(|rect| rect.height).collect::<Vec<_>>());
++}
++
++#[test]
++fn hidden_status_footer_stays_on_last_source_row_after_drag_sized_frame() {
++    let terminal_area = Rect::new(0, 0, 12, 32);
++    let reported_height = terminal_area.height - crate::hud_compact::client_status_reserve(false, 1);
++    let server_cells = split_with_gaps(false, &[25, 7], Rect::new(0, 0, 12, reported_height));
++    let mut source_lines = vec![""; server_cells[0].height as usize];
++    *source_lines.last_mut().unwrap() = "? shortcuts";
++    let mut hud_lines = vec![""; server_cells[1].height as usize];
++    hud_lines[0] = "HUD";
++    let layout = LayoutJson::Split { kind: "Vertical".into(), sizes: vec![25, 7],
++        children: vec![pane(1, true, &source_lines), pane(2, false, &hud_lines)] };
++    let content = status_off_content_area(terminal_area);
++    let client_cells = split_with_gaps(false, &[25, 7], content);
++    let mut terminal = Terminal::new(TestBackend::new(12, 32)).unwrap();
++    terminal.draw(|frame| {
++        render_layout_json(frame, &layout, content, false,
++            Style::default().fg(Color::DarkGray), Style::default().fg(Color::Green),
++            false, Color::Cyan, Some(client_cells[0]), "", false, "off", "", 2,
++            crate::border_lines::border_chars("single"), None,
++            WindowContentStyles::default(), PaneBorderIndicators::Colour);
++    }).unwrap();
++    let last_source_row = client_cells[0].y + client_cells[0].height - 1;
++    let footer = (0..12).map(|x| terminal.backend().buffer()[(x, last_source_row)].symbol()).collect::<String>();
++    assert_eq!(footer, "? shortcuts ", "unused client-only row remains under the footer");
++}
+diff --git a/tests-rs/test_hud_compact_lifecycle.rs b/tests-rs/test_hud_compact_lifecycle.rs
+new file mode 100644
+--- /dev/null
++++ b/tests-rs/test_hud_compact_lifecycle.rs
+@@ -0,0 +1,268 @@
++// PTY-free fixture follows upstream test_capture_pane_fidelity.rs.
++use crate::types::{AppState, Node, LayoutKind};
++use ratatui::layout::Rect;
++
++use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8};
++use std::sync::{Arc, Mutex};
++use std::time::{Duration, Instant};
++
++
++
++const ROWS: u16 = 6;
++const COLS: u16 = 40;
++
++// ── PTY-free pane scaffolding ──────────────────────────────────────────────
++
++#[derive(Debug)]
++struct DummyChild { exited: bool }
++
++#[derive(Debug)]
++struct DummyWriter;
++
++struct DummyMaster { resize_calls: Option<Arc<AtomicU64>> }
++
++impl crate::pane::PaneInputSink for DummyWriter {}
++
++impl std::io::Write for DummyWriter {
++    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> { Ok(buf.len()) }
++    fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
++}
++
++impl portable_pty::ChildKiller for DummyChild {
++    fn kill(&mut self) -> std::io::Result<()> { Ok(()) }
++    fn clone_killer(&self) -> Box<dyn portable_pty::ChildKiller + Send + Sync> {
++        Box::new(DummyChild { exited: self.exited })
++    }
++}
++
++impl portable_pty::Child for DummyChild {
++    fn try_wait(&mut self) -> std::io::Result<Option<portable_pty::ExitStatus>> {
++        Ok(if self.exited { Some(portable_pty::ExitStatus::with_exit_code(0)) } else { None })
++    }
++    fn wait(&mut self) -> std::io::Result<portable_pty::ExitStatus> {
++        Ok(portable_pty::ExitStatus::with_exit_code(0))
++    }
++    fn process_id(&self) -> Option<u32> { None }
++    #[cfg(windows)]
++    fn as_raw_handle(&self) -> Option<std::os::windows::io::RawHandle> { None }
++}
++
++impl portable_pty::MasterPty for DummyMaster {
++    fn resize(&self, _size: portable_pty::PtySize) -> Result<(), anyhow::Error> {
++        if let Some(calls) = &self.resize_calls {
++            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
++        }
++        Ok(())
++    }
++    fn get_size(&self) -> Result<portable_pty::PtySize, anyhow::Error> {
++        Ok(portable_pty::PtySize { rows: ROWS, cols: COLS, pixel_width: 0, pixel_height: 0 })
++    }
++    fn try_clone_reader(&self) -> Result<Box<dyn std::io::Read + Send>, anyhow::Error> {
++        Ok(Box::new(std::io::empty()))
++    }
++    fn take_writer(&self) -> Result<Box<dyn std::io::Write + Send>, anyhow::Error> {
++        Ok(Box::new(DummyWriter))
++    }
++    #[cfg(unix)]
++    fn process_group_leader(&self) -> Option<i32> { None }
++    #[cfg(unix)]
++    fn as_raw_fd(&self) -> Option<std::os::unix::io::RawFd> { None }
++    #[cfg(unix)]
++    fn tty_name(&self) -> Option<std::path::PathBuf> { None }
++}
++
++fn make_pane(id: usize, rows: u16, cols: u16) -> crate::types::Pane {
++    let term = Arc::new(Mutex::new(vt100::Parser::new(rows, cols, 0)));
++    let epoch = Instant::now() - Duration::from_secs(2);
++    crate::types::Pane {
++        master: Box::new(DummyMaster { resize_calls: None }),
++        writer: Box::new(DummyWriter),
++        child: Box::new(DummyChild { exited: false }),
++        term,
++        last_rows: rows,
++        last_cols: cols,
++        id,
++        title: format!("pane{id}"),
++        title_locked: false,
++        child_pid: None,
++        data_version: Arc::new(AtomicU64::new(0)),
++        last_title_check: epoch,
++        last_infer_title: epoch,
++        dead: false,
++        last_text_input: None,
++        last_special_key: None,
++        vt_bridge_cache: None,
++        vti_mode_cache: None,
++        mouse_input_cache: None, win32_input_latched: false, input_off: false,
++        scroll_fg_cache: None, mouse_proto_owner: None, wheel_auth: None,
++        cursor_shape: Arc::new(AtomicU8::new(0)),
++        bell_pending: Arc::new(AtomicBool::new(false)),
++        cpr_pending: Arc::new(AtomicBool::new(false)),
++        color_query_pending: Arc::new(std::sync::atomic::AtomicU32::new(0)),
++        copy_state: None, live_term: None,
++        pane_style: None, pane_options: Default::default(),
++        squelch_until: None,
++        output_ring: Arc::new(Mutex::new(std::collections::VecDeque::new())),
++        spawned_at: None,
++        start_command: String::new(),
++        cwd_hint: None,
++    }
++}
++
++fn make_window(id: usize) -> crate::types::Window {
++    crate::types::Window {
++        root: Node::Split { kind: crate::types::LayoutKind::Horizontal, sizes: vec![], children: vec![] },
++        active_path: vec![],
++        name: "w".to_string(),
++        id,
++        area: ratatui::layout::Rect::new(0, 0, 120, 30),
++        window_size: None,
++        window_options: Default::default(),
++        activity_flag: false,
++        bell_flag: false,
++        silence_flag: false,
++        last_output_time: Instant::now(),
++        last_seen_version: 0,
++        manual_rename: false,
++        layout_index: 0,
++        pane_mru: vec![],
++        zoom_saved: None,
++        linked_from: None,
++        floating: Vec::new(),
++        floating_focus: None,
++    }
++}
++
++
++fn app_with_stack(height: u16, sizes: Vec<u16>) -> AppState {
++    let mut app = AppState::new("compact-lifecycle".to_string());
++    let mut win = make_window(1);
++    win.area = Rect::new(0, 0, 120, height);
++    win.root = Node::Split { kind: LayoutKind::Vertical, sizes,
++        children: vec![Node::Leaf(make_pane(1, 24, 120)), Node::Leaf(make_pane(2, 6, 120))] };
++    win.active_path = vec![1];
++    app.last_window_area = win.area;
++    app.windows.push(win);
++    app.active_idx = 0;
++    app
++}
++fn pane_height(root: &Node, area: Rect, path: &[usize]) -> u16 {
++    let mut rects = Vec::new();
++    crate::tree::compute_rects(root, area, &mut rects);
++    rects.iter().find(|(actual, _)| actual.as_slice() == path).unwrap().1.height
++}
++#[test]
++fn absolute_resize_after_viewport_growth_targets_actual_cells() {
++    let mut app = app_with_stack(60, vec![24, 6]);
++    crate::window_ops::resize_pane_absolute(&mut app, "y", 6);
++    let win = &app.windows[0];
++    assert_eq!(pane_height(&win.root, win.area, &[1]), 6);
++}
++#[test]
++fn relative_resize_after_viewport_growth_moves_the_requested_rows() {
++    let mut app = app_with_stack(60, vec![24, 6]);
++    crate::window_ops::resize_pane_vertical(&mut app, 3);
++    let win = &app.windows[0];
++    assert_eq!(pane_height(&win.root, win.area, &[1]), 9);
++}
++#[test]
++fn unrelated_exit_preserves_compact_hud_height() {
++    let app = app_with_stack(130, vec![124, 6]);
++    let stack = app.windows.into_iter().next().unwrap().root;
++    let mut exited = make_pane(3, 130, 120);
++    exited.child = Box::new(DummyChild { exited: true });
++    let root = Node::Split { kind: LayoutKind::Horizontal, sizes: vec![50, 50],
++        children: vec![stack, Node::Leaf(exited)] };
++    let (pruned, dead) = crate::tree::prune_exited(root, false, false);
++    assert_eq!(dead, 0);
++    let pruned = pruned.unwrap();
++    assert_eq!(pane_height(&pruned, Rect::new(0, 0, 120, 130), &[1]), 6);
++}
++#[test]
++fn retained_exit_never_changes_compact_geometry_without_a_resize() {
++    let mut app = app_with_stack(130, vec![124, 6]);
++    if let Node::Split { children, .. } = &mut app.windows[0].root {
++        if let Node::Leaf(pane) = &mut children[1] {
++            pane.child = Box::new(DummyChild { exited: true });
++            pane.pane_options.insert("remain-on-exit".to_string(), "on".to_string());
++        }
++    }
++    let root = app.windows.into_iter().next().unwrap().root;
++    let (pruned, dead) = crate::tree::prune_exited(root, false, false);
++    assert_eq!(dead, 1);
++    assert_eq!(pane_height(&pruned.unwrap(), Rect::new(0, 0, 120, 130), &[1]), 6);
++}
++
++#[test]
++fn nested_absolute_resize_uses_its_parent_extent() {
++    let mut app = app_with_stack(60, vec![24, 6]);
++    let win = &mut app.windows[0];
++    let stack = std::mem::replace(&mut win.root, Node::Split { kind: LayoutKind::Vertical, sizes: vec![], children: vec![] });
++    win.root = Node::Split { kind: LayoutKind::Vertical, sizes: vec![1, 1],
++        children: vec![stack, Node::Leaf(make_pane(3, 30, 120))] };
++    win.active_path = vec![0, 1];
++    crate::window_ops::resize_pane_absolute(&mut app, "y", 4);
++    let win = &app.windows[0];
++    assert_eq!(pane_height(&win.root, win.area, &[0, 1]), 4);
++    assert_eq!(pane_height(&win.root, win.area, &[1]), 30);
++}
++
++fn rejected_resize_preserves_nested_weights(relative: bool) {
++    for height in [1, 3] {
++        // The nested split gets zero rows or one row, respectively.
++        let mut app = app_with_stack(height, vec![24, 6]);
++        let win = &mut app.windows[0];
++        let stack = std::mem::replace(&mut win.root, Node::Split { kind: LayoutKind::Vertical, sizes: vec![], children: vec![] });
++        win.root = Node::Split { kind: LayoutKind::Vertical, sizes: vec![1, 1],
++            children: vec![stack, Node::Leaf(make_pane(3, height, 120))] };
++        win.active_path = vec![0, 1];
++        if relative { crate::window_ops::resize_pane_vertical(&mut app, 1); }
++        else { crate::window_ops::resize_pane_absolute(&mut app, "y", 6); }
++        let win = &mut app.windows[0];
++        let Node::Split { children, .. } = &win.root else { panic!("outer split lost"); };
++        let Node::Split { sizes, .. } = &children[0] else { panic!("inner split lost"); };
++        assert_eq!(sizes, &[24, 6], "rejected resize mutated weights at outer height {height}");
++        win.area.height = 60;
++        let mut rects = Vec::new();
++        crate::tree::compute_rects(&win.root, win.area, &mut rects);
++        let first = rects.iter().find(|(path, _)| path == &[0, 0]).unwrap().1;
++        let hud = rects.iter().find(|(path, _)| path == &[0, 1]).unwrap().1;
++        assert!(first.y + first.height <= hud.y, "panes overlap after growth");
++        assert_eq!(hud.height, 6);
++    }
++}
++#[test]
++fn rejected_relative_resize_preserves_hidden_split_until_growth() {
++    rejected_resize_preserves_nested_weights(true);
++}
++#[test]
++fn rejected_absolute_resize_preserves_hidden_split_until_growth() {
++    rejected_resize_preserves_nested_weights(false);
++}
++
++#[test]
++fn held_drag_resizes_pty_and_parser_before_done_and_skips_duplicate_dimensions() {
++    let mut app = app_with_stack(30, vec![24, 6]);
++    let counters = [Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0))];
++    let Node::Split { children, .. } = &mut app.windows[0].root else { panic!("split missing"); };
++    for (index, child) in children.iter_mut().enumerate() {
++        let Node::Leaf(pane) = child else { panic!("pane missing"); };
++        pane.master = Box::new(DummyMaster { resize_calls: Some(counters[index].clone()) });
++    }
++    // This is the held-drag command. There is deliberately no ResizeDone yet.
++    crate::window_ops::handle_split_set_sizes(&mut app, &[], &[20, 10]);
++    let win = &app.windows[0];
++    let Node::Split { children, .. } = &win.root else { panic!("split missing"); };
++    for (index, expected) in [20, 10].into_iter().enumerate() {
++        let Node::Leaf(pane) = &children[index] else { panic!("pane missing"); };
++        assert_eq!(pane.last_rows, expected, "PTY metadata trails the held-drag layout");
++        assert_eq!(pane.term.lock().unwrap().screen().size(), (expected, 120));
++        assert_eq!(counters[index].load(std::sync::atomic::Ordering::SeqCst), 1);
++    }
++    crate::window_ops::handle_split_set_sizes(&mut app, &[], &[20, 10]);
++    crate::window_ops::handle_split_resize_done(&mut app);
++    for calls in counters {
++        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1,
++            "duplicate drag dimensions or Done triggered another physical resize");
++    }
++}

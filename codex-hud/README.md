@@ -2,11 +2,14 @@
 
 An independent companion HUD for each simultaneously running Codex in PowerShell
 WT tabs or separate PowerShell windows. The official CLI and native statusline
-remain intact. UI is English; task names retain their original language.
+remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
+task names retain their original language.
 
-> This checkout contains the unreleased 0.4.0 exact-host implementation. Installed
-> 0.3.4 still has the WT MRU placement defect. Source tests and synthetic desktop
-> checks do not establish real Codex trust/shared-daemon acceptance or deployment.
+> Version 0.5.0 includes a checksum-pinned compact terminal backend, six-row initial
+> sizing, separate quota-window controls and prerequisite-gated first-run setup.
+> See [validation](docs/validation.md) for tested scope and remaining real-session
+> checks. Existing running processes keep their loaded backend until a new host
+> starts. Older 0.3.4 runtimes retain the WT MRU placement defect.
 
 ## How automatic pairing works
 
@@ -36,13 +39,52 @@ psmux. Apply setup to future launches, then verify the actual multi-session flow
 
 ## Installation and one-time PowerShell setup
 
-Requires native Windows, Node 20+, and verified portable psmux **3.4.0 build
-20aa1d7**. The fixed official ZIP SHA256 is
+Requires native Windows x64 and Node 20+. Packages with the compact backend include
+`backend/psmux.exe`, its pinned checksum manifest and upstream license. Fresh
+configuration selects that verified bundled backend automatically. Existing
+explicit backend paths are preserved. The compact backend removes the dedicated
+horizontal separator row; **Alt + drag** on the source pane's underlined last row
+resizes it, while ordinary selection keeps working.
+
+The original portable psmux **3.4.0 build 20aa1d7** remains supported as an explicit
+alternative, with its original separator row and drag behavior. Its fixed ZIP
+SHA256 is
 `a66b6be7c13c6fa0dc3660a267b9e34eaa91a4eb7f07fbd55a0468018bd0f721`.
 See [the fixed release](https://github.com/psmux/psmux/releases/tag/v3.4.0).
 No global PATH changes or automatic dependency installation are performed.
 
-After the candidate has actually been published, use the formal marketplace:
+Installing the package alone does not provision Node or change PowerShell
+profiles. On a fresh machine, install Node 20+ or select its portable executable.
+The bundled backend and shipped runtime need no Rust, npm install or build.
+Run the PowerShell-first setup entry separately from each PS5/PS7 host you use:
+
+```powershell
+# Preview the concrete profile block, settings changes and runtime prerequisites.
+& "<plugin-root>/bin/setup.ps1" -Enable
+# After reviewing that preview, apply the same setup.
+& "<plugin-root>/bin/setup.ps1" -Enable -Apply
+```
+
+Use `-NodePath "C:/tools/node/node.exe"` if Node is not on PATH. Setup checks its
+version before invoking JavaScript; the generated entry makes that pinned runtime
+available to its child hooks and restores the parent shell PATH after Codex exits.
+`-ProfilePath` and `-ConfigPath` can explicitly select destinations. Default setup
+is a dry run. Applying initialization refuses missing/unsupported prerequisites
+before writing either file; `-Enable` opts into exact-host startup and pauses the
+legacy startup flag. Setup does not launch Codex or submit a model prompt.
+For a source checkout without the bundled binary, or to retain the original
+backend explicitly, supply `-PsmuxPath "C:/tools/psmux/psmux.exe"` after verifying
+the upstream archive. A compact replacement must also match the package's pinned
+artifact checksum.
+
+Doctor now reports `setup.prerequisites`, missing actions and their next steps.
+Its `setup.ready` means runtime prerequisites passed, not that a profile was loaded
+or a native hook was trusted. Review the installed hook through `/hooks`, open a
+new PowerShell session and verify real interaction after setup. Legacy direct
+`setup --profile ...` is profile-only; use `--initialize` for prerequisite-gated
+initialization, with optional `--psmux` and `--enable`.
+
+Use the formal marketplace:
 
 ```powershell
 codex plugin marketplace add GoodDream0303/mz-cc-plugins
@@ -54,7 +96,8 @@ Use the installed plugin's direct `node <plugin-root>/bin/hud.mjs` entry for the
 following operations; the optional global npm link can target older source.
 Do not silently replace the formal marketplace with a local installation.
 
-1. Configure `host.psmuxPath` to the verified portable executable's absolute path.
+1. Keep the verified bundled `host.psmuxPath`, or explicitly select a supported
+   portable executable's absolute path.
 2. From each PowerShell 5/7 shell, resolve `$PROFILE.CurrentUserCurrentHost`.
 3. Preview `setup --profile <absolute-profile-path>`. Review the concrete block,
    then explicitly apply with the same command plus `--apply`.
@@ -79,6 +122,30 @@ are unchanged. No automatic model request is made for setup or self-test.
 
 ## Commands and diagnostics
 
+The interactive configuration menu follows `language`: `en` (default),
+`zh-Hans` (Simplified Chinese) or `zh-Hant` (Traditional Chinese). Open **1 Layout**,
+then **1 Language**, and enter `zh-Hans` to switch the draft menu immediately.
+Choose **s Save** to persist it or **q Cancel** to leave the saved configuration
+unchanged. The same language setting controls HUD labels; task names and custom
+text stay exactly as written.
+
+Each option includes an input example and an explanation of its effect. Selecting
+an option shows its allowed values or range before editing. Enter keeps a text or
+numeric value unchanged; `""` explicitly clears a text value. Long sections show
+eight options per page: enter **n** for the next page or **p** for the previous
+page, then press Enter. First/last-page boundaries show a message. Editing keeps
+the current page open; an empty response returns to the main menu. **v** previews
+from either menu; **s** saves and **q** cancels from either menu. Option numbers
+remain stable across pages. Unavailable and inactive compatibility fields are
+hidden; their existing saved values remain untouched.
+
+Quota display has a master switch and separate **5-hour quota** / **7-day quota**
+switches. Both windows are enabled by default, with zero display thresholds.
+Each label comes from the recorded window duration, not primary/secondary order.
+Only windows actually supplied by Codex telemetry are shown; absent windows
+have no placeholder. Explicit existing switches/thresholds remain in
+effect; the weekly default change does not overwrite saved preferences.
+
 ```powershell
 node "<plugin-root>/bin/hud.mjs" doctor
 node "<plugin-root>/bin/hud.mjs" start
@@ -96,8 +163,11 @@ for live proof separately. `origin: present` is not a verified ownership claim.
 `once --session <ID>` can inspect explicit telemetry, but is not a placed HUD.
 `watch` remains available for manual rendering; `demo` uses an isolated preview.
 
-The initial HUD height uses the exact source pane's geometry and configured
-content. It runs only at creation; later wrapping/paging preserves manual resizing.
+The default initial HUD height is six visible rows (`terminal.initialRows = 6`).
+Small terminals reduce that target to preserve room for Codex. Enable
+`terminal.autoHeight` to fit content instead, or use `initialRows = 0` with
+auto-height disabled to use the percentage limit. Sizing runs only at creation;
+later wrapping/paging preserves manual resizing.
 Use q/Ctrl+C to close the HUD, or `stop --launch <launch-id>` to request its exit.
 
 ## Source development

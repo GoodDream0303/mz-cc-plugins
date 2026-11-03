@@ -4,10 +4,10 @@ import {randomUUID} from 'node:crypto';
 import {spawn,execFileSync} from 'node:child_process';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {loadConfig,get,configPath,startupEnabled} from './config.js';
-import {runtimeRoot} from './runtime.js';
 import {readHostOrigin,proveOwner} from './psmux.js';
 import {registerHost,ensureHostDisplay,readHost,closeHost,registerCurrentFrontend} from './host-session.js';
 import {assertActiveEntry} from './entry-install.js';
+import {verifyBackend} from './backend-version.js';
 
 export interface CodexInvocation {command:string;args:string[]}
 const commands=new Set(['agents','exec','e','review','login','logout','mcp','mcp-server','plugin','app-server','remote-control','app','completion','update','doctor','sandbox','debug','apply','a','queue','archive','delete','migrate-rollouts','migrate-nfs-db','unarchive','cloud','cloud-tasks','execpolicy','tcp-tunnel','responses-api-proxy','stdio-to-uds','exec-server','features','help']);
@@ -71,12 +71,12 @@ export async function launchHostedCodex(invocation:CodexInvocation,options:{conf
  if(process.env.MZ_HUD_ORIGIN)throw new Error('Nested interactive Codex needs its own source pane; start it in another PowerShell tab/window');
  resolveOfficial(invocation.command);
  const binary=get(config,'host.psmuxPath');if(typeof binary!=='string'||!path.isAbsolute(binary)||!fs.statSync(binary).isFile())throw new Error('Configure host.psmuxPath with the verified portable psmux 3.4.0 executable');
- const version=execFileSync(binary,['-V'],{encoding:'utf8',windowsHide:true,timeout:3000,maxBuffer:4096});if(!/psmux 3\.4\.0 \(20aa1d7\b/.test(version))throw new Error('This HUD host requires validated psmux 3.4.0 build 20aa1d7');
- const id=randomUUID(),namespace='mzhud-'+id.replaceAll('-',''),root=options.runtimeDir??runtimeRoot(),hostDir=path.join(root,'hosts'),dataDir=path.join(root,'psmux',id);
+ const version=execFileSync(binary,['-V'],{encoding:'utf8',windowsHide:true,timeout:3000,maxBuffer:4096});if(!verifyBackend(binary,version))throw new Error('This HUD host requires validated psmux 3.4.0 build 20aa1d7 or the packaged, checksum-verified compact backend');
+ const id=randomUUID(),namespace='mzhud-'+id.replaceAll('-',''),root=options.runtimeDir??path.join(path.dirname(path.resolve(file)),'runtime'),hostDir=path.join(root,'hosts'),dataDir=path.join(root,'psmux',id);
  fs.mkdirSync(dataDir,{recursive:true,mode:0o700});fs.mkdirSync(hostDir,{recursive:true,mode:0o700});
  const hostConfig=path.join(dataDir,'host.conf');fs.writeFileSync(hostConfig,'set -g status off\nset -g warm off\nset -g exit-empty on\n',{flag:'wx',mode:0o600});
  const env={...process.env};for(const key of Object.keys(env))if(/^TMUX|^PSMUX_/i.test(key))delete env[key];
- Object.assign(env,{MZ_HUD_ORIGIN:id,MZ_HUD_NAMESPACE:namespace,MZ_HUD_HOST_DIR:hostDir,MZ_HUD_PSMUX:binary,PSMUX_DATA_DIR:dataDir,PSMUX_CONFIG_FILE:hostConfig,PSMUX_NO_WARM:'1'});
+ Object.assign(env,{MZ_HUD_ORIGIN:id,MZ_HUD_NAMESPACE:namespace,MZ_HUD_HOST_DIR:hostDir,MZ_HUD_PSMUX:binary,MZ_HUD_CONFIG_FILE:path.resolve(file),PSMUX_DATA_DIR:dataDir,PSMUX_CONFIG_FILE:hostConfig,PSMUX_NO_WARM:'1'});
  const entry=fileURLToPath(new URL('../bin/hud.mjs',import.meta.url)),encoded=Buffer.from(JSON.stringify(invocation)).toString('base64');
  const status=await foreground(binary,['-L',namespace,'-f',hostConfig,'new-session','-s','codex','-c',process.cwd(),'--',process.execPath,entry,'host-owner','--invocation64',encoded,'--config',path.resolve(file)],env);
  const registered=path.join(hostDir,id+'.json');if(fs.existsSync(registered)){const record=readHost(registered);if(record.state==='closed'&&typeof record.exitCode==='number')return record.exitCode;}
@@ -92,6 +92,6 @@ export async function runHostOwner(invocation:CodexInvocation,configFile=configP
    for(let attempt=0;attempt<2;attempt++)try{await ensureHostDisplay(readHost(record.file),config,{configFile});break;}catch{if(attempt===1)process.stderr.write('Codex HUD is not ready; inspect this host with hud doctor.\n');}
   }
   const command=resolveOfficial(invocation.command),entry=fileURLToPath(new URL('../bin/hud.mjs',import.meta.url)),encoded=Buffer.from(JSON.stringify(invocation)).toString('base64');
-  exitCode=await foreground(command.prefix.length?command.file:process.execPath,[entry,'host-frontend','--invocation64',encoded],process.env);return exitCode;
+  exitCode=await foreground(command.prefix.length?command.file:process.execPath,[entry,'host-frontend','--invocation64',encoded],{...process.env,MZ_HUD_CONFIG_FILE:path.resolve(configFile)});return exitCode;
  }finally{closeHost(readHost(record.file),exitCode);}
 }

@@ -4,8 +4,16 @@ description: Use when the passive Codex HUD cannot open its pane, locate the sel
 ---
 
 Resolve the plugin root two directories above this skill folder. Run
-`node "<plugin-root>/bin/hud.mjs" doctor`. If unbuilt, run `npm ci --ignore-scripts`
-and `npm run build` in that directory once.
+`node "<plugin-root>/bin/hud.mjs" doctor`. If Node is missing, use the
+PowerShell-first `bin/setup.ps1` prerequisite report. Only build an explicitly
+selected source checkout; a published package missing dist should be repaired
+through the formal installation flow.
+
+Inspect `setup.prerequisites` for Node, platform, backend file/build/checksum,
+official launcher and configuration status. `setup.ready` means these runtime
+checks passed, not that a profile is loaded or a hook is trusted. A nonempty
+`host.psmuxPath` alone does not establish readiness. Do not install a compiler
+for an end user: the package carries the verified compact backend.
 
 Manual attachment needs no hooks; automatic opening uses the plugin SessionStart
 hook. Doctor reports its enabled setting, local hook-file availability, last

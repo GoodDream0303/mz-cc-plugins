@@ -1,11 +1,79 @@
-# Validation: exact per-source HUD candidate
+# Validation: exact per-source HUD
+
+## Compact backend, six-row defaults and first-run setup — 2026-11-03
+
+[Current evidence](evidence/2026-11-03-compact/summary.json) belongs to the bundled
+`3.4.0-hud-compact-v1` artifact pinned in `backend/psmux-compact.json`.
+It replaces the separator row with a text-preserving underline, reports the same
+viewport used for drawing when status is off, and synchronizes changed PTY sizes
+during a compact drag. Normal source builds retain upstream behavior.
+
+- Plugin checks: Node 24 full suite 146/146; Node 20 package/setup scope 14/14.
+- Backend: compact production-path/renderer tests 25/25; normal focused tests
+  12/12. The full upstream normal run had 5128 passes, eight failures and two
+  ignored cases. Six failures recovered with neutral configuration; untouched
+  Bash-path and debug flood-timing cases remain outside the completed scope.
+- Native process checks passed eight cases, including six-row creation,
+  zero separator geometry, exact resizing after viewport changes, concurrent
+  physical owners, scoped close/reopen and recovery after a killed viewer.
+- Desktop fixtures passed PS5/PS7, same-window tabs, separate windows and native
+  left/right splits. Background sources kept the neighbour's geometry/focus.
+  Representative screenshots are included with the evidence.
+- A copied package without src/node_modules initialized isolated profiles using
+  its real bundled backend, without Rust or an explicit backend path. Missing
+  Node/backend/official launcher and invalid configuration are reported before
+  applying initialization. Native hook trust remains explicitly unknown.
+
+All CLI/data in native fixtures was synthetic; no additional official Codex or
+model prompt was started. Automatic mouse injection did not reliably trigger the
+gesture and is not counted as a pointer-interaction pass. Physical Alt-drag on the
+final fixture was manually accepted: the footer remains adjacent during movement
+and after release. Real-session acceptance after formal installation remains
+separate. The current live Codex processes and formal installed plugin were not
+replaced.
+
+## 0.4.0 installed live inspection — 2026-11-03
+
+[Live inspection results](evidence/2026-11-03-live/summary.json) cover existing
+official Codex processes on the inspected Windows machine. This inspection did
+not start another Codex or submit a model prompt. It used the installed 0.4.0 CLI,
+live process-incarnation checks and scoped psmux pane queries.
+
+- The installed package and manifest report 0.4.0. PowerShell 5/7 setup previews
+  both report `changed: false`. The three sampled source/cache entry and runtime
+  files match after CRLF/LF normalization; this is not a complete package audit.
+- All eight registered running hosts have a live official npm Codex native child
+  of the registered frontend, verified owner/server ancestry and a separate live
+  HUD pane in that exact server/session/window. Four HUDs are already bound to
+  valid main CLI transcripts; four are waiting for conversation metadata. Their
+  earlier hook dispatch and first-turn ordering were not replayed by this check.
+- The current tool environment passes `start --dry-run`, including exact physical
+  ownership and main-conversation provenance. Two real `start` calls both report
+  `HUD already-open.`; all eight launch/viewer identities, session bindings and
+  owner/HUD geometry remain unchanged, and all heartbeats advance.
+- Closing only the proven current HUD establishes its old pane's exact absence.
+  The registered source processes survive. `start` opens a new live HUD bound to
+  the same current thread; the other seven launch/viewer identities, bindings and
+  pane geometry remain unchanged.
+- Exact-host autostart is enabled; legacy `startup.enabled` remains false. Doctor
+  reports valid configuration and `already-open`, but hook trust is still reported
+  as `unknown`. No trust, profile, approval or daemon settings were changed.
+
+This establishes live pairing, current-session reuse and scoped close/reopen for
+the observed process topology. It does not establish visual placement, focus,
+keyboard/mouse/scroll/copy, statusline usability, cold-start/upgrade behavior or
+per-client attribution through a different shared-daemon topology. Those checks
+remain open. User interaction feedback was requested but is not yet available.
+
+## Source and synthetic results recorded before installation
 
 ## 0.4.0 candidate — source verified, not deployed
 
-The goal remains **every simultaneously running real Codex has an independent,
-correctly paired HUD**. This candidate is not installed, user profiles/configuration
-are unchanged, and legacy startup remains false. The evidence below does not mark
-the real-session goal complete.
+The following historical checks preceded the installed live inspection above.
+At that point the candidate was not installed and user profiles/configuration
+were unchanged. The goal remains **every simultaneously running real Codex has an
+independent, correctly paired HUD**; neither these synthetic checks nor the
+limited live inspection mark the full acceptance goal complete.
 
 - Node 24: `npm test`, 100/100 passed on the final runtime tree.
 - Node 20.19.0: all 100 tests passed against the built runtime. Its portable ZIP
