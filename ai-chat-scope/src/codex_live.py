@@ -176,7 +176,7 @@ class Observer:
         raise RuntimeError("too many unrelated protocol messages")
 
     def initialize(self):
-        self.rpc("initialize", {"clientInfo": {"name": "ai_chat_scope", "version": "2.1.0"}})
+        self.rpc("initialize", {"clientInfo": {"name": "ai_chat_scope", "version": "2.2.0"}})
         self.transport.send_json({"method": "initialized", "params": {}})
 
     def read_threads(self):
