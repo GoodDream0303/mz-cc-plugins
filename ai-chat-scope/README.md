@@ -1,6 +1,8 @@
 # AI Chat Scope
 
-Windows 上的轻量置顶悬浮窗，在一个列表里查看多个 **Claude Code 与 Codex CLI** 会话。版本 2.1.1，由 claude-scope 更名。
+Windows 上的轻量置顶悬浮窗，在一个列表里查看多个 **Claude Code 与 Codex CLI** 会话。版本 2.2.0，由 claude-scope 更名。
+
+2.2.0 新增右键“关闭 Codex 会话…”：一次性核对所选会话锁的唯一持有进程、交互运行方式和启动时间，显示确认后结束该独立 CLI，保留记录。共享服务、非交互或未知启动方式不关闭；进程退出并释放锁后，由正常监视移除行，重启浮窗也不会重新显示已结束的进程。
 
 2.1.1 修复 Windows hook 多层 PowerShell 启动在多会话并发时超过 3 秒的问题：直接使用 py/Python/python3 执行被动 hook，不再为每次 hook 启动额外 PowerShell 和解释器探测。setup 和窗口启动入口保持不变。
 
