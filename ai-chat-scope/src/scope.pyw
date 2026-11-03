@@ -15,12 +15,15 @@ AI Chat Scope (tkinter 轻量版)
 
 **安全约束:只读 Claude/Codex 会话文件及显式配置的本地实时状态；不枚举或打开其他进程。**
 (早期版本用 OpenProcess/Toolhelp 查后台 shell,疑似被 EDR 拦截并连带影响 MCP/Dashboard,已彻底移除)。
-唯一例外:用户右键某行「关闭」并确认后,一次性启动外部命令结束该会话:后台会话 `claude stop <jobId>`;
+用户右键某行「关闭」并确认后,一次性启动外部命令结束该会话:后台会话 `claude stop <jobId>`;
 交互会话起子进程 `scope.pyw --quit-session <pid>` 往其控制台注入 Ctrl+C 正常退出,未退出时再经用户确认
 `taskkill /F /PID <pid> /FI "IMAGENAME eq claude.exe"`。本程序(浮窗进程)仍不持有任何进程句柄。
+Codex 使用独立短命 helper 查询所选会话锁的唯一进程持有者,核对身份并经确认后结束该 CLI 进程;
+不归档或删除会话,不关闭共享 app-server。helper 之外不检查进程。
 设计为极低占用:after() 每秒轮询一次,无忙循环;数据无变化不重绘;无任何持续动画。
 """
 import os, re, sys, json, time, ctypes, shutil, subprocess, threading, argparse
+import queue
 sys.dont_write_bytecode = True
 import tkinter as tk
 import tkinter.font as tkfont
@@ -93,6 +96,8 @@ class Scope:
         self.root = root
         self.monitor = monitor
         self.claude_source = claude_source
+        self.codex_home = next((str(source.home) for source in monitor.sources
+                                if getattr(source, 'provider', None) == 'Codex'), None)
         self.cfg = config if config is not None else self.load_cfg()
         self.diagnostics = ("正在读取会话状态",)
         self.W = max(160, int(self.cfg.get("width", self.cfg.get("base_w", 340))))  # 宽度独立(像素)
@@ -151,16 +156,18 @@ class Scope:
         self.menu.add_command(label="状态说明", command=self.show_status_info)
         self.menu.add_separator()
         self.menu.add_command(label="退出", command=self.quit_app)
-        self._menu_kill = False     # 菜单顶部是否插着"关闭 CHn"项(+分隔线)
+        self._menu_count = 0        # 行操作项及分隔线的数量
         self._kill_done = []        # 关闭线程的结果,由 poll 在主线程处理
+        self._codex_done = queue.Queue()
+        self._codex_pending = set()
 
         self.poll()
 
     # ---- 右键菜单 / 窗口控制 ----
     def show_menu(self, e):
-        if self._menu_kill:
-            self.menu.delete(0, 1)
-            self._menu_kill = False
+        if self._menu_count:
+            self.menu.delete(0, self._menu_count - 1)
+            self._menu_count = 0
         i = self._get_row_at(e.x, e.y)
         if i is not None and i < len(self.sessions):
             ss = self.sessions[i]
@@ -171,12 +178,15 @@ class Scope:
             if action == "close":
                 self.menu.insert_command(0, label="关闭 CC%d「%s」" % (i + 1, label),
                                          command=lambda: self.kill_session(i + 1, ss))
+                self._menu_count = 1
             elif action == "copy_id":
-                self.menu.insert_command(0, label="复制 Codex 会话 ID", command=lambda: self.copy_session_id(ss))
+                self.menu.insert_command(0, label="关闭 Codex 会话…", command=lambda: self.close_codex_session(ss))
+                self.menu.insert_command(1, label="复制 Codex 会话 ID", command=lambda: self.copy_session_id(ss))
+                self._menu_count = 2
             if action is not None:
-                self.menu.insert_separator(1)
-                self._menu_kill = True
-        self.menu.entryconfigure(2 if self._menu_kill else 0, label=("取消置顶" if self.pinned else "置顶"))
+                self.menu.insert_separator(self._menu_count)
+                self._menu_count += 1
+        self.menu.entryconfigure(self._menu_count, label=("取消置顶" if self.pinned else "置顶"))
         try:
             self.menu.tk_popup(int(e.x_root), int(e.y_root))
         finally:
@@ -188,7 +198,9 @@ class Scope:
             "红灯：需要授权或回答；绿灯：执行中；黄灯：待机；蓝灯：Claude 后台会话。\n\n"
             "SYNC：正在同步会话记录；STALE：状态暂未更新。\n\n"
             "Codex 的完整授权和同步问答提示需要连接已配置的本地实时服务。\n"
-            "未配置时，仍可显示执行、待机及已识别的异步待输入状态。"
+            "未配置时，仍可显示执行、待机及已识别的异步待输入状态。\n\n"
+            "终端关闭后 Codex 进程可能仍然运行；写锁占用表示记录写入者仍在，不能证明终端仍开着。\n"
+            "可右键 Codex 行选择关闭会话，核对进程后由你确认结束该 CLI；会话记录保留。"
         )
         if self.diagnostics:
             text += "\n\n当前提示：\n" + "\n".join(self.diagnostics)
@@ -270,6 +282,65 @@ class Scope:
         self.root.clipboard_clear()
         self.root.clipboard_append(session["id"])
 
+    def close_codex_session(self, session):
+        if row_action(session) != 'copy_id' or session['id'] in self._codex_pending:
+            return
+        self._codex_pending.add(session['id'])
+        self._start_codex_action(dict(session), 'inspect')
+
+    def _start_codex_action(self, session, action, identity=None):
+        threading.Thread(target=self._run_codex_action, args=(session, action, identity), daemon=True).start()
+
+    def _run_codex_action(self, session, action, identity=None):
+        try:
+            if action not in ('inspect', 'close') or not self.codex_home:
+                raise ValueError('Codex 来源无法核对。')
+            # Isolate project module lookup; import only from this installed plugin.
+            program = ("import runpy,sys;sys.path.insert(0,sys.argv.pop(1));"
+                       "runpy.run_module('codex_close',run_name='__main__')")
+            command = [sys.executable, '-I', '-B', '-c', program, os.path.dirname(os.path.abspath(__file__)),
+                       action, '--home', self.codex_home, '--session-id', session['id']]
+            if action == 'close':
+                command += ['--pid', str(identity['pid']), '--started', str(identity['started'])]
+            result = subprocess.run(command, capture_output=True, text=True, encoding='utf-8',
+                                    timeout=30, creationflags=0x08000000)
+            data = json.loads(result.stdout)
+            if not isinstance(data, dict) or (result.returncode != 0 and data.get('ok')):
+                raise ValueError('关闭助手返回无效结果。')
+        except Exception:
+            data = {'ok': False, 'error': '无法完成进程核对或关闭，请刷新后重试。'}
+        self._codex_done.put((session, action, data))
+
+    def _handle_codex_actions(self):
+        while True:
+            try:
+                session, action, data = self._codex_done.get_nowait()
+            except queue.Empty:
+                return
+            if not data.get('ok'):
+                self._codex_pending.discard(session['id'])
+                messagebox.showerror('AI Chat Scope', '关闭「%s」未完成：\n%s' % (
+                    session.get('label') or session['id'], data.get('error') or '身份无法核对。'), parent=self.root)
+            elif action == 'inspect':
+                identity = data.get('identity') or {}
+                if (set(identity) != {'pid', 'started'}
+                        or any(type(identity[key]) is not int or identity[key] <= 0 for key in identity)):
+                    self._codex_pending.discard(session['id'])
+                    messagebox.showerror('AI Chat Scope', '无法核对进程身份，已取消关闭。', parent=self.root)
+                    continue
+                text = ('结束「%s」所属的 Codex CLI 进程？\n\n会话 ID：%s\nPID：%d\n\n'
+                        '这会强制结束该 CLI 及其中的任务，未完成工作会被中断。\n'
+                        '保留会话记录，不归档、不删除；其他 CLI 和共享服务不会被关闭。'
+                        % (session.get('label') or '(无标题)', session['id'], identity['pid']))
+                if messagebox.askyesno('AI Chat Scope · 关闭 Codex 会话', text, parent=self.root, default='no'):
+                    self._start_codex_action(session, 'close', identity)
+                else:
+                    self._codex_pending.discard(session['id'])
+            else:
+                self._codex_pending.discard(session['id'])
+                # Do not hide rows: the monitor must observe actual lock release.
+                self._sig = None
+
     def quit_app(self):
         self.save_cfg(); self.root.destroy()
 
@@ -326,6 +397,7 @@ class Scope:
     def poll(self):
         try:
             self._handle_kills()
+            self._handle_codex_actions()
             packet = self.monitor.latest()
             if packet is not None:
                 snapshots, diagnostics = packet

@@ -7,6 +7,7 @@ import unittest
 import shutil
 import subprocess
 import json
+import queue
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -32,7 +33,7 @@ class UiBoundaryTests(unittest.TestCase):
             scope._run_kill(row,'kill')
             run.assert_not_called()
 
-    def test_codex_context_menu_copies_id_and_switches_to_claude_close(self):
+    def test_codex_context_menu_closes_or_copies_and_switches_to_claude_close(self):
         module=self.scope_module();scope=module.Scope.__new__(module.Scope)
         class Menu:
             def __init__(self):self.entries=[{'label':'pin'},{'label':'restart'}]
@@ -46,18 +47,80 @@ class UiBoundaryTests(unittest.TestCase):
             clipboard=''
             def clipboard_clear(self):self.clipboard=''
             def clipboard_append(self,value):self.clipboard+=value
-        scope.root=Root();scope.menu=Menu();scope.pinned=True;scope._menu_kill=False
+        scope.root=Root();scope.menu=Menu();scope.pinned=True;scope._menu_count=0
         scope._get_row_at=lambda x,y:0
         scope.sessions=[{'provider':'codex','id':'codex-one','pid':None,'label':'Codex','capabilities':('copy_id',)}]
         event=SimpleNamespace(x=0,y=0,x_root=0,y_root=0)
         scope.show_menu(event)
-        self.assertIn('复制',scope.menu.entries[0]['label'])
-        scope.menu.entries[0]['command']()
+        self.assertIn('关闭 Codex',scope.menu.entries[0]['label'])
+        with patch.object(scope,'close_codex_session') as close:
+            scope.menu.entries[0]['command']()
+            close.assert_called_once_with(scope.sessions[0])
+        self.assertIn('复制',scope.menu.entries[1]['label'])
+        scope.menu.entries[1]['command']()
         self.assertEqual(scope.root.clipboard,'codex-one')
         scope.sessions=[{'provider':'claude','id':'claude-one','pid':123,'label':'Claude','capabilities':('close',)}]
         scope.show_menu(event)
         self.assertIn('关闭',scope.menu.entries[0]['label'])
         self.assertEqual(len(scope.menu.entries),4)
+
+    def codex_action_scope(self):
+        module=self.scope_module();scope=module.Scope.__new__(module.Scope)
+        scope.root=object();scope._codex_done=queue.Queue();scope._codex_pending={'one'}
+        scope._sig=None
+        scope.sessions=[{'provider':'codex','id':'one','label':'Fixture','capabilities':('copy_id',)}]
+        return module,scope,scope.sessions[0]
+
+    def test_codex_cancelled_confirmation_never_starts_close(self):
+        module,scope,row=self.codex_action_scope()
+        scope._codex_done.put((row,'inspect',{'ok':True,'identity':{'pid':123,'started':456}}))
+        with patch.object(module.messagebox,'askyesno',return_value=False), \
+             patch.object(scope,'_start_codex_action') as start:
+            scope._handle_codex_actions()
+            start.assert_not_called()
+        self.assertEqual(scope._codex_pending,set())
+        self.assertEqual(scope.sessions,[row])
+
+    def test_codex_confirmed_close_forwards_the_inspected_incarnation(self):
+        module,scope,row=self.codex_action_scope()
+        scope._codex_done.put((row,'inspect',{'ok':True,'identity':{'pid':123,'started':456}}))
+        with patch.object(module.messagebox,'askyesno',return_value=True), \
+             patch.object(scope,'_start_codex_action') as start:
+            scope._handle_codex_actions()
+            start.assert_called_once_with(row,'close',{'pid':123,'started':456})
+
+    def test_codex_failure_does_not_hide_the_session_or_offer_broad_kill(self):
+        module,scope,row=self.codex_action_scope()
+        scope._codex_done.put((row,'close',{'ok':False,'error':'identity changed'}))
+        with patch.object(module.messagebox,'showerror') as error, \
+             patch.object(module.messagebox,'askyesno') as ask:
+            scope._handle_codex_actions()
+            error.assert_called_once()
+            ask.assert_not_called()
+        self.assertEqual(scope.sessions,[row])
+        self.assertEqual(scope._codex_pending,set())
+
+    def test_repeated_codex_close_click_starts_only_one_inspection(self):
+        module,scope,row=self.codex_action_scope()
+        scope._codex_pending.clear()
+        with patch.object(scope,'_start_codex_action') as start:
+            scope.close_codex_session(row)
+            scope.close_codex_session(row)
+            start.assert_called_once_with(row,'inspect')
+
+    def test_codex_helper_timeout_or_invalid_output_is_reported_as_failure(self):
+        module,scope,row=self.codex_action_scope()
+        scope.codex_home='C:/fixture'
+        cases = [subprocess.TimeoutExpired('fixture',30),
+                 SimpleNamespace(returncode=0,stdout='not-json')]
+        for case in cases:
+            with self.subTest(case=type(case).__name__):
+                kwargs = {'side_effect':case} if isinstance(case,Exception) else {'return_value':case}
+                with patch.object(module.subprocess,'run',**kwargs):
+                    scope._run_codex_action(row,'inspect')
+                session,action,data=scope._codex_done.get_nowait()
+                self.assertEqual(session,row)
+                self.assertFalse(data['ok'])
 
     @unittest.skipUnless(sys.platform=='win32','Windows named mutex')
     def test_single_instance_is_scoped_to_own_runtime_and_released(self):
