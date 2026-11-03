@@ -1,6 +1,6 @@
 {
   "name": "task-handoff",
-  "version": "2.1.2",
+  "version": "2.1.3",
   "description": "Codex / Claude Code 跨会话开发任务接力：保存交接文档、恢复任务、管理任务",
   "author": {
     "name": "mzzhu2"
