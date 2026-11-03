@@ -14,6 +14,9 @@ version-bound in-memory function from the stable initialized entry. Migrate the
 legacy profile once with the active installed package's setup, then reload/open
 that shell once. New stable profiles resolve the actual enabled installation on
 each invocation and do not require setup after ordinary plugin upgrades.
+For 0.5.1 to 0.5.2, refresh the copied bootstrap using setup from the active
+installed package and reload the profile once. Inspect a failure stage/code in
+the new notice; do not infer a timeout from a generic old fallback message.
 Missing/disabled plugins, resolver/import errors and host preflight failures
 allow official Codex to run without HUD. An official nonzero exit or backend
 that may already have started Codex must never be retried as another session.

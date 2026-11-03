@@ -36,6 +36,10 @@ plugin upgrades need no repeated setup. For old version-bound profiles, migrate
 once and reload/open that PowerShell once; do not claim another already-open
 shell's in-memory function was changed. A running ordinary Codex still cannot
 move retroactively into a terminal host; resume normally after initialization.
+The 0.5.1 to 0.5.2 bootstrap correction also updates the copied files outside the
+cache: run setup once from the active installed 0.5.2 package, then reload the
+profile to adopt its detailed failure notice. Package upgrade alone is insufficient
+for that bootstrap fix; this is separate from ordinary versioned runtime updates.
 HUD preflight failures fall back to official Codex. A nonzero official exit or
 uncertain backend outcome never starts another session. Saved package-managed
 backend paths follow the current verified bundle; external portable paths remain

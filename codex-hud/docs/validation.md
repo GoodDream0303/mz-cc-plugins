@@ -1,5 +1,28 @@
 # Validation: exact per-source HUD
 
+## 0.5.2 marketplace lookup correction — 2026-11-03
+
+- Node 24 full suite: 163/163 passed. Node 20.19.0 startup/package scope: 23/23
+  passed, including hidden real PS5/PS7 consoles with genuine TTY handles.
+- A synthetic slow unrelated marketplace reproduced the old fallback; the scoped
+  `plugin list --marketplace <configured-name> --json` lookup selects the HUD
+  without waiting for unrelated markets. A real read-only comparison measured
+  335 ms scoped versus 6528 ms unfiltered, returning the same installed HUD.
+- Resolution failures carry only an allowlisted stage and errno, which the loader
+  includes in its notice. Invocation arguments, credentials and raw subprocess
+  output are not written to diagnostics.
+- The reported real launch was confirmed to have used the inline official
+  fallback with no registered host. Its original exception was suppressed by
+  0.5.1, so the exact original cause cannot be reconstructed; the timing comparison
+  alone is not proof that this particular launch timed out.
+- One read-only review identified deployment of copied bootstrap files as an
+  upgrade requirement. The 0.5.2 instructions explicitly require one setup refresh
+  and profile reload for this bootstrap fix; package-only upgrade does not update
+  those files. Ordinary versioned runtime selection remains unchanged.
+
+These checks do not create a real model session. Actual user cold-start/resume
+acceptance remains separate from fake CLI console checks and package validation.
+
 ## 0.5.1 transparent startup validation — 2026-11-03
 
 - Node 24 full suite: 161/161 passed. Node 20.19.0 resolver, entry, host-fallback

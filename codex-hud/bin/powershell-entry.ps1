@@ -24,6 +24,7 @@ $hudCommand={
   if($hudNode){$env:PATH=(Split-Path -Parent $hudNode)+[IO.Path]::PathSeparator+$hudParentPath}
   if($ConfigPath){$env:MZ_HUD_CONFIG_FILE=$ConfigPath}
   $hudSelected=$null
+  $hudFailure='entry-resolution'
   if($hudNode -and (Test-Path -LiteralPath $hudResolver -PathType Leaf)){
    $hudRequest=@{command=$hudOfficial.Path;hint=$HudCli;pluginId=$PluginId}
    if(-not $PluginId){$hudRequest.Remove('pluginId')}
@@ -31,14 +32,17 @@ $hudCommand={
    # Only resolution may select fallback; a nonzero session exit is never retried.
    try {
     $hudResolution=(& $hudNode $hudResolver resolve $hudRequest64 2>$null | Out-String)
-    if($LASTEXITCODE -eq 0){$hudSelected=($hudResolution | ConvertFrom-Json).cli}
+    $hudResolverExit=$LASTEXITCODE
+    $hudResolved=$hudResolution | ConvertFrom-Json
+    if($hudResolverExit -eq 0){$hudSelected=$hudResolved.cli}
+    elseif($hudResolved.reason -match '^[a-z-]+:[A-Z0-9_]{1,64}$'){$hudFailure=$hudResolved.reason}
    } catch {$hudSelected=$null}
   }
   if($hudSelected){
    if($MyInvocation.ExpectingInput){$input | & $hudNode $hudSelected codex-entry --invocation64 $hudEncoded}
    else {& $hudNode $hudSelected codex-entry --invocation64 $hudEncoded}
   } else {
-   [Console]::Error.WriteLine('Codex HUD: unavailable; starting official Codex without HUD.')
+   [Console]::Error.WriteLine('Codex HUD: unavailable ['+$hudFailure+']; starting official Codex without HUD.')
    if($hudNode){
     # Keep this fallback independent of every plugin/runtime file. Encoding the
     # request preserves literal argv even with PS5 native argument conversion.

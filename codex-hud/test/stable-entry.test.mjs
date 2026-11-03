@@ -7,7 +7,7 @@ function fixture(t){
  fs.mkdirSync(path.join(pkg,'bin'),{recursive:true});fs.writeFileSync(path.join(pkg,'package.json'),JSON.stringify({name:'@openai/codex',bin:{codex:'bin/codex.js'},type:'module'}));
  const state=path.join(root,'installed.json'),record={pluginId:'codex-hud@mz-cc-plugins',name:'codex-hud',marketplaceName:'mz-cc-plugins',version:'0.5.0',installed:true,enabled:true};
  fs.writeFileSync(state,JSON.stringify({installed:[record]}));
- fs.writeFileSync(path.join(pkg,'bin/codex.js'),`import fs from 'node:fs';if(process.argv.slice(2).join(' ')==='plugin list --json'){console.log(fs.readFileSync(${JSON.stringify(state)},'utf8'));}else{console.log(JSON.stringify({version:'official',args:process.argv.slice(2),input:fs.readFileSync(0,'utf8')}));process.exitCode=17;}`);
+ fs.writeFileSync(path.join(pkg,'bin/codex.js'),`import fs from 'node:fs';if(process.argv[2]==='plugin'&&process.argv[3]==='list'&&process.argv.includes('--json')){console.log(fs.readFileSync(${JSON.stringify(state)},'utf8'));}else{console.log(JSON.stringify({version:'official',args:process.argv.slice(2),input:fs.readFileSync(0,'utf8')}));process.exitCode=17;}`);
  // A working official shim is required when the independent resolver is absent.
  fs.writeFileSync(path.join(official,'codex.ps1'),`$input | & ${quote(process.execPath)} ${quote(path.join(pkg,'bin/codex.js'))} @args\n`);
  for(const version of ['0.5.0','0.6.0']){
@@ -34,9 +34,9 @@ test('disabled and damaged plugin fall back once with exact arguments and status
  assert.equal(typeof profiles.stableEntryPlan,'function','stable entry setup is missing');const f=fixture(t);prepare(f);fs.writeFileSync(f.state,JSON.stringify({installed:[{...f.record,enabled:false}]}));
  const args=['resume','space value','','"quoted"','中文','; & $(literal)'],encoded=Buffer.from(JSON.stringify(args)).toString('base64');
  const result=run(f,'powershell.exe',`. ${quote(f.profile)}\n$a=ConvertFrom-Json ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded}')))\n'payload' | codex @a\nexit $LASTEXITCODE\n`);
- assert.equal(result.status,17,result.stderr);const value=JSON.parse(result.stdout);assert.equal(value.version,'official');assert.deepEqual(value.args,args);assert.match(value.input,/payload/);
+ assert.equal(result.status,17,result.stderr);const value=JSON.parse(result.stdout);assert.equal(value.version,'official');assert.deepEqual(value.args,args);assert.match(value.input,/payload/);assert.match(result.stderr,/plugin-state:FAILED/);
  fs.writeFileSync(f.state,JSON.stringify({installed:[f.record]}));fs.writeFileSync(path.join(f.base,'0.5.0/dist/cli.js'),'throw new Error("broken package");');
- const damaged=run(f,'pwsh.exe',`. ${quote(f.profile)}\n'data' | codex resume id\nexit $LASTEXITCODE\n`);assert.equal(damaged.status,17,damaged.stderr);assert.equal(JSON.parse(damaged.stdout).version,'official');
+ const damaged=run(f,'pwsh.exe',`. ${quote(f.profile)}\n'data' | codex resume id\nexit $LASTEXITCODE\n`);assert.equal(damaged.status,17,damaged.stderr);assert.equal(JSON.parse(damaged.stdout).version,'official');assert.match(damaged.stderr,/runtime-check:[A-Z0-9_]+/);
 });
 test('deleted bootstrap leaves the official command available after profile load',{skip:process.platform!=='win32'},t=>{
  assert.equal(typeof profiles.stableEntryPlan,'function','stable entry setup is missing');const f=fixture(t),plan=prepare(f);fs.unlinkSync(plan.loader.entry);
@@ -76,4 +76,22 @@ test('ordinary installed-plugin lookup can take more than four seconds without l
  const f=fixture(t);prepare(f);const script=path.join(f.official,'node_modules/@openai/codex/bin/codex.js');
  fs.writeFileSync(script,fs.readFileSync(script,'utf8').replace("console.log(fs.readFileSync(","await new Promise(resolve=>setTimeout(resolve,4200));console.log(fs.readFileSync("));
  const result=run(f,'pwsh.exe',`. ${quote(f.profile)}\n'data' | codex resume id\nexit $LASTEXITCODE\n`);assert.equal(result.status,17,result.stderr);assert.equal(JSON.parse(result.stdout).version,'0.5.0');
+});
+test('HUD startup queries only its configured marketplace when other markets are slow',{skip:process.platform!=='win32'},t=>{
+ const f=fixture(t);prepare(f);const script=path.join(f.official,'node_modules/@openai/codex/bin/codex.js');
+ fs.writeFileSync(script,fs.readFileSync(script,'utf8').replace("console.log(fs.readFileSync(","if(!process.argv.includes('--marketplace')||process.argv[process.argv.indexOf('--marketplace')+1]!=='mz-cc-plugins'){await new Promise(resolve=>setTimeout(resolve,8500));}console.log(fs.readFileSync("));
+ const result=run(f,'pwsh.exe',`. ${quote(f.profile)}\n'data' | codex resume id\nexit $LASTEXITCODE\n`);assert.equal(result.status,17,result.stderr);assert.equal(JSON.parse(result.stdout).version,'0.5.0');
+});
+test('real PS5 and PS7 consoles preserve TTY handles through the installed HUD entry',{skip:process.platform!=='win32'},t=>{
+ const f=fixture(t);prepare(f);const observed=path.join(f.root,'console.json'),runner=path.join(f.root,'console.ps1');
+ fs.writeFileSync(path.join(f.base,'0.5.0/bin/hud.mjs'),`import fs from 'node:fs';if(process.argv[2]!=='entry-check'){fs.writeFileSync(${JSON.stringify(observed)},JSON.stringify({inputTTY:!!process.stdin.isTTY,outputTTY:!!process.stdout.isTTY}));process.exitCode=17;}`);
+ fs.writeFileSync(runner,`. ${quote(f.profile)}\ncodex resume fixture\nexit $LASTEXITCODE\n`);
+ for(const shell of ['powershell.exe','pwsh.exe']){
+  const executable=spawnSync(shell,['-NoLogo','-NoProfile','-Command','(Get-Process -Id $PID).Path'],{encoding:'utf8',timeout:10000});assert.equal(executable.status,0,executable.stderr);
+  if(fs.existsSync(observed))fs.unlinkSync(observed);
+  const script=`$p=Start-Process -FilePath ${quote(executable.stdout.trim())} -ArgumentList @('-NoLogo','-NoProfile','-File',${quote('"'+runner+'"')}) -WindowStyle Hidden -Wait -PassThru\nexit $p.ExitCode`;
+  const env={...process.env,CODEX_HOME:f.home,LOCALAPPDATA:f.root,PATH:f.official+path.delimiter+process.env.PATH};delete env.MZ_HUD_ORIGIN;delete env.MZ_HUD_CONFIG_FILE;
+  const result=spawnSync('powershell.exe',['-NoLogo','-NoProfile','-NonInteractive','-Command',script],{encoding:'utf8',env,timeout:20000});assert.equal(result.status,17,result.stderr);
+  assert.deepEqual(JSON.parse(fs.readFileSync(observed,'utf8')),{inputTTY:true,outputTTY:true},shell);
+ }
 });

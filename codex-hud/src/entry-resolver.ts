@@ -43,6 +43,7 @@ export function selectInstalledEntry(list:unknown,hint:string,home:string):strin
  for(const file of [cli,path.join(root,'dist','cli.js')])if(!fs.statSync(file).isFile())throw new Error('HUD package entry is missing');
  return cli;
 }
+let failureStage='request';
 async function main():Promise<void> {
  const mode=process.argv[2],encoded=process.argv[3];
  if(!encoded||encoded.length>3*1024*1024)throw new Error('Invalid entry request');
@@ -56,14 +57,21 @@ async function main():Promise<void> {
  }
  if(mode!=='resolve'||typeof request.hint!=='string'||!path.isAbsolute(request.hint))throw new Error('Invalid HUD entry request');
  let cli=request.hint;
- if(cacheIdentity(cli,home)){
-  const output=execFileSync(official.file,[...official.prefix,'plugin','list','--json'],{encoding:'utf8',timeout:8000,maxBuffer:4*1024*1024,windowsHide:true,stdio:['ignore','pipe','pipe']});
-  cli=selectInstalledEntry(JSON.parse(output.replace(/^\uFEFF/,'')),cli,home);
+ const identity=cacheIdentity(cli,home);
+ if(identity){
+  failureStage='plugin-query';
+  const output=execFileSync(official.file,[...official.prefix,'plugin','list','--marketplace',identity.market,'--json'],{encoding:'utf8',timeout:8000,maxBuffer:4*1024*1024,windowsHide:true,stdio:['ignore','pipe','pipe']});
+  const list=JSON.parse(output.replace(/^\uFEFF/,''));failureStage='plugin-state';
+  cli=selectInstalledEntry(list,cli,home);
  }
  // Check the actual launcher and its import graph using a session-free command.
  // Installation authority was checked above; leftover cache versions cannot
  // override it through the legacy entry-check version heuristic.
+ failureStage='runtime-check';
  execFileSync(process.execPath,[cli,'entry-check','--runtime-only'],{encoding:'utf8',timeout:4000,maxBuffer:65536,windowsHide:true,stdio:['ignore','pipe','pipe']});
  console.log(JSON.stringify({cli}));
 }
-if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url))void main().catch(()=>{console.error('Codex HUD: runtime unavailable; using official Codex.');process.exitCode=1;});
+if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url))void main().catch((error:unknown)=>{
+ const code=(error as NodeJS.ErrnoException)?.code;
+ console.log(JSON.stringify({cli:null,reason:failureStage+':'+(typeof code==='string'&&/^[A-Z0-9_]{1,64}$/.test(code)?code:'FAILED')}));process.exitCode=1;
+});

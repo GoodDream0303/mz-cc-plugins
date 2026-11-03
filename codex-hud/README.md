@@ -5,6 +5,13 @@ WT tabs or separate PowerShell windows. The official CLI and native statusline
 remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
 task names retain their original language.
 
+> Version 0.5.2 limits startup metadata lookup to this plugin's configured
+> marketplace, avoiding delays from unrelated markets. Fallback notices include
+> a safe failure stage/code without logging invocation arguments or credentials.
+> For an existing 0.5.1 setup, refresh the copied bootstrap once with the installed
+> 0.5.2 setup and reload the profile. A marketplace package upgrade alone cannot
+> replace bootstrap files outside its cache; daily launch commands stay unchanged.
+>
 > Version 0.5.1 adds stable PowerShell startup across plugin upgrades and safe
 > fallback to official Codex when HUD preflight fails. Existing version-bound
 > profiles need one setup migration and shell reload; ordinary later upgrades
@@ -134,6 +141,9 @@ a new PowerShell or reload its profile once. Other already-open shells cannot
 have their old in-memory functions replaced remotely. After this migration, a
 plugin upgrade or deletion of its old cache needs no repeated setup or profile
 reload. Existing Codex/HUD processes still keep their loaded runtime.
+This applies to selection of the versioned runtime. A fix to the copied bootstrap
+itself, including 0.5.1 to 0.5.2, needs a one-time setup refresh; reload its profile
+to adopt changes to the PowerShell function as well.
 
 Disabled/uninstalled plugins, unavailable metadata, corrupt runtime imports,
 invalid settings and backend preflight failures print a short notice and start
