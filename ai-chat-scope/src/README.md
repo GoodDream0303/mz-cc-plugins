@@ -1,6 +1,6 @@
 # AI Chat Scope source
 
-`scope.pyw` 是 Tk 窗口入口；推荐从 `../scripts/start_scope.py` 启动。直接运行也不在源码目录生成字节码缓存。
+`scope.pyw` 是 Tk 窗口入口；推荐使用 `../scripts/scope.ps1` 发现 Python 并调用 `start_scope.py`。`-Setup` 仅初始化，`-Check` 仅检查。直接运行也不在源码目录生成字节码缓存。
 
 | 模块 | 职责 |
 | --- | --- |
@@ -12,6 +12,7 @@
 | codex_hooks / runtime_paths | 被动 hook、有限元数据、配置兼容与原子保存 |
 | monitor | 每来源独立线程；Tk 只取最新快照 |
 | win32_support | 只读锁探测与本应用实例保护 |
+| setup_environment | Tk/目录检查、仅缺失时初始化配置、数据根报告 |
 
 主循环不枚举或打开其他进程。只有用户确认关闭 Claude 后走原来的子进程流程，Codex 没有关闭入口。
 

@@ -1,10 +1,15 @@
 {
   "name": "ai-chat-scope",
-  "version": "2.0.2",
+  "version": "2.1.0",
   "description": "Windows floating session monitor for Claude Code and Codex CLI.",
   "author": {"name": "mzzhu2"},
   "skills": "./skills/",
   "hooks": "./hooks/codex-hooks.json",
+  "extensions": {
+    "com.openai": {
+      "onboardingSkill": "./skills/setup/SKILL.md"
+    }
+  },
   "interface": {
     "displayName": "AI Chat Scope",
     "shortDescription": "Claude and Codex session status",

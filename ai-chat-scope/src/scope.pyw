@@ -25,15 +25,15 @@ sys.dont_write_bytecode = True
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import messagebox
-from runtime_paths import runtime_root, load_window_config, save_window_config
+from runtime_paths import runtime_root, claude_home, load_window_config, save_window_config
 from monitor import Monitor, create_sources, row_signature, row_action, gui_rows
 from win32_support import claim_single_instance
 from claude_source import registry_matches
 
 HOME = os.path.expanduser("~")
-SESSIONS_DIR = os.path.join(HOME, ".claude", "sessions")
-PROJECTS_DIR = os.path.join(HOME, ".claude", "projects")
-JOBS_DIR = os.path.join(HOME, ".claude", "jobs")
+SESSIONS_DIR = str(claude_home() / "sessions")
+PROJECTS_DIR = str(claude_home() / "projects")
+JOBS_DIR = str(claude_home() / "jobs")
 # 配置/日志放与 CLI 无关的固定目录:插件目录带版本号(升级即重置),~/.claude 又专属 Claude
 RUNTIME_DIR = str(runtime_root())
 CONFIG_PATH = os.path.join(RUNTIME_DIR, "config.json")
