@@ -1,6 +1,6 @@
 # AI Chat Scope
 
-Windows 上的轻量置顶悬浮窗，在一个列表里查看多个 **Claude Code 与 Codex CLI** 会话。当前开发版本 2.1.1，由 claude-scope 更名；正式市场版本仍为 2.1.0。
+Windows 上的轻量置顶悬浮窗，在一个列表里查看多个 **Claude Code 与 Codex CLI** 会话。版本 2.1.1，由 claude-scope 更名。
 
 2.1.1 修复 Windows hook 多层 PowerShell 启动在多会话并发时超过 3 秒的问题：直接使用 py/Python/python3 执行被动 hook，不再为每次 hook 启动额外 PowerShell 和解释器探测。setup 和窗口启动入口保持不变。
 
