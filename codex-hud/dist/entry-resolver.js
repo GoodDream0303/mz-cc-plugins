@@ -32,6 +32,10 @@ function cacheIdentity(hint, home) {
         throw new Error('Invalid HUD cache identity');
     return { market: parts[0], name: parts[1] };
 }
+export function installedPluginId(hint, home) {
+    const identity = cacheIdentity(hint, home);
+    return identity ? identity.name + '@' + identity.market : undefined;
+}
 export function selectInstalledEntry(list, hint, home) {
     const identity = cacheIdentity(hint, home);
     if (!identity)
@@ -78,13 +82,18 @@ async function main() {
         }
         return;
     }
+    const home = process.env.CODEX_HOME ?? path.join(os.homedir(), '.codex');
+    if (request.pluginId !== undefined) {
+        if (typeof request.pluginId !== 'string' || !/^codex-hud@[a-zA-Z0-9_-]+$/.test(request.pluginId))
+            throw new Error('Invalid HUD plugin identity');
+        request.hint = path.join(home, 'plugins/cache', request.pluginId.split('@')[1], 'codex-hud', 'active/bin/hud.mjs');
+    }
     if (mode !== 'resolve' || typeof request.hint !== 'string' || !path.isAbsolute(request.hint))
         throw new Error('Invalid HUD entry request');
-    const home = process.env.CODEX_HOME ?? path.join(os.homedir(), '.codex');
     let cli = request.hint;
     if (cacheIdentity(cli, home)) {
         const output = execFileSync(official.file, [...official.prefix, 'plugin', 'list', '--json'], { encoding: 'utf8', timeout: 4000, maxBuffer: 4 * 1024 * 1024, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
-        cli = selectInstalledEntry(JSON.parse(output), cli, home);
+        cli = selectInstalledEntry(JSON.parse(output.replace(/^\uFEFF/, '')), cli, home);
     }
     // Preload the runtime before any process can launch a real session. A corrupt
     // import graph is a HUD failure, rather than a reason to block official Codex.

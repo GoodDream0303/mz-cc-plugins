@@ -1,6 +1,41 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import { installedPluginId } from './entry-resolver.js';
+import { codexHome } from './sessions.js';
+export function stableEntryPlan(options, home = codexHome()) {
+    if (!options.configFile || !path.isAbsolute(options.configFile))
+        throw new Error('Stable entry requires an absolute configuration path');
+    const directory = path.join(path.dirname(options.configFile), 'entry'), entry = path.join(directory, 'powershell-entry.ps1'), pluginId = installedPluginId(options.cli, home);
+    const files = [{ file: entry, source: options.entry }, { file: path.join(directory, 'entry-resolver.mjs'), source: fileURLToPath(new URL('./entry-resolver.js', import.meta.url)) }].map(({ file, source }) => {
+        if (fs.existsSync(file) && (!fs.lstatSync(file).isFile() || fs.statSync(file).size > 256 * 1024))
+            throw new Error('Unsupported stable entry file');
+        return { file, content: fs.readFileSync(source, 'utf8'), before: fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : undefined };
+    });
+    return { loader: { ...options, entry, pluginId, stable: true }, files };
+}
+export function applyStableEntry(plan) {
+    for (const file of plan.files)
+        if ((fs.existsSync(file.file) ? fs.readFileSync(file.file, 'utf8') : undefined) !== file.before)
+            throw new Error('Stable entry changed during setup; regenerate the proposal');
+    for (const file of plan.files) {
+        if (file.before === file.content)
+            continue;
+        fs.mkdirSync(path.dirname(file.file), { recursive: true });
+        const temp = file.file + '.' + randomUUID() + '.tmp';
+        try {
+            fs.writeFileSync(temp, file.content, { flag: 'wx', mode: 0o600 });
+            fs.renameSync(temp, file.file);
+        }
+        finally {
+            try {
+                fs.unlinkSync(temp);
+            }
+            catch { }
+        }
+    }
+}
 const begin = '# >>> mz-codex-hud >>>', end = '# <<< mz-codex-hud <<<';
 const hash = (value) => createHash('sha256').update(value).digest('hex');
 function content(file) {
@@ -48,7 +83,11 @@ export function profileChange(file, options, mode = 'install') {
     }
     else if (before.includes(end))
         throw new Error('Managed HUD profile block is incomplete');
-    const loader = '. ' + expression(options.entry) + ' -HudCli ' + expression(options.cli) + ' -NodePath ' + expression(options.node) + (options.configFile ? ' -ConfigPath ' + expression(options.configFile) : '');
+    if (options.pluginId && !/^codex-hud@[a-zA-Z0-9_-]+$/.test(options.pluginId))
+        throw new Error('Invalid profile plugin identity');
+    let loader = '. ' + expression(options.entry) + (options.pluginId ? " -PluginId '" + options.pluginId + "'" : ' -HudCli ' + expression(options.cli)) + ' -NodePath ' + expression(options.node) + (options.configFile ? ' -ConfigPath ' + expression(options.configFile) : '');
+    if (options.stable)
+        loader = 'if (Test-Path -LiteralPath ' + expression(options.entry) + ' -PathType Leaf) { ' + loader + " } else { [Console]::Error.WriteLine('Codex HUD: entry missing; official Codex remains available.') }";
     const block = [begin, '# block-sha256: ' + hash(loader), '# separator-added: ' + (separator ? '1' : '0'), loader, end].join(eol) + eol;
     return { file: path.resolve(file), before, after: mode === 'remove' ? (start < 0 ? before : prefix + (separator && suffix ? eol : '') + suffix) : prefix + (separator ? eol : '') + block + suffix, encoding: original.encoding, block, removedBlock };
 }

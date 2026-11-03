@@ -17,7 +17,7 @@ import {buildTerminalArgs,checkRuntime,createLaunch,readLaunch,requestStop,runti
 import {loadCurrentHost,ensureHostDisplay,bindHostSession,acknowledgeViewer,readHost} from './host-session.js';
 import {readProcessFacts} from './psmux.js';
 import {decodeInvocation,launchHostedCodex,runHostOwner,runHostFrontend} from './host-launch.js';
-import {profileChange,applyProfileChange} from './profile-setup.js';
+import {profileChange,applyProfileChange,stableEntryPlan,applyStableEntry} from './profile-setup.js';
 import {fileURLToPath} from 'node:url';
 import {assertActiveEntry} from './entry-install.js';
 import {inspectSetup} from './setup-readiness.js';
@@ -141,10 +141,12 @@ export async function main(args=process.argv.slice(2)):Promise<void>{
     if(get(proposed,key)!==value)configChanges[key]={before:get(proposed,key),after:value};proposed=set(proposed,key,value);
    }
    const readiness=inspectSetup(proposed,{configValid});
-   const loader={entry:fileURLToPath(new URL('../bin/powershell-entry.ps1',import.meta.url)),cli:fileURLToPath(new URL('../bin/hud.mjs',import.meta.url)),node:process.execPath,configFile:path.resolve(settingsFile)};
+   const sourceLoader={entry:fileURLToPath(new URL('../bin/powershell-entry.ps1',import.meta.url)),cli:fileURLToPath(new URL('../bin/hud.mjs',import.meta.url)),node:process.execPath,configFile:path.resolve(settingsFile)};
+   const runtime=remove?undefined:stableEntryPlan(sourceLoader),loader=runtime?.loader??sourceLoader;
    const change=profileChange(profile,loader,remove?'remove':'install'),apply=rest.includes('--apply'),blocked=apply&&initialize&&!readiness.ready;
    if(apply&&!blocked){
     if(initialize){const current=fs.existsSync(settingsFile)?fs.readFileSync(settingsFile):undefined;if(current===undefined?settingsBefore!==undefined:settingsBefore===undefined||!current.equals(settingsBefore))throw new Error('HUD configuration changed during setup review; rerun setup before applying');}
+    if(runtime)applyStableEntry(runtime);
     applyProfileChange(change);
     if(initialize&&Object.keys(configChanges).length){
      try{saveConfig(settingsFile,proposed);}catch(error){
@@ -154,7 +156,7 @@ export async function main(args=process.argv.slice(2)):Promise<void>{
      }
     }
    }
-   console.log(JSON.stringify({mode:initialize?'initialize':'profile-only',file:change.file,action:remove?'remove':'install',applied:apply&&!blocked,changed:change.before!==change.after,loader,block:remove?change.removedBlock:change.block,removedBlock:change.removedBlock,configFile:settingsFile,configChanges,readiness},null,2));
+   console.log(JSON.stringify({mode:initialize?'initialize':'profile-only',file:change.file,action:remove?'remove':'install',applied:apply&&!blocked,changed:change.before!==change.after||!!runtime?.files.some(f=>f.content!==f.before),loader,runtimeFiles:runtime?.files.map(f=>({file:f.file,changed:f.content!==f.before})),block:remove?change.removedBlock:change.block,removedBlock:change.removedBlock,configFile:settingsFile,configChanges,readiness},null,2));
    if(blocked)process.exitCode=1;return;
   }
   case 'start':return start(rest);
