@@ -2,11 +2,11 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { get, loadConfig, configPath } from './config.js';
+import { startupEnabled, loadConfig, configPath } from './config.js';
 import { runtimeRoot } from './runtime.js';
 import { loadCurrentHost, bindHostSession } from './host-session.js';
 const idPattern = /^[a-zA-Z0-9_-]{3,100}$/;
-async function metadata(file) {
+export async function sessionMetadata(file) {
     let handle;
     try {
         handle = await fsp.open(file, 'r');
@@ -31,20 +31,21 @@ async function metadata(file) {
         await handle?.close();
     }
 }
+export function isMainSession(meta, id) { return !!meta && meta.source === 'cli' && typeof meta.id === 'string' && idPattern.test(meta.id) && (id === meta.id || id === meta.session_id) && typeof meta.cwd === 'string'; }
 export async function autoStart(event, options = {}) {
     if (event.hook_event_name !== 'SessionStart' || !['startup', 'resume', 'clear', 'fork'].includes(String(event.source)) || event.agent_id || event.subagent_id || event.agent_transcript_path)
         return { status: 'ignored', reason: 'not-main-start' };
     if (process.platform !== 'win32')
         return { status: 'ignored', reason: 'not-windows' };
     const file = options.configFile ?? configPath(), config = loadConfig(file);
-    if (!get(config, 'startup.enabled'))
+    if (!startupEnabled(config))
         return { status: 'disabled' };
     if (typeof event.session_id !== 'string' || !idPattern.test(event.session_id) || typeof event.transcript_path !== 'string' || !path.isAbsolute(event.transcript_path))
         return { status: 'ignored', reason: 'missing-transcript' };
     let meta;
     const deadline = Date.now() + 2000;
     do {
-        meta = await metadata(event.transcript_path);
+        meta = await sessionMetadata(event.transcript_path);
         if (meta)
             break;
         await new Promise(r => setTimeout(r, 100));
@@ -53,14 +54,20 @@ export async function autoStart(event, options = {}) {
         return { status: 'ignored', reason: 'metadata-unavailable' };
     if (meta.source !== 'cli')
         return { status: 'ignored', reason: 'not-cli-main' };
-    if (typeof meta.id !== 'string' || !idPattern.test(meta.id) || event.session_id !== meta.id && event.session_id !== meta.session_id || typeof meta.cwd !== 'string')
+    if (!isMainSession(meta, event.session_id))
         return { status: 'ignored', reason: 'identity-mismatch' };
     let record;
-    try {
-        record = loadCurrentHost('hook', options.dependencies, options.environment);
-    }
-    catch {
-        return { status: 'ignored', reason: 'unproven-host' };
+    const registrationDeadline = Date.now() + 2500;
+    for (;;) {
+        try {
+            record = loadCurrentHost('hook', options.dependencies, options.environment);
+            break;
+        }
+        catch (error) {
+            if (error.code !== 'ERR_HUD_FRONTEND_PENDING' || Date.now() >= registrationDeadline)
+                return { status: 'ignored', reason: 'unproven-host' };
+            await new Promise(r => setTimeout(r, 100));
+        }
     }
     const result = await bindHostSession(record, meta.id, event.transcript_path, { role: 'hook', config, configFile: file, dependencies: options.dependencies });
     return result.status === 'stopping' ? { status: 'ignored', reason: 'hud-stopping' } : { status: result.status };

@@ -4,8 +4,8 @@ const cli=path.resolve(import.meta.dirname,'../bin/hud.mjs');
 function fixture(t){const root=fs.mkdtempSync(path.join(os.tmpdir(),'hud-launch-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));const pkg=path.join(root,'node_modules/@openai/codex');fs.mkdirSync(path.join(pkg,'bin'),{recursive:true});fs.writeFileSync(path.join(pkg,'package.json'),JSON.stringify({name:'@openai/codex',bin:{codex:'bin/codex.js'},type:'module'}));fs.writeFileSync(path.join(pkg,'bin/codex.js'),"import fs from 'node:fs';const input=fs.readFileSync(0,'utf8');console.log(JSON.stringify({args:process.argv.slice(2),input}));process.exitCode=17;");const command=path.join(root,'codex.ps1');fs.writeFileSync(command,'# npm shim fixture');return {root,command};}
 test('only interactive Codex invocations are routed into a terminal host',()=>{
  assert.equal(typeof api.classifyCodexInvocation,'function','transparent CLI routing is missing');
- for(const args of [[],['resume'],['fork','id'],['-m','sample','resume','id'],['--','exec'],['a normal prompt'],['-c','model="exec"']])assert.equal(api.classifyCodexInvocation(args),'interactive',JSON.stringify(args));
- for(const args of [['--version'],['--help'],['resume','--help'],['exec','hello'],['e','hello'],['plugin','list'],['login'],['app-server'],['queue','id','message'],['-m','sample','review'],['help','resume']])assert.equal(api.classifyCodexInvocation(args),'passthrough',JSON.stringify(args));
+ for(const args of [[],['resume'],['fork','id'],['-m','sample','resume','id'],['--','exec'],['a normal prompt'],['-c','model="exec"'],['--yolo'],['--not-so-yolo'],['-ipicture.png']])assert.equal(api.classifyCodexInvocation(args),'interactive',JSON.stringify(args));
+ for(const args of [['--version'],['--help'],['resume','--help'],['exec','hello'],['e','hello'],['plugin','list'],['login'],['app-server'],['queue','id','message'],['-m','sample','review'],['help','resume'],['execpolicy','check'],['tcp-tunnel'],['responses-api-proxy'],['stdio-to-uds'],['cloud-tasks']])assert.equal(api.classifyCodexInvocation(args),'passthrough',JSON.stringify(args));
  assert.throws(()=>api.classifyCodexInvocation(['--remote','ws://localhost:1234']),/remote|origin/i);
 });
 test('non-TTY entry preserves literal arguments, pipeline input and official exit status',t=>{
@@ -29,6 +29,6 @@ test('reloading the entry refuses a user replacement of its codex function',{ski
 });
 test('loading the entry preserves the calling PowerShell error preference',{skip:process.platform!=='win32'},t=>{
  const f=fixture(t),entry=path.resolve(import.meta.dirname,'../bin/powershell-entry.ps1'),runner=path.join(f.root,'preference.ps1'),quote=s=>"'"+s.replaceAll("'","''")+"'";
- fs.writeFileSync(runner,`$ErrorActionPreference='Continue'\n. ${quote(entry)} -HudCli ${quote(cli)} -NodePath ${quote(process.execPath)}\nWrite-Output $ErrorActionPreference\n`);
- const result=spawnSync('pwsh.exe',['-NoLogo','-NoProfile','-NonInteractive','-File',runner],{encoding:'utf8',env:{...process.env,PATH:f.root+path.delimiter+process.env.PATH},timeout:10000});assert.equal(result.status,0,result.stderr);assert.equal(result.stdout.trim(),'Continue');
+ fs.writeFileSync(runner,`$ErrorActionPreference='Continue'\n$global:LASTEXITCODE=29\n. ${quote(entry)} -HudCli ${quote(cli)} -NodePath ${quote(process.execPath)}\nWrite-Output $ErrorActionPreference\nWrite-Output $LASTEXITCODE\n`);
+ const result=spawnSync('pwsh.exe',['-NoLogo','-NoProfile','-NonInteractive','-File',runner],{encoding:'utf8',env:{...process.env,PATH:f.root+path.delimiter+process.env.PATH},timeout:10000});assert.equal(result.status,0,result.stderr);assert.deepEqual(result.stdout.trim().split(/\r?\n/),['Continue','29']);
 });

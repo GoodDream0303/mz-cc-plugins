@@ -2,14 +2,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawn, execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-import { loadConfig, get, configPath } from './config.js';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { loadConfig, get, configPath, startupEnabled } from './config.js';
 import { runtimeRoot } from './runtime.js';
 import { readHostOrigin, proveOwner } from './psmux.js';
-import { registerHost, ensureHostDisplay, readHost, closeHost } from './host-session.js';
-const commands = new Set(['agents', 'exec', 'e', 'review', 'login', 'logout', 'mcp', 'mcp-server', 'plugin', 'app-server', 'remote-control', 'app', 'completion', 'update', 'doctor', 'sandbox', 'debug', 'apply', 'a', 'queue', 'archive', 'delete', 'migrate-rollouts', 'migrate-nfs-db', 'unarchive', 'cloud', 'exec-server', 'features', 'help']);
+import { registerHost, ensureHostDisplay, readHost, closeHost, registerCurrentFrontend } from './host-session.js';
+import { assertActiveEntry } from './entry-install.js';
+const commands = new Set(['agents', 'exec', 'e', 'review', 'login', 'logout', 'mcp', 'mcp-server', 'plugin', 'app-server', 'remote-control', 'app', 'completion', 'update', 'doctor', 'sandbox', 'debug', 'apply', 'a', 'queue', 'archive', 'delete', 'migrate-rollouts', 'migrate-nfs-db', 'unarchive', 'cloud', 'cloud-tasks', 'execpolicy', 'tcp-tunnel', 'responses-api-proxy', 'stdio-to-uds', 'exec-server', 'features', 'help']);
 const values = new Set(['-c', '--config', '--enable', '--disable', '--remote', '--remote-auth-token-env', '-m', '--model', '--local-provider', '-p', '--profile', '-s', '--sandbox', '-C', '--cd', '--add-dir', '-a', '--ask-for-approval']);
-const flags = new Set(['--strict-config', '--oss', '--approve-for-me', '--dangerously-bypass-approvals-and-sandbox', '--dangerously-bypass-hook-trust', '--worktree', '--search', '--no-alt-screen', '--no-daemon', '--last', '--all', '--include-non-interactive']);
+const flags = new Set(['--strict-config', '--oss', '--approve-for-me', '--dangerously-bypass-approvals-and-sandbox', '--dangerously-bypass-hook-trust', '--yolo', '--not-so-yolo', '--worktree', '--search', '--no-alt-screen', '--no-daemon', '--last', '--all', '--include-non-interactive']);
 export function classifyCodexInvocation(args) {
     let positional, remote = false;
     for (let i = 0; i < args.length; i++) {
@@ -32,7 +33,7 @@ export function classifyCodexInvocation(args) {
             continue;
         }
         if (item.startsWith('-')) {
-            if (flags.has(item) || /^-[cmpsCa].+/.test(item) || item.startsWith('--image='))
+            if (flags.has(item) || /^-[cmpsCai].+/.test(item) || item.startsWith('--image='))
                 continue;
             return 'passthrough';
         }
@@ -85,12 +86,25 @@ export async function runOfficial(invocation) {
     const command = resolveOfficial(invocation.command);
     return foreground(command.file, [...command.prefix, ...invocation.args], process.env);
 }
+export async function runHostFrontend(invocation) {
+    // Publish the actual entry's incarnation before official startup can emit
+    // SessionStart, including an immediately supplied first prompt.
+    registerCurrentFrontend();
+    const command = resolveOfficial(invocation.command);
+    if (command.prefix.length) {
+        process.argv = [process.execPath, command.prefix[0], ...invocation.args];
+        await import(pathToFileURL(command.prefix[0]).href);
+        return process.exitCode === undefined ? 0 : Number(process.exitCode);
+    }
+    return runOfficial(invocation);
+}
 export async function launchHostedCodex(invocation, options = {}) {
+    assertActiveEntry(fileURLToPath(new URL('../bin/hud.mjs', import.meta.url)));
     const interactive = options.interactive ?? (!!process.stdin.isTTY && !!process.stdout.isTTY);
     if (!interactive || classifyCodexInvocation(invocation.args) === 'passthrough')
         return runOfficial(invocation);
     const file = options.configFile ?? configPath(), config = loadConfig(file);
-    if (!get(config, 'startup.enabled'))
+    if (!startupEnabled(config))
         return runOfficial(invocation);
     if (process.platform !== 'win32')
         throw new Error('The Codex HUD host requires native Windows');
@@ -127,14 +141,21 @@ export async function runHostOwner(invocation, configFile = configPath()) {
     const origin = readHostOrigin(), proof = proveOwner(origin), record = registerHost(proof, origin.hostDir), config = loadConfig(configFile);
     let exitCode = 1;
     try {
-        if (get(config, 'startup.enabled'))
-            try {
-                await ensureHostDisplay(record, config, { configFile });
-            }
-            catch {
-                process.stderr.write('Codex HUD is not ready; inspect this host with hud doctor.\n');
-            }
-        exitCode = await runOfficial(invocation);
+        if (startupEnabled(config)) {
+            // A retry still verifies the exact slot: only an acknowledged viewer or a
+            // successfully queried, definitively absent reported pane can be reused.
+            for (let attempt = 0; attempt < 2; attempt++)
+                try {
+                    await ensureHostDisplay(readHost(record.file), config, { configFile });
+                    break;
+                }
+                catch {
+                    if (attempt === 1)
+                        process.stderr.write('Codex HUD is not ready; inspect this host with hud doctor.\n');
+                }
+        }
+        const command = resolveOfficial(invocation.command), entry = fileURLToPath(new URL('../bin/hud.mjs', import.meta.url)), encoded = Buffer.from(JSON.stringify(invocation)).toString('base64');
+        exitCode = await foreground(command.prefix.length ? command.file : process.execPath, [entry, 'host-frontend', '--invocation64', encoded], process.env);
         return exitCode;
     }
     finally {

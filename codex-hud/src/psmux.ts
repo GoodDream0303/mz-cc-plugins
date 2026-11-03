@@ -4,7 +4,7 @@ import {fileURLToPath} from 'node:url';
 
 export interface ProcessFact {pid:number;parentPid:number;name:string;startedAt:string}
 export interface HostOrigin {binary:string;dataDir:string;hostDir:string;namespace:string;tmux:string;session:string;pane:string;originId:string}
-export interface HostProof {origin:HostOrigin;owner:ProcessFact;server:ProcessFact;window:string}
+export interface HostProof {origin:HostOrigin;owner:ProcessFact;server:ProcessFact;window:string;frontend?:ProcessFact}
 export interface PaneFact {session:string;window:string;pane:string;pid:number;width:number;height:number;serverPid:number}
 export interface HostDependencies {pid?:number;run?:(args:string[])=>string;processes?:(pids:number[],rootPid:number)=>ProcessFact[]}
 export const hostIdPattern=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
@@ -60,6 +60,13 @@ export class PsmuxClient {
   if(!panePattern.test(result))throw new Error('Backend did not return a distinct HUD pane; creation is uncertain');
   return result;
  }
+ confirmsAbsent(id:string,ownerPid:number):boolean {
+  if(!panePattern.test(id)||id===this.origin.pane)throw new Error('Invalid HUD recovery pane');
+  const raw=this.command(['list-panes','-a','-F','#{session_name}\t#{window_id}\t#{pane_id}\t#{pane_pid}\t#{pane_width}\t#{pane_height}\t#{pid}']).trim();
+  const rows=raw?raw.split(/\r?\n/).map(row=>row.split('\t')):[];
+  if(!rows.length||rows.some(row=>row.length!==7||row[0]!==this.origin.session||!/^@\d+$/.test(row[1])||!panePattern.test(row[2])||!positive(Number(row[3]))||Number(row[6])!==serverPid(this.origin))||!rows.some(row=>row[2]===this.origin.pane&&Number(row[3])===ownerPid))throw new Error('Backend cannot establish exact source scope for HUD recovery');
+  return !rows.some(row=>row[2]===id);
+ }
 }
 export function proveOwner(origin:HostOrigin,dependencies:HostDependencies={}):HostProof {
  const pid=dependencies.pid??process.pid,physical=new PsmuxClient(origin,dependencies).pane(origin.pane);
@@ -68,19 +75,22 @@ export function proveOwner(origin:HostOrigin,dependencies:HostDependencies={}):H
  if(!owner||!server||!validFact(owner)||!validFact(server)||!['psmux.exe','tmux.exe','pmux.exe'].includes(server.name.toLowerCase())||Date.parse(server.startedAt)>Date.parse(owner.startedAt))throw new Error('Source owner/server process incarnation is unavailable');
  return {origin,owner,server,window:physical.window};
 }
-export function verifyHost(proof:HostProof,role:'owner'|'hook'|'viewer',dependencies:HostDependencies={}):HostProof {
+export function verifyHost(proof:HostProof,role:'owner'|'hook'|'viewer'|'frontend',dependencies:HostDependencies={}):HostProof {
  const pid=dependencies.pid??process.pid,physical=new PsmuxClient(proof.origin,dependencies).pane(proof.origin.pane);
- const values=(dependencies.processes??readProcessFacts)([proof.owner.pid,proof.server.pid],pid),table=new Map(values.map(p=>[p.pid,p]));
+ const values=(dependencies.processes??readProcessFacts)([proof.owner.pid,proof.server.pid,...(proof.frontend?[proof.frontend.pid]:[])],pid),table=new Map(values.map(p=>[p.pid,p]));
  if(physical.pid!==proof.owner.pid||physical.window!==proof.window||physical.serverPid!==proof.server.pid||!sameProcess(table.get(proof.owner.pid),proof.owner)||!sameProcess(table.get(proof.server.pid),proof.server))throw new Error('Source owner/server process incarnation changed');
  if(role==='owner'&&pid!==proof.owner.pid)throw new Error('Current process does not own this source pane');
+ if(role==='frontend'&&(table.get(pid)?.parentPid!==proof.owner.pid||pid===proof.owner.pid))throw new Error('Frontend entry must be a direct child of the registered source');
  if(role==='hook'){
-  let current=table.get(pid),codex=false,reached=false;const seen=new Set<number>();
+  if(!proof.frontend)throw Object.assign(new Error('Official frontend registration is pending'),{code:'ERR_HUD_FRONTEND_PENDING'});
+  if(proof.frontend.parentPid!==proof.owner.pid||!sameProcess(table.get(proof.frontend.pid),proof.frontend))throw new Error('Registered official frontend incarnation is unavailable');
+  let current=table.get(pid),reached=false,frontend=false;const seen=new Set<number>(),codex:ProcessFact[]=[];
   for(let depth=0;depth<64&&current&&!seen.has(current.pid);depth++){
-   seen.add(current.pid);if(current.name.toLowerCase()==='codex.exe')codex=true;
+   seen.add(current.pid);if(current.name.toLowerCase()==='codex.exe')codex.push(current);if(current.pid===proof.frontend.pid)frontend=true;
    if(current.pid===proof.owner.pid){reached=true;break;}
    const parent=table.get(current.parentPid);if(!parent||Date.parse(parent.startedAt)>Date.parse(current.startedAt))break;current=parent;
   }
-  if(!reached||!codex)throw new Error('Hook origin cannot be proven through its Codex owner ancestry; shared-daemon origin is not established');
+  if(!reached||!frontend||codex.length!==1||(proof.frontend.name.toLowerCase()==='codex.exe'?codex[0].pid!==proof.frontend.pid:codex[0].parentPid!==proof.frontend.pid))throw new Error('Ambiguous frontend/daemon ancestry cannot prove this hook origin');
  }
  return proof;
 }

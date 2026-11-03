@@ -62,3 +62,36 @@ test('closing one host requests only its owned HUD to stop',async t=>{
  const first=await api.ensureHostDisplay(ar,defaultConfig(),a.options),second=await api.ensureHostDisplay(br,defaultConfig(),b.options);
  api.closeHost(api.readHost(ar.file),17);assert.equal(api.readHost(ar.file).exitCode,17);assert.equal(readLaunch(first.launchFile).hudStop,true);assert.equal(readLaunch(second.launchFile).hudStop,undefined);
 });
+test('cold viewer startup can finish its bounded process proof before acknowledgement expires',async t=>{
+ const f=fixture(t),record=f.record(),original=f.dependencies.run;let timer;t.after(()=>clearTimeout(timer));
+ f.dependencies.run=args=>{
+  if(args[2]!=='split-window')return original(args);f.state.splits++;
+  const file=Buffer.from(args[args.indexOf('--launch64')+1],'base64').toString(),view={pid:501,parentPid:101,name:'node.exe',startedAt:'2026-11-03T01:00:04.000Z',pane:'%7'};f.state.viewers.push(view);
+  timer=setTimeout(()=>updateLaunch(file,d=>{d.state='running';d.pid=view.pid;d.host.hudPane=view.pane;d.host.hudProcess={pid:view.pid,parentPid:view.parentPid,name:view.name,startedAt:view.startedAt};d.host.phase='running';}),4200);return '%7';
+ };
+ const result=await api.ensureHostDisplay(record,defaultConfig(),{dependencies:f.dependencies});assert.equal(result.status,'opened');assert.equal(f.state.splits,1);
+});
+test('a returned pane that definitively disappeared can recover while a lost response stays uncertain',async t=>{
+ const f=fixture(t),record=f.record(),original=f.dependencies.run;let first=true;
+ f.dependencies.run=args=>{
+  if(args[2]==='list-panes')return 'codex\t@1\t%1\t201\t120\t40\t101';
+  if(args[2]==='split-window'&&first){first=false;f.state.splits++;return '%7';}return original(args);
+ };
+ await assert.rejects(()=>api.ensureHostDisplay(record,defaultConfig(),f.options),/uncertain|timed out/i);
+ const old=api.readHost(record.file),d=readLaunch(old.launchFile);assert.equal(d.host.reportedPane,'%7');
+ const recovered=await api.ensureHostDisplay(old,defaultConfig(),f.options);assert.equal(recovered.status,'opened');assert.notEqual(recovered.launchFile,old.launchFile);assert.equal(f.state.splits,2);
+});
+test('reported-pane recovery refuses a live pane, a failed query or a different server',async t=>{
+ for(const mode of ['present','offline','wrong-server']){
+  const f=fixture(t),record=f.record(),original=f.dependencies.run;
+  f.dependencies.run=args=>{
+   if(args[2]==='split-window'){f.state.splits++;return '%7';}
+   if(args[2]==='list-panes'){
+    if(mode==='offline')throw Error('backend offline');
+    return mode==='wrong-server'?'codex\t@1\t%1\t201\t120\t40\t999':'codex\t@1\t%1\t201\t120\t40\t101\ncodex\t@1\t%7\t501\t120\t2\t101';
+   }
+   return original(args);
+  };
+  await assert.rejects(()=>api.ensureHostDisplay(record,defaultConfig(),f.options));await assert.rejects(()=>api.ensureHostDisplay(api.readHost(record.file),defaultConfig(),f.options));assert.equal(f.state.splits,1);
+ }
+});

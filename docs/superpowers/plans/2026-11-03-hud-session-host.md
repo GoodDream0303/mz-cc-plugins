@@ -71,11 +71,11 @@
 
 **Files:** create isolated host smoke script and update README, skills, validation docs and plan checkboxes.
 
-- [ ] Use a fresh data root/namespace and verified pinned portable psmux to exercise production backend with real OS owner processes and synthetic telemetry; no fixture owner files as production authority.
-- [ ] Check two independent hosts, same-thread/two-owner, pending HUD, rebind, concurrency, closed/crashed HUD, owner exit, stale server and uncertain launch. Check background targeting with UI evidence.
-- [ ] Exercise installed-package copy without node_modules. Validate PS5/7, hostile argv, and Node20 where available.
-- [ ] Run full suite; inspect all results. Perform independent whole-change review, address important findings with RED→GREEN tests, then commit.
-- [ ] Prepare exact deployment changes and truthful remaining acceptance steps. Real Codex hook/trust and two UI scenarios need actual evidence; do not mark goal complete from synthetic smoke alone.
+- [x] Use a fresh data root/namespace and verified pinned portable psmux to exercise production backend with real OS owner processes and synthetic telemetry; no fixture owner files as production authority.
+- [x] Check two independent hosts, same-thread/two-owner, pending HUD, rebind, concurrency, closed/crashed HUD, owner exit, stale server and uncertain launch. Check background targeting with UI evidence.
+- [x] Exercise installed-package copy without node_modules. Validate PS5/7, hostile argv, and Node20 where available.
+- [x] Run full suite; inspect all results. Perform independent whole-change review, address important findings with RED→GREEN tests, then commit.
+- [x] Prepare exact deployment changes and truthful remaining acceptance steps. Real Codex hook/trust and two UI scenarios need actual evidence; do not mark goal complete from synthetic smoke alone.
 
 ## Execution evidence
 
@@ -88,3 +88,25 @@
 - Task 3 evidence: 85/85 full tests; PS5/7 argv, pipeline and exit-code checks passed. Profile edit/conflict/encoding/separator and caller preference regressions observed RED then GREEN.
 - Ruling: resolve the verified npm package JavaScript entry instead of forwarding through an additional PowerShell official-codex.ps1 bridge — preserves PS5 quoted/empty arguments while executing the official entry unchanged; unsupported custom shims require an explicit diagnostic.
 - Task 4 preliminary evidence: production backend synthetic smoke passed five native-process lifecycle checks in hud-production-host-dUn2dn. The codex.exe in that smoke is explicitly a renamed Node fixture, not official Codex acceptance.
+
+- Final review: five findings reproduced RED and fixed GREEN: registered frontend + ambiguous daemon ancestry rejection; official hidden CLI grammar; standalone profile markers; native active-cache authority at load/invocation; shared manual/hook main-session provenance.
+- Final: fixed cold-start acknowledgement race — deterministic 4.2-second startup RED→GREEN; one snapshot per proof stage, 8-second budget, retained pane response and scoped absence reconciliation. Native killed-before-ack recovery passed.
+- Ruling: register the frontend from its own bootstrap before importing the untouched official npm launcher or spawning the native executable — prevents the initial prompt outrunning parent-side process probing; unsupported shared-daemon origins remain unproven.
+- Final source evidence: Node24 100/100; Node20.19.0 100/100; final production smoke 6 checks; final desktop smoke 4 checks with 6 synthetic source processes. Evidence archived under codex-hud/docs/evidence/2026-11-03-host.
+- Ruling: independent review declined actual native trust/daemon topology/event timeout ordering, real UI/input/statusline, deployed upgrades, Node20/package reruns and OS access-denial/PID reuse certification. Synthetic/author tests cover the stated cases only; real/deployed gates remain pending and are not treated as completion. Cost if wrong: a correctly tested candidate could still fail in actual sessions.
+- Deferred minors: none from the independent review.
+- Deployment preview prepared separately with exact current-host profile blocks and two config-key deltas. No real profile, startup setting, formal source, installed plugin or real Codex/model process was changed during development.
+
+- Ruling: preserve legacy startup.enabled=false during deployment and opt in through the 0.4-only host.autoStart=enabled override — avoids reviving old loaded 0.3.4 MRU launchers; its inherited default leaves existing preferences unchanged. Isolated installed-0.3.4 compatibility probe stayed disabled while new API opened its exact host.
+
+- Final: new-only host.autoStart override and Startup menu regression passed; legacy flag remains unchanged. Installed 0.3.4 probe confirmed disabled. Node24/Node20 full suites 100/100.
+- Native crash experiment: an unparked forced-kill run (xsVDL1) failed to regain a waiting HUD under concurrent test load. The final crash harness explicitly parks the first viewer before ACK (0nkJPu), then verifies exact absence before recovery; this controls the phase without changing production identity guards. Full nested Windows child-process crash cleanup remains part of real acceptance, not an inferred pass.
+
+## Remaining end-state gates
+
+- [ ] User authorizes formal publication/reinstallation and the concrete two-profile/config proposal.
+- [ ] Native /hooks review and real official Codex metadata inheritance/interaction are accepted.
+- [ ] Default shared-daemon client attribution is proved or the unresolved capability is addressed without hidden overrides.
+- [ ] Every actual simultaneous source in the user's normal workflow is managed and has its own correct HUD; only then mark the goal complete.
+
+- Final menu evidence: exact-host controls are reachable in Startup; the deprecated legacy switch is read-only there. Startup-menu save preserved legacy false and enabled only the new override. Full Node24/Node20 suites: 100/100.

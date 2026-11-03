@@ -4,7 +4,7 @@ export function hostFixture(t){
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'hud-bound-auto-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
  const runtime=path.join(root,'runtime'),origin={binary:path.join(root,'psmux.exe'),dataDir:path.join(root,'data'),hostDir:path.join(runtime,'hosts'),namespace:'mzhud-test',tmux:'/tmp/psmux-101/mzhud-test,53001,0',session:'codex',pane:'%1',originId:randomUUID()};
  const owner={pid:201,parentPid:101,name:'node.exe',startedAt:'2026-11-03T01:00:01.000Z'},server={pid:101,parentPid:1,name:'psmux.exe',startedAt:'2026-11-03T01:00:00.000Z'},frontend={pid:301,parentPid:201,name:'codex.exe',startedAt:'2026-11-03T01:00:02.000Z'},hook={pid:401,parentPid:301,name:'node.exe',startedAt:'2026-11-03T01:00:03.000Z'};
- const record=registerHost({origin,owner,server,window:'@1'},origin.hostDir,root),state={splits:0,viewers:[],pending:undefined,delay:false};
+ const record=registerHost({origin,owner,server,window:'@1',frontend},origin.hostDir,root),state={splits:0,viewers:[],pending:undefined,delay:false};
  const environment={MZ_HUD_PSMUX:origin.binary,PSMUX_DATA_DIR:origin.dataDir,MZ_HUD_HOST_DIR:origin.hostDir,MZ_HUD_NAMESPACE:origin.namespace,TMUX:origin.tmux,TMUX_PANE:origin.pane,PSMUX_SESSION:origin.session,MZ_HUD_ORIGIN:origin.originId};
  const acknowledge=(file,view)=>updateLaunch(file,d=>{d.state='running';d.pid=view.pid;d.host.hudPane=view.pane;d.host.hudProcess={pid:view.pid,parentPid:view.parentPid,name:view.name,startedAt:view.startedAt};d.host.phase='running';});
  const dependencies={pid:401,processes:()=>[hook,frontend,owner,server,...state.viewers],run:args=>{

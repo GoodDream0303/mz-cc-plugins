@@ -28,6 +28,11 @@ test('autostart skips disabled config, compact, subagents, non-CLI and mismatche
  for(const metadata of [{source:{subagent:{thread_spawn:{parent_thread_id:'parent'}}}},{source:'exec'},{id:'unrelated',session_id:'unrelated'}]){const g=fixture(t,metadata);assert.equal((await autoStart(g.event,g.options)).status,'ignored');assert.equal(descriptors(g.runtime).length,0);}
  assert.equal(descriptors(f.runtime).length,0);
 });
+test('exact-host startup can be enabled while legacy unsafe startup stays paused',async t=>{
+ const f=fixture(t),config=set(set(defaultConfig(),'startup.enabled',false),'host.autoStart','enabled');saveConfig(f.config,config);
+ assert.equal((await autoStart(f.event,f.options)).status,'opened');assert.equal(JSON.parse(fs.readFileSync(f.config,'utf8')).startup.enabled,false);
+ saveConfig(f.config,set(set(config,'startup.enabled',true),'host.autoStart','disabled'));assert.equal((await autoStart(f.event,f.options)).status,'disabled');assert.equal(f.state.splits,1);
+});
 test('autostart deduplicates a live display and waits for its exact process before reopening',async t=>{
  const f=fixture(t);await autoStart(f.event,f.options);const file=descriptors(f.runtime)[0];assert.equal((await autoStart({...f.event,source:'resume'},f.options)).status,'already-open');
  requestStop(file);assert.equal((await autoStart(f.event,f.options)).reason,'hud-stopping');

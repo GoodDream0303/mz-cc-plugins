@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import {spawnSync} from 'node:child_process';
 const api=await import('../dist/psmux.js').catch(()=>({}));
 const binary=path.resolve('portable/psmux.exe'),dataDir=path.resolve('host-data'),hostDir=path.resolve('hosts');
 const origin={binary,dataDir,hostDir,namespace:'mzhud-test',tmux:'/tmp/psmux-101/mzhud-test,53001,0',session:'codex',pane:'%1',originId:'00112233-4455-4677-8899-aabbccddeeff'};
@@ -18,14 +19,21 @@ test('origin must establish a consistent namespace, endpoint and source pane bef
 });
 test('a genuine Codex ancestor proves the hook belongs to this exact physical owner',()=>{
  assert.equal(typeof api.verifyHost,'function','host proof verification is missing');
- const proof={origin,owner,server,window:'@1'};
+ const proof={origin,owner,server,window:'@1',frontend};
  assert.deepEqual(api.verifyHost(proof,'hook',deps()),proof);
- for(const processes of [[hook,{...frontend,parentPid:999},owner,server],[hook,frontend,{...owner,startedAt:'2026-11-03T01:00:02.500Z'},server],[hook,frontend,owner,{...server,startedAt:'2026-11-03T01:00:00.500Z'}],[{...hook,parentPid:101},frontend,owner,server]])assert.throws(()=>api.verifyHost(proof,'hook',deps({processes:()=>processes})),/owner|ancestor|incarnation|process/i);
+ for(const processes of [[hook,{...frontend,parentPid:999},owner,server],[hook,frontend,{...owner,startedAt:'2026-11-03T01:00:02.500Z'},server],[hook,frontend,owner,{...server,startedAt:'2026-11-03T01:00:00.500Z'}],[{...hook,parentPid:101},frontend,owner,server]])assert.throws(()=>api.verifyHost(proof,'hook',deps({processes:()=>processes})),/owner|ancestor|incarnation|process|frontend|origin/i);
 });
 test('a shared daemon carrying a live other owner origin is rejected',()=>{
  assert.equal(typeof api.verifyHost,'function','host proof verification is missing');
  const daemon={pid:501,parentPid:1,name:'codex.exe',startedAt:'2026-11-03T00:00:00.000Z'};
- assert.throws(()=>api.verifyHost({origin,owner,server,window:'@1'},'hook',deps({processes:()=>[{...hook,parentPid:501},daemon,frontend,owner,server]})),/ancestor|origin|owner/i);
+ assert.throws(()=>api.verifyHost({origin,owner,server,window:'@1',frontend},'hook',deps({processes:()=>[{...hook,parentPid:501},daemon,frontend,owner,server]})),/ancestor|origin|owner|frontend/i);
+});
+test('a daemon below another still-live frontend cannot prove the second frontend origin',()=>{
+ const daemon={pid:501,parentPid:301,name:'codex.exe',startedAt:'2026-11-03T01:00:02.500Z'},proof={origin,owner,server,window:'@1',frontend};
+ assert.throws(()=>api.verifyHost(proof,'hook',deps({processes:()=>[{...hook,parentPid:501},daemon,frontend,owner,server]})),/frontend|ambiguous|daemon/i);
+});
+test('a sibling Codex process cannot replace the explicitly registered frontend',()=>{
+ const sibling={...frontend,pid:601};assert.throws(()=>api.verifyHost({origin,owner,server,window:'@1',frontend},'hook',deps({processes:()=>[{...hook,parentPid:601},frontend,sibling,owner,server]})),/frontend|origin|ancestor/i);
 });
 test('detached split targets the exact pane and returns a scoped pane, never a WT destination',()=>{
  assert.equal(typeof api.PsmuxClient,'function','psmux backend is missing');
@@ -42,4 +50,8 @@ test('same pane number from another server cannot satisfy owner proof',()=>{
  const proof=api.proveOwner(origin,deps({pid:201,processes:()=>[owner,server]}));assert.equal(proof.server.pid,101);assert.equal(proof.owner.pid,201);
  assert.throws(()=>api.proveOwner(origin,deps({pid:201,processes:()=>[owner,server],run:()=>pane.replace(/101$/,'102')})),/server|endpoint/i);
  assert.throws(()=>api.proveOwner(origin,deps({pid:999,processes:()=>[owner,server]})),/owner|process/i);
+});
+test('an existing process with unreadable birth time is unknown rather than dead',{skip:process.platform!=='win32'},()=>{
+ const helper=path.resolve(import.meta.dirname,'../bin/process-facts.ps1').replaceAll("'","''"),script=`function Get-CimInstance { [pscustomobject]@{ProcessId=123;ParentProcessId=1;Name='node.exe';CreationDate=$null} }; & '${helper}' -RootPid 123 -Ids '123'`;
+ const result=spawnSync('powershell.exe',['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],{encoding:'utf8',timeout:10000});assert.notEqual(result.status,0,'a live process with unknown identity must not disappear from the snapshot');
 });

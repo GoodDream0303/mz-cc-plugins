@@ -22,10 +22,14 @@ export function profileChange(file, options, mode = 'install') {
     const original = content(file), before = original.text, eol = before.includes('\r\n') ? '\r\n' : '\n';
     let prefix = before, suffix = '', separator = before.length > 0 && !before.endsWith('\n');
     const start = before.indexOf(begin);
+    let removedBlock;
     if (start >= 0) {
         const finish = before.indexOf(end, start), raw = finish < 0 ? '' : before.slice(start, finish + end.length), lines = raw.split(/\r?\n/);
+        if (start > 0 && before[start - 1] !== '\n' || finish >= 0 && finish + end.length < before.length && !before.slice(finish + end.length).startsWith('\n') && !before.slice(finish + end.length).startsWith('\r\n') || finish >= 0 && before.indexOf(end, finish + end.length) >= 0)
+            throw new Error('Managed profile markers must be unique standalone whole lines');
         if (finish < 0 || lines.length !== 5 || lines[0] !== begin || lines[4] !== end || lines[1] !== ('# block-sha256: ' + hash(lines[3])) || !/^# separator-added: [01]$/.test(lines[2]) || before.indexOf(begin, start + 1) >= 0)
             throw new Error('Managed HUD profile block was modified; review it before changing');
+        removedBlock = raw;
         separator = lines[2].endsWith('1');
         prefix = before.slice(0, start);
         suffix = before.slice(finish + end.length);
@@ -46,7 +50,7 @@ export function profileChange(file, options, mode = 'install') {
         throw new Error('Managed HUD profile block is incomplete');
     const loader = '. ' + expression(options.entry) + ' -HudCli ' + expression(options.cli) + ' -NodePath ' + expression(options.node);
     const block = [begin, '# block-sha256: ' + hash(loader), '# separator-added: ' + (separator ? '1' : '0'), loader, end].join(eol) + eol;
-    return { file: path.resolve(file), before, after: mode === 'remove' ? (start < 0 ? before : prefix + (separator && suffix ? eol : '') + suffix) : prefix + (separator ? eol : '') + block + suffix, encoding: original.encoding, block };
+    return { file: path.resolve(file), before, after: mode === 'remove' ? (start < 0 ? before : prefix + (separator && suffix ? eol : '') + suffix) : prefix + (separator ? eol : '') + block + suffix, encoding: original.encoding, block, removedBlock };
 }
 export function applyProfileChange(change) {
     const current = content(change.file);

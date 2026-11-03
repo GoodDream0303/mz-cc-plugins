@@ -25,3 +25,9 @@ test('removing a managed block retains user commands appended after installation
  const f=fixture(t,"$original='keep'");api.applyProfileChange(api.profileChange(f.file,options));fs.appendFileSync(f.file,"$later='also keep'\n");
  api.applyProfileChange(api.profileChange(f.file,options,'remove'));assert.equal(fs.readFileSync(f.file,'utf8'),"$original='keep'\n$later='also keep'\n");
 });
+test('profile markers must occupy whole lines so commented suffixes never become executable',t=>{
+ for(const suffix of [' Write-Output USER-TEXT',' # user comment']){
+  const f=fixture(t,'# original\n'),change=api.profileChange(f.file,options);fs.writeFileSync(f.file,change.after.replace('# <<< mz-codex-hud <<<','# <<< mz-codex-hud <<<'+suffix));
+  assert.throws(()=>api.profileChange(f.file,options,'remove'),/marker|modified|edited/i);assert.throws(()=>api.profileChange(f.file,options),/marker|modified|edited/i);
+ }
+});

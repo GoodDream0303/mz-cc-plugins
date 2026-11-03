@@ -16,9 +16,11 @@ import { emptySnapshot } from './types.js';
 import { buildTerminalArgs, checkRuntime, createLaunch, readLaunch, requestStop, runtimeRoot, selectSessionId, updateLaunch } from './runtime.js';
 import { loadCurrentHost, ensureHostDisplay, bindHostSession, acknowledgeViewer, readHost } from './host-session.js';
 import { readProcessFacts } from './psmux.js';
-import { decodeInvocation, launchHostedCodex, runHostOwner } from './host-launch.js';
+import { decodeInvocation, launchHostedCodex, runHostOwner, runHostFrontend } from './host-launch.js';
 import { profileChange, applyProfileChange } from './profile-setup.js';
 import { fileURLToPath } from 'node:url';
+import { assertActiveEntry } from './entry-install.js';
+import { sessionMetadata, isMainSession } from './autostart.js';
 function option(args, key) { const i = args.indexOf(key); return i >= 0 ? args[i + 1] : args.find(v => v.startsWith(key + '='))?.slice(key.length + 1); }
 function launchFile(args) { const encoded = option(args, '--launch64'); return encoded ? Buffer.from(encoded, 'base64').toString('utf8') : option(args, '--launch'); }
 function configFile(args) { return option(args, '--config') ?? configPath(); }
@@ -209,6 +211,9 @@ async function start(args, demo = false) {
         const sessionsRoot = option(args, '--sessions-root') ?? path.join(codexHome(), 'sessions'), session = await findSession(sessionsRoot, current);
         if (!session || session.id !== current)
             throw new Error('Current Codex transcript is not available yet');
+        const meta = await sessionMetadata(session.path);
+        if (session.parentId || !isMainSession(meta, current) || meta?.id !== current)
+            throw new Error('HUD requires main CLI conversation provenance; subagent and non-CLI transcripts are excluded');
         if (args.includes('--dry-run')) {
             await ensureHostDisplay(record, loadConfig(configFile(args)), { role: 'hook', dryRun: true });
             console.log(JSON.stringify({ mode: 'attach', backend: 'psmux', status: 'validated', ownerPane: record.proof.origin.pane }));
@@ -243,20 +248,27 @@ async function start(args, demo = false) {
 export async function main(args = process.argv.slice(2)) {
     const command = args[0] ?? 'help', rest = args.slice(1);
     switch (command) {
+        case 'entry-check':
+            assertActiveEntry(fileURLToPath(new URL('../bin/hud.mjs', import.meta.url)));
+            return;
         case 'codex-entry':
             process.exitCode = await launchHostedCodex(decodeInvocation(option(rest, '--invocation64')), { configFile: configFile(rest) });
             return;
         case 'host-owner':
             process.exitCode = await runHostOwner(decodeInvocation(option(rest, '--invocation64')), configFile(rest));
             return;
+        case 'host-frontend':
+            process.exitCode = await runHostFrontend(decodeInvocation(option(rest, '--invocation64')));
+            return;
         case 'setup': {
             const profile = option(rest, '--profile');
             if (!profile)
                 throw new Error('setup --profile ABSOLUTE_PATH [--apply] [--remove]');
-            const change = profileChange(profile, { entry: fileURLToPath(new URL('../bin/powershell-entry.ps1', import.meta.url)), cli: fileURLToPath(new URL('../bin/hud.mjs', import.meta.url)), node: process.execPath }, rest.includes('--remove') ? 'remove' : 'install');
+            const loader = { entry: fileURLToPath(new URL('../bin/powershell-entry.ps1', import.meta.url)), cli: fileURLToPath(new URL('../bin/hud.mjs', import.meta.url)), node: process.execPath };
+            const change = profileChange(profile, loader, rest.includes('--remove') ? 'remove' : 'install');
             if (rest.includes('--apply'))
                 applyProfileChange(change);
-            console.log(JSON.stringify({ file: change.file, action: rest.includes('--remove') ? 'remove' : 'install', applied: rest.includes('--apply'), changed: change.before !== change.after, block: change.block }, null, 2));
+            console.log(JSON.stringify({ file: change.file, action: rest.includes('--remove') ? 'remove' : 'install', applied: rest.includes('--apply'), changed: change.before !== change.after, loader, block: rest.includes('--remove') ? change.removedBlock : change.block, removedBlock: change.removedBlock }, null, 2));
             return;
         }
         case 'start': return start(rest);

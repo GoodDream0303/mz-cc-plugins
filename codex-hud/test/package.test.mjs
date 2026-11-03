@@ -12,6 +12,14 @@ test('marketplace package runs offline without node_modules or a build step',t=>
 test('CLI help exposes commands on separate readable lines',()=>{
  const result=spawnSync(process.execPath,['bin/hud.mjs','help'],{cwd:root,encoding:'utf8'});assert.equal(result.status,0);assert.match(result.stdout,/\n  start /);assert.match(result.stdout,/\n  configure\n/);
 });
+test('packaged ASCII profile loader runs from a Unicode path without node_modules',{skip:process.platform!=='win32'},t=>{
+ const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'hud-packed-loader-'));t.after(()=>fs.rmSync(tmp,{recursive:true,force:true}));const installed=path.join(tmp,'插件 space','codex-hud');
+ fs.cpSync(root,installed,{recursive:true,filter:file=>!['node_modules','src','test','scripts'].includes(path.relative(root,file).split(path.sep)[0])});
+ const npm=path.join(tmp,'npm'),pkg=path.join(npm,'node_modules/@openai/codex');fs.mkdirSync(path.join(pkg,'bin'),{recursive:true});fs.writeFileSync(path.join(npm,'codex.ps1'),'# synthetic npm shim');fs.writeFileSync(path.join(pkg,'package.json'),JSON.stringify({name:'@openai/codex',bin:{codex:'bin/codex.js'}}));fs.writeFileSync(path.join(pkg,'bin/codex.js'),"console.log('SYNTHETIC-OFFICIAL-ENTRY');process.exitCode=23;");
+ const profile=path.join(tmp,'profile.ps1'),cli=path.join(installed,'bin/hud.mjs'),setup=spawnSync(process.execPath,[cli,'setup','--profile',profile,'--apply'],{encoding:'utf8'});assert.equal(setup.status,0,setup.stderr);
+ const runner=path.join(tmp,'run.ps1');fs.writeFileSync(runner,". '"+profile.replaceAll("'","''")+"'\ncodex --version\nexit $LASTEXITCODE\n");
+ for(const shell of ['powershell.exe','pwsh.exe']){const result=spawnSync(shell,['-NoLogo','-NoProfile','-NonInteractive','-File',runner],{encoding:'utf8',timeout:15000,env:{...process.env,PATH:npm+path.delimiter+process.env.PATH,LOCALAPPDATA:tmp}});assert.equal(result.status,23,result.stderr);assert.equal(result.stdout.trim(),'SYNTHETIC-OFFICIAL-ENTRY');}
+});
 test('package registers one quiet hook for every main-conversation start source',t=>{
  const marketplace=JSON.parse(fs.readFileSync(path.join(root,'..','.agents','plugins','marketplace.json'),'utf8'));assert.equal(marketplace.name,'mz-cc-plugins');assert.ok(marketplace.plugins.some(p=>p.name==='task-handoff'));const entry=marketplace.plugins.find(p=>p.name==='codex-hud');assert.ok(entry);assert.equal(path.resolve(root,'..',entry.source.path),root);
  const manifest=JSON.parse(fs.readFileSync(path.join(root,'.codex-plugin','plugin.json'),'utf8'));assert.equal(manifest.hooks,'./hooks/hooks.json');const hooks=JSON.parse(fs.readFileSync(path.join(root,manifest.hooks),'utf8'));assert.deepEqual(Object.keys(hooks.hooks),['SessionStart']);const group=hooks.hooks.SessionStart[0];const matcher=new RegExp(group.matcher);for(const source of ['startup','resume','clear','fork'])assert.ok(matcher.test(source));assert.ok(!matcher.test('compact'));assert.equal(group.hooks[0].async,false);

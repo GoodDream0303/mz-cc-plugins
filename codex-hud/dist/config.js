@@ -74,9 +74,10 @@ def('terminal.paneSize', 0.22, 'terminal', '下方面板比例', { min: 0.1, max
 def('terminal.autoHeight', true, 'terminal', 'Fit initial pane to content');
 def('terminal.refreshMs', 1000, 'terminal', '刷新间隔（毫秒）', { min: 250, max: 60000 });
 def('terminal.margin', 4, 'terminal', '预留列数', { min: 0, max: 20 });
-def('startup.enabled', true, 'startup', 'Auto open HUD');
+def('startup.enabled', true, 'startup', 'Auto open HUD', { label: 'Legacy startup', reason: 'Preserved for compatibility; use exact-host Auto start and keep this false while 0.3.4 sessions exist' });
 def('startup.window', 'last', 'startup', 'Terminal target', { pattern: /^[a-zA-Z0-9_.-]{1,100}$/, reason: 'Legacy value preserved; attachment uses the verified source pane' });
-def('host.psmuxPath', '', 'host', 'Portable psmux executable');
+def('host.psmuxPath', '', 'startup', 'Portable psmux executable');
+def('host.autoStart', 'inherit', 'startup', 'Exact host automatic opening', { choices: ['inherit', 'enabled', 'disabled'] });
 export const definitions = defs;
 export const unsupported = unavailable;
 const unsafe = new Set(['__proto__', 'prototype', 'constructor']);
@@ -116,6 +117,7 @@ function put(config, key, value) {
 }
 export function defaultConfig() { const config = {}; for (const d of defs)
     put(config, d.key, d.value); return config; }
+export function startupEnabled(config) { const mode = get(config, 'host.autoStart') ?? 'inherit'; return mode === 'enabled' || mode === 'inherit' && !!get(config, 'startup.enabled'); }
 function merge(target, source) {
     for (const [key, value] of Object.entries(source)) {
         if (value && typeof value === 'object' && !Array.isArray(value) && target[key] && typeof target[key] === 'object' && !Array.isArray(target[key]))
