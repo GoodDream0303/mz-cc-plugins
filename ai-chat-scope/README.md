@@ -1,6 +1,8 @@
 # AI Chat Scope
 
-Windows 上的轻量置顶悬浮窗，在一个列表里查看多个 **Claude Code 与 Codex CLI** 会话。版本 2.0.2，由 claude-scope 更名。
+Windows 上的轻量置顶悬浮窗，在一个列表里查看多个 **Claude Code 与 Codex CLI** 会话。版本 2.1.0，由 claude-scope 更名。
+
+2.1.0 新增首次 setup、Python/py 解释器发现、真实 Tk 与运行目录检查、配置初始化、启动失败日志和自定义 Claude 数据目录支持。已有配置保持不变，不自动安装系统依赖。
 
 2.0.2 将可选实时服务的常驻能力提示移到右键菜单“状态说明”；异常提示和 SYNC/STALE 标识保留。
 
@@ -21,19 +23,20 @@ Windows 上的轻量置顶悬浮窗，在一个列表里查看多个 **Claude Co
 
 - Claude：沿用 registry 的 waiting/idle 等状态，保留 spare/parked 去重、后台会话及右键关闭，无新增 Claude hook。
 - 普通 Codex CLI：只读现有锁和增量日志，显示执行、待机与已识别的异步待输入，不把历史日志都列为活跃会话，也不枚举其他进程。
-- Codex 完整授权与同步提问提示：需要连接**已由 CLI 初始化、专供 CLI 的本地实时服务**。未配置时底部明确显示授权提示未启用。
+- Codex 完整授权与同步提问提示：需要连接**已由 CLI 初始化、专供 CLI 的本地实时服务**。未配置时可在右键“状态说明”查看能力范围。
 - 异步题卡标记“等待用户消息”，实际收到用户输入后解除；不判定每题答案是否完整，模型结束回合也不代表用户已回答。
 - 首版 Codex 行仅提供复制会话 ID，**不提供关闭**。Claude 关闭仍需点菜单并确认，优雅退出失败后另行确认才强制结束。
 
 ## 安装与启动
 
-远程命令用于包含 2.0.2 的已发布仓库。本地验收时用当前仓库根绝对路径替换 marketplace 来源。安装是用户操作，工具不自行安装、卸载或改全局配置。
+正式安装使用远端市场，不依赖开发工作区。首次 setup 入口从 2.1.0 开始提供。安装是用户操作，工具不自行安装、卸载或改全局配置。
 
 Claude Code：
 
 ```text
 /plugin marketplace add GoodDream0303/mz-cc-plugins
 /plugin install ai-chat-scope@mz-cc-plugins
+/ai-chat-scope:setup
 /ai-chat-scope:scope-show
 ```
 
@@ -44,13 +47,32 @@ codex plugin marketplace add GoodDream0303/mz-cc-plugins
 codex plugin add ai-chat-scope@mz-cc-plugins
 ```
 
-在 Codex 会话调用 `$ai-chat-scope:scope-show`。也可直接运行：
+在 Codex 会话先调用 `$ai-chat-scope:setup` 初始化，再调用 `$ai-chat-scope:scope-show` 打开。支持安装后 setup 引导的宿主可直接选择 setup；其他宿主使用上述技能命令。若当前会话尚未发现新技能，重新开启会话。也可直接运行：
 
 ```powershell
-python -B "<实际插件根>\scripts\start_scope.py"
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '<实际插件根>\scripts\scope.ps1' -Setup
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '<实际插件根>\scripts\scope.ps1'
 ```
 
 同一运行目录仅保留一个实例。重复启动保留现有窗口；启动器成功表示请求已发出，不代表新建了另一个窗口。Codex hook 需要用户在宿主中审阅并信任，不自动获信任，也不自动拉起浮窗。
+
+## 新环境初始化与故障排查
+
+前提是 Windows 和包含 **tkinter/Tcl/Tk 的 Python 3.9+**。引导入口依次查找 `python`、`py -3`、`python3`，不要求一定存在 `python` 命令；无需 pip 包。缺少可用解释器时会明确提示安装或修复 Python，而不会自动下载、安装依赖或修改 PATH。[Python Windows 安装说明](https://docs.python.org/3/using/windows.html)
+
+`-Setup` 会实际验证 Tk 能创建隐藏窗口、插件入口存在、运行目录可写，并仅在缺失时创建 `%LOCALAPPDATA%\ai-chat-scope\config.json`。旧版窗口设置可迁入新配置，旧文件不修改；已有新配置逐字保留，重复执行安全。损坏的新配置会明确报错，需先自行备份修复，程序不覆盖它。
+
+初始化只检查环境，不打开浮窗。正常启动入口也会执行同样的检查并初始化缺失配置，因此依赖齐全时可以直接启动。只想诊断时将 `-Setup` 改成 `-Check`，不创建或修改配置；检查可能创建运行目录和临时写入探测文件。
+
+| 项目 | 默认位置 | 当前进程自定义 |
+| --- | --- | --- |
+| Claude 数据根 | `~/.claude` | `CLAUDE_CONFIG_DIR` |
+| Codex 数据根 | `~/.codex` | `CODEX_HOME` |
+| Scope 配置与日志 | `%LOCALAPPDATA%\ai-chat-scope` | `AI_CHAT_SCOPE_RUNTIME` |
+
+自定义变量应设置在启动浮窗的同一环境中。无需两个 CLI 都安装；某个来源尚无会话目录时仅提示，之后可继续发现会话。初始化不会创建或修改 CLI 的数据目录、全局配置或权限。CLI 数据格式的本机验证版本仍为 Codex CLI 0.166.0，不承诺所有其他版本。
+
+setup 失败以终端的具体诊断为准。后台窗口在 Python 导入或启动阶段失败时，检查运行目录的 `startup.log`；窗口运行后的异常见 `error.log`。不会把缺少 Python/tkinter 当成 hook 审批问题。基础状态监视不依赖 hook 审批；hook 启用和更新信任由用户在 `/hooks` 审阅。
 
 ## 从 claude-scope 升级
 
@@ -91,7 +113,7 @@ codex --remote ws://127.0.0.1:4500 --remote-auth-token-env AI_CHAT_SCOPE_CODEX_T
 
 ```powershell
 $tokenFile = Join-Path $env:LOCALAPPDATA 'ai-chat-scope\codex-service.token'
-python -B "<实际插件根>\scripts\start_scope.py" --codex-endpoint ws://127.0.0.1:4500 --codex-token-file $tokenFile
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '<实际插件根>\scripts\scope.ps1' -CodexEndpoint ws://127.0.0.1:4500 -CodexTokenFile $tokenFile
 ```
 
 窗口保存设置后，可直接通过 scope-show 启动。配置只存端点和令牌文件路径；令牌内容不进入命令或配置。服务不可用时显示未更新/能力提示，不把旧授权标记假装成当前状态。

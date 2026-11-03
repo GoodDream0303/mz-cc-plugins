@@ -6,7 +6,7 @@
           {
             "type": "command",
             "command": "python3 -B -c \"import os,sys,runpy;r=os.environ.get('PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT');r or (print('{}'),sys.exit(0));p=os.path.join(r,'src');sys.path.insert(0,p);runpy.run_path(os.path.join(p,'codex_hooks.py'),run_name='__main__')\"",
-            "commandWindows": "python -B -c \"import os,sys,runpy;r=os.environ.get('PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT');r or (print('{}'),sys.exit(0));p=os.path.join(r,'src');sys.path.insert(0,p);runpy.run_path(os.path.join(p,'codex_hooks.py'),run_name='__main__')\"",
+            "commandWindows": "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"if ([Environment]::GetEnvironmentVariable('PLUGIN_ROOT')) { & (Join-Path ([Environment]::GetEnvironmentVariable('PLUGIN_ROOT')) 'scripts/scope.ps1') -Hook } elseif ([Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_ROOT')) { & (Join-Path ([Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_ROOT')) 'scripts/scope.ps1') -Hook } else { '{}' }\"",
             "timeout": 3
           }
         ]
@@ -18,7 +18,7 @@
           {
             "type": "command",
             "command": "python3 -B -c \"import os,sys,runpy;r=os.environ.get('PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT');r or (print('{}'),sys.exit(0));p=os.path.join(r,'src');sys.path.insert(0,p);runpy.run_path(os.path.join(p,'codex_hooks.py'),run_name='__main__')\"",
-            "commandWindows": "python -B -c \"import os,sys,runpy;r=os.environ.get('PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT');r or (print('{}'),sys.exit(0));p=os.path.join(r,'src');sys.path.insert(0,p);runpy.run_path(os.path.join(p,'codex_hooks.py'),run_name='__main__')\"",
+            "commandWindows": "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"if ([Environment]::GetEnvironmentVariable('PLUGIN_ROOT')) { & (Join-Path ([Environment]::GetEnvironmentVariable('PLUGIN_ROOT')) 'scripts/scope.ps1') -Hook } elseif ([Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_ROOT')) { & (Join-Path ([Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_ROOT')) 'scripts/scope.ps1') -Hook } else { '{}' }\"",
             "timeout": 3
           }
         ]
@@ -30,7 +30,7 @@
           {
             "type": "command",
             "command": "python3 -B -c \"import os,sys,runpy;r=os.environ.get('PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT');r or (print('{}'),sys.exit(0));p=os.path.join(r,'src');sys.path.insert(0,p);runpy.run_path(os.path.join(p,'codex_hooks.py'),run_name='__main__')\"",
-            "commandWindows": "python -B -c \"import os,sys,runpy;r=os.environ.get('PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT');r or (print('{}'),sys.exit(0));p=os.path.join(r,'src');sys.path.insert(0,p);runpy.run_path(os.path.join(p,'codex_hooks.py'),run_name='__main__')\"",
+            "commandWindows": "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"if ([Environment]::GetEnvironmentVariable('PLUGIN_ROOT')) { & (Join-Path ([Environment]::GetEnvironmentVariable('PLUGIN_ROOT')) 'scripts/scope.ps1') -Hook } elseif ([Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_ROOT')) { & (Join-Path ([Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_ROOT')) 'scripts/scope.ps1') -Hook } else { '{}' }\"",
             "timeout": 3
           }
         ]
@@ -42,7 +42,7 @@
           {
             "type": "command",
             "command": "python3 -B -c \"import os,sys,runpy;r=os.environ.get('PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT');r or (print('{}'),sys.exit(0));p=os.path.join(r,'src');sys.path.insert(0,p);runpy.run_path(os.path.join(p,'codex_hooks.py'),run_name='__main__')\"",
-            "commandWindows": "python -B -c \"import os,sys,runpy;r=os.environ.get('PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT');r or (print('{}'),sys.exit(0));p=os.path.join(r,'src');sys.path.insert(0,p);runpy.run_path(os.path.join(p,'codex_hooks.py'),run_name='__main__')\"",
+            "commandWindows": "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"if ([Environment]::GetEnvironmentVariable('PLUGIN_ROOT')) { & (Join-Path ([Environment]::GetEnvironmentVariable('PLUGIN_ROOT')) 'scripts/scope.ps1') -Hook } elseif ([Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_ROOT')) { & (Join-Path ([Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_ROOT')) 'scripts/scope.ps1') -Hook } else { '{}' }\"",
             "timeout": 3
           }
         ]
@@ -54,7 +54,7 @@
           {
             "type": "command",
             "command": "python3 -B -c \"import os,sys,runpy;r=os.environ.get('PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT');r or (print('{}'),sys.exit(0));p=os.path.join(r,'src');sys.path.insert(0,p);runpy.run_path(os.path.join(p,'codex_hooks.py'),run_name='__main__')\"",
-            "commandWindows": "python -B -c \"import os,sys,runpy;r=os.environ.get('PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT');r or (print('{}'),sys.exit(0));p=os.path.join(r,'src');sys.path.insert(0,p);runpy.run_path(os.path.join(p,'codex_hooks.py'),run_name='__main__')\"",
+            "commandWindows": "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"if ([Environment]::GetEnvironmentVariable('PLUGIN_ROOT')) { & (Join-Path ([Environment]::GetEnvironmentVariable('PLUGIN_ROOT')) 'scripts/scope.ps1') -Hook } elseif ([Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_ROOT')) { & (Join-Path ([Environment]::GetEnvironmentVariable('CLAUDE_PLUGIN_ROOT')) 'scripts/scope.ps1') -Hook } else { '{}' }\"",
             "timeout": 3
           }
         ]

@@ -17,7 +17,7 @@ class PackagingTests(unittest.TestCase):
             path=PLUGIN/host/'plugin.json'
             self.assertTrue(path.exists(),'Missing '+host+' manifest')
             data=json.loads(path.read_text(encoding='utf-8'))
-            self.assertEqual((data['name'],data['version']),('ai-chat-scope','2.0.2'))
+            self.assertEqual((data['name'],data['version']),('ai-chat-scope','2.1.0'))
             self.assertTrue((PLUGIN/'skills/scope-show/SKILL.md').is_file())
 
     def test_codex_hooks_are_explicit_and_not_auto_loaded_by_claude(self):
@@ -29,6 +29,13 @@ class PackagingTests(unittest.TestCase):
         self.assertFalse((PLUGIN/'hooks/hooks.json').exists())
         self.assertTrue((PLUGIN/codex['hooks']).is_file())
 
+    def test_onboarding_points_to_a_packaged_setup_skill_and_bootstrap(self):
+        codex=json.loads((PLUGIN/'.codex-plugin/plugin.json').read_text(encoding='utf-8'))
+        onboarding=codex.get('extensions',{}).get('com.openai',{}).get('onboardingSkill')
+        self.assertIsInstance(onboarding,str,'No packaged setup entry is registered')
+        self.assertTrue((PLUGIN/onboarding).is_file())
+        self.assertTrue((PLUGIN/'scripts/scope.ps1').is_file())
+
     def test_marketplaces_preserve_existing_plugins_and_resolve_new_source(self):
         claude=json.loads((REPO/'.claude-plugin/marketplace.json').read_text(encoding='utf-8'))
         codex=json.loads((REPO/'.agents/plugins/marketplace.json').read_text(encoding='utf-8'))
@@ -39,17 +46,23 @@ class PackagingTests(unittest.TestCase):
         self.assertEqual((REPO/cc['ai-chat-scope']['source']).resolve(),PLUGIN.resolve())
         self.assertEqual((REPO/cx['ai-chat-scope']['source']['path']).resolve(),PLUGIN.resolve())
 
-    def run_bundled_hook(self, shell, root_variable='PLUGIN_ROOT'):
+    def run_bundled_hook(self, shell, root_variable='PLUGIN_ROOT', py_only=False):
         config=PLUGIN/'hooks/codex-hooks.json'
         self.assertTrue(config.exists(),'Missing bundled hook config')
         with tempfile.TemporaryDirectory(prefix='scope-package-test-') as raw:
             root=Path(raw);plugin=root/"plugin ' 中文"
             shutil.copytree(PLUGIN/'src',plugin/'src',ignore=shutil.ignore_patterns('__pycache__'))
+            shutil.copytree(PLUGIN/'scripts',plugin/'scripts',ignore=shutil.ignore_patterns('__pycache__'))
             data=json.loads(config.read_text(encoding='utf-8'))
             hook=data['hooks']['PermissionRequest'][0]['hooks'][0]
             environment=os.environ.copy()
             environment.pop('PLUGIN_ROOT',None);environment.pop('CLAUDE_PLUGIN_ROOT',None)
             environment.update({root_variable:str(plugin),'CODEX_HOME':str(root/'codex'),'AI_CHAT_SCOPE_RUNTIME':str(root/'runtime')})
+            if py_only:
+                py=shutil.which('py.exe')
+                if not py:self.skipTest('Python Launcher is not installed')
+                system=Path(os.environ['SystemRoot'])/'System32'
+                environment['PATH']=os.pathsep.join((str(Path(py).parent),str(system),str(system/'WindowsPowerShell/v1.0')))
             payload={'session_id':'11111111-1111-4111-8111-111111111111','hook_event_name':'PermissionRequest','tool_input':{'command':'SECRET'}}
             command = ('cmd.exe /d /s /c "'+hook['commandWindows']+'"' if shell=='cmd.exe'
                        else [shell,'-NoProfile','-NonInteractive','-Command',hook['commandWindows']])
@@ -68,6 +81,10 @@ class PackagingTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform=='win32','Windows native cmd hook invocation')
     def test_bundled_hook_runs_through_native_cmd_shell(self):
         self.run_bundled_hook('cmd.exe')
+
+    @unittest.skipUnless(sys.platform=='win32','Python Launcher hook invocation')
+    def test_bundled_hook_supports_only_py_in_path(self):
+        self.run_bundled_hook('cmd.exe', py_only=True)
 
     @unittest.skipUnless(sys.platform=='win32','Windows PowerShell 7 hook invocation')
     def test_bundled_hook_runs_through_powershell_7(self):

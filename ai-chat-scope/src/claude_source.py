@@ -5,6 +5,7 @@ import json
 import math
 from pathlib import Path
 from session_types import SessionSnapshot
+from runtime_paths import claude_home
 
 
 def _identifier(value):
@@ -103,7 +104,7 @@ def assign_labels(items):
 class ClaudeSource:
     provider = "Claude"
     def __init__(self, home=None):
-        self.home = Path(home) if home is not None else Path.home() / ".claude"
+        self.home = Path(home) if home is not None else claude_home()
         self.sessions_dir = str(self.home / "sessions")
         self.projects_dir = str(self.home / "projects")
         self.jobs_dir = str(self.home / "jobs")

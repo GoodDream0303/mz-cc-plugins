@@ -19,6 +19,10 @@ def runtime_root():
     return Path(override).absolute() if override else Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "ai-chat-scope"
 
 
+def claude_home():
+    return Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude').absolute()
+
+
 def codex_home_key(home):
     return hashlib.sha256(os.path.normcase(str(Path(home).resolve())).encode("utf-8")).hexdigest()[:16]
 
