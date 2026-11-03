@@ -1,6 +1,6 @@
 # Configuration compatibility
 
-Native Codex statusline is unchanged. Model, effort, project and session-name fields default off. Auto-open defaults on and uses a minimal SessionStart hook; manual attach needs no hook.
+Native Codex statusline is unchanged. Model, effort, project and session-name fields default off. Exact-host automatic opening requires the one-time PowerShell entry and a configured portable psmux backend. The source bootstrap opens a waiting HUD; native SessionStart binds main-conversation data. Existing intentional false startup settings are preserved.
 
 | Key | Default | Availability |
 |---|---|---|
@@ -95,7 +95,9 @@ Native Codex statusline is unchanged. Model, effort, project and session-name fi
 | terminal.paneSize | 0.22 | Supported |
 | terminal.refreshMs | 1000 | Supported |
 | terminal.margin | 4 | Supported |
-| startup.enabled | true | Supported |
-| startup.window | "last" | Supported |
+| startup.enabled | true | Legacy preference; inherited only when host.autoStart is inherit |
+| startup.window | "last" | Legacy value preserved; never used to route a real HUD |
+| host.psmuxPath | "" | Absolute path to verified portable psmux 3.4.0 build 20aa1d7 |
+| host.autoStart | "inherit" | inherit / enabled / disabled; explicit 0.4 override keeps legacy startup paused |
 
 Unknown imported fields are retained without executing behavior. Legacy showSessionId is ignored. Claude-only billing/cache/Advisor/output-style values remain unavailable. MCP shows configured/called/unknown facts, not online counts.

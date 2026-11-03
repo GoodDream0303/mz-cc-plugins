@@ -3,13 +3,16 @@ import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath,pathToFileURL} from 'node:url';
-import {get,configPath,loadConfig,type Config} from './config.js';
+import {get,configPath,loadConfig,startupEnabled,type Config} from './config.js';
 import {codexHome} from './sessions.js';
 import type {InitialPaneSize} from './pane-size.js';
+import type {HostProof,ProcessFact} from './psmux.js';
+import {readHostOrigin} from './psmux.js';
 export interface LaunchDescriptor {
  kind:'mz-codex-hud/1'|'mz-codex-hud/2';id:string;file:string;cwd:string;codexHome:string;configFile:string;createdAt:string;
  state:'created'|'running'|'exited';sessionId?:string;heartbeat?:number;pid?:number;
  exitCode?:number;hudStop?:boolean;paneSize:number;initialSizing?:InitialPaneSize;viewport?:{columns:number;rows:number;contentRows:number;pages:number};demo?:boolean;demoDurationMs?:number;sessionsRoot?:string;transcriptPath?:string;
+ host?:{recordFile:string;proof:HostProof;phase:'opening'|'running'|'uncertain'|'closed';reportedPane?:string;hudPane?:string;hudProcess?:ProcessFact};
 }
 const guid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function runtimeRoot():string{return path.join(path.dirname(configPath()),'runtime');}
@@ -38,26 +41,29 @@ export function selectSessionId(explicit:string|undefined,environment:NodeJS.Pro
  return id;
 }
 export function buildTerminalArgs(d:LaunchDescriptor,window='last'):string[]{
+ if(!d.demo)throw new Error('Windows Terminal cannot identify the exact source pane; a verified psmux host is required');
  if(!/^[a-zA-Z0-9_.-]{1,100}$/.test(window))throw new Error('Invalid Windows Terminal window ID or name');
  const entry=pathToFileURL(path.resolve(path.dirname(fileURLToPath(import.meta.url)),'cli.js')).href;
  const boot="import(Buffer.from(process.argv[1],'base64').toString()).then(m=>m.main(process.argv.slice(2))).catch(e=>{console.error(e.message),process.exitCode=1})";
  const shared=[process.execPath,'-e',boot,Buffer.from(entry).toString('base64')],launch64=Buffer.from(d.file).toString('base64');
  const viewer=[...shared,'watch','--launch64',launch64];
  if(d.demo)return ['-w','mz-codex-hud-'+d.id,'new-tab','--title','Codex HUD Preview '+d.id.slice(0,8),'--suppressApplicationTitle',...shared,'demo-runner','--launch64',launch64,';','split-pane','--horizontal','--size',String(d.paneSize),'--title','Codex HUD','--suppressApplicationTitle',...viewer,';','focus-pane','-t','0'];
- if(!d.sessionId)throw new Error('Select a Codex session before opening the HUD');
- return ['-w',window,'split-pane','--horizontal','--size',String(d.paneSize),'--title','Codex HUD','--suppressApplicationTitle',...viewer,';','move-focus','up'];
+ throw new Error('A verified psmux host is required');
 }
 export interface DoctorReport {
  node:string;terminal:boolean;hooksRequired:false;nativeStatusline:'unchanged';
- autostart:{enabled:boolean;trigger:'SessionStart';trust:'unknown';hookFilesPresent:boolean;lastResult?:string};
+ host:{backend:'psmux';configured:boolean;origin:'present'|'unavailable';verification:'required-at-attach'};
+ autostart:{enabled:boolean;legacyEnabled:boolean;trigger:'SessionStart';trust:'unknown';hookFilesPresent:boolean;lastResult?:string};
  configuration:{status:string;path:string};session:{status:string};display:{status:string};notes:string[];
 }
 export function checkRuntime(options:{configFile?:string;launchFile?:string}={}):DoctorReport{
  let terminal=false;try{execFileSync('where.exe',['wt.exe'],{stdio:'ignore',windowsHide:true,timeout:1500});terminal=true;}catch{}
- const file=options.configFile??configPath();let status=fs.existsSync(file)?'valid':'defaults',enabled=false;try{enabled=!!get(loadConfig(file),'startup.enabled');}catch{status='invalid';}
+ const file=options.configFile??configPath();let status=fs.existsSync(file)?'valid':'defaults',enabled=false,legacyEnabled=false;try{const config=loadConfig(file);enabled=startupEnabled(config);legacyEnabled=!!get(config,'startup.enabled');}catch{status='invalid';}
+ let configured=false;try{configured=!!get(loadConfig(file),'host.psmuxPath');}catch{}
+ let origin:'present'|'unavailable'='unavailable';try{readHostOrigin();origin='present';}catch{}
  let display={status:'not-selected'};
  if(options.launchFile){try{const d=readLaunch(options.launchFile);display={status:d.state==='exited'?'closed':d.hudStop?'stopping':'open'};}catch{display={status:'invalid-launch'};}}
  let current=false;try{current=!!selectSessionId(undefined);}catch{}
  const pluginRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');let lastResult:string|undefined;try{const result=JSON.parse(fs.readFileSync(path.join(runtimeRoot(),'autostart-status.json'),'utf8'));if(['opened','already-open','disabled','ignored','busy','failed'].includes(result.status))lastResult=result.status;}catch{}
- return {node:process.version,terminal,hooksRequired:false,nativeStatusline:'unchanged',autostart:{enabled,trigger:'SessionStart',trust:'unknown',hookFilesPresent:['hooks/hooks.json','hooks/session-start.mjs','dist/autostart.js'].every(f=>fs.existsSync(path.join(pluginRoot,f))),lastResult},configuration:{status,path:file},session:{status:current?'Codex environment available':'Select explicitly or start from inside Codex'},display,notes:process.platform==='win32'?[]:['Automatic split attachment requires native Windows Terminal']};
+ return {node:process.version,terminal,hooksRequired:false,nativeStatusline:'unchanged',host:{backend:'psmux',configured,origin,verification:'required-at-attach'},autostart:{enabled,legacyEnabled,trigger:'SessionStart',trust:'unknown',hookFilesPresent:['hooks/hooks.json','hooks/session-start.mjs','dist/autostart.js'].every(f=>fs.existsSync(path.join(pluginRoot,f))),lastResult},configuration:{status,path:file},session:{status:current?'Codex environment available':'Select explicitly or start from inside Codex'},display,notes:process.platform==='win32'?[]:['Automatic split attachment requires native Windows and a verified psmux host']};
 }

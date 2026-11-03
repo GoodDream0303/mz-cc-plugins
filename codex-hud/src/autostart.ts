@@ -1,18 +1,16 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import {createHash,randomUUID} from 'node:crypto';
-import {execFileSync} from 'node:child_process';
-import {get,loadConfig,configPath} from './config.js';
-import {codexHome} from './sessions.js';
-import {buildTerminalArgs,createLaunch,readLaunch,runtimeRoot,updateLaunch,type LaunchDescriptor} from './runtime.js';
-import {acquireStartupLock,processIsLive} from './startup-lock.js';
-import {initialPaneSize,type TerminalViewport} from './pane-size.js';
+import {randomUUID} from 'node:crypto';
+import {startupEnabled,loadConfig,configPath} from './config.js';
+import {runtimeRoot} from './runtime.js';
+import {loadCurrentHost,bindHostSession} from './host-session.js';
+import type {HostDependencies} from './psmux.js';
 type HookEvent=Record<string,unknown>;
-export interface AutostartOptions {configFile?:string;runtimeDir?:string;viewport?:()=>TerminalViewport|undefined;launch?:(display:LaunchDescriptor,window:string)=>void|Promise<void>}
+export interface AutostartOptions {configFile?:string;environment?:NodeJS.ProcessEnv;dependencies?:HostDependencies}
 export interface AutostartResult {status:'opened'|'already-open'|'disabled'|'ignored'|'busy';reason?:string}
 const idPattern=/^[a-zA-Z0-9_-]{3,100}$/;
-async function metadata(file:string):Promise<Record<string,any>|undefined>{
+export async function sessionMetadata(file:string):Promise<Record<string,any>|undefined>{
  let handle;
  try{
   handle=await fsp.open(file,'r');const chunks:Buffer[]=[];let size=0;const buffer=Buffer.alloc(65536);
@@ -23,41 +21,28 @@ async function metadata(file:string):Promise<Record<string,any>|undefined>{
   }
  }catch{/* metadata may still be written at SessionStart */}finally{await handle?.close();}
 }
-function canonical(value:string):string{const result=path.resolve(value);return process.platform==='win32'?result.toLowerCase():result;}
-function activeDisplay(root:string,id:string,home:string):LaunchDescriptor|undefined{
- for(const name of fs.readdirSync(root)){
-  if(!/^[a-f0-9-]{36}\.json$/i.test(name))continue;
-  try{
-   const d=readLaunch(path.join(root,name));if(d.demo||d.sessionId!==id||canonical(d.codexHome)!==canonical(home)||d.hudStop||d.state==='exited')continue;
-   if(d.state==='created'&&Date.now()-Date.parse(d.createdAt)<15000)return d;
-   if(d.state==='running'&&Number.isInteger(d.pid)&&d.pid!>0&&processIsLive(d.pid!)!==false)return d;
-  }catch{/* unrelated, stale or malformed owned metadata is not a live display */}
- }
-}
+export function isMainSession(meta:Record<string,any>|undefined,id:string):boolean{return !!meta&&meta.source==='cli'&&typeof meta.id==='string'&&idPattern.test(meta.id)&&(id===meta.id||id===meta.session_id)&&typeof meta.cwd==='string';}
 export async function autoStart(event:HookEvent,options:AutostartOptions={}):Promise<AutostartResult>{
  if(event.hook_event_name!=='SessionStart'||!['startup','resume','clear','fork'].includes(String(event.source))||event.agent_id||event.subagent_id||event.agent_transcript_path)return {status:'ignored',reason:'not-main-start'};
  if(process.platform!=='win32')return {status:'ignored',reason:'not-windows'};
- const file=options.configFile??configPath(),config=loadConfig(file);if(!get(config,'startup.enabled'))return {status:'disabled'};
+ const file=options.configFile??configPath(),config=loadConfig(file);if(!startupEnabled(config))return {status:'disabled'};
  if(typeof event.session_id!=='string'||!idPattern.test(event.session_id)||typeof event.transcript_path!=='string'||!path.isAbsolute(event.transcript_path))return {status:'ignored',reason:'missing-transcript'};
  let meta:Record<string,any>|undefined;
  const deadline=Date.now()+2000;
- do{meta=await metadata(event.transcript_path);if(meta)break;await new Promise(r=>setTimeout(r,100));}while(Date.now()<deadline);
+ do{meta=await sessionMetadata(event.transcript_path);if(meta)break;await new Promise(r=>setTimeout(r,100));}while(Date.now()<deadline);
  if(!meta)return {status:'ignored',reason:'metadata-unavailable'};
  if(meta.source!=='cli')return {status:'ignored',reason:'not-cli-main'};
- if(typeof meta.id!=='string'||!idPattern.test(meta.id)||event.session_id!==meta.id&&event.session_id!==meta.session_id||typeof meta.cwd!=='string')return {status:'ignored',reason:'identity-mismatch'};
- const home=codexHome(),root=options.runtimeDir??runtimeRoot();fs.mkdirSync(root,{recursive:true});
- const key=createHash('sha256').update(canonical(home)+'\0'+meta.id).digest('hex'),lock=path.join(root,'.autostart-'+key+'.lock');
- const release=await acquireStartupLock(lock);if(!release)return {status:'busy'};
- try{
-  const active=activeDisplay(root,meta.id,home);
-  if(active){if(active.transcriptPath!==event.transcript_path)updateLaunch(active.file,d=>{d.transcriptPath=event.transcript_path as string;});return {status:'already-open'};}
-  const sizing=await initialPaneSize(config,{sessionId:meta.id,transcriptPath:event.transcript_path,home,window:get(config,'startup.window'),measure:options.viewport});
-  const d=createLaunch(meta.cwd,config,root,file);updateLaunch(d.file,value=>{value.sessionId=meta!.id;value.transcriptPath=event.transcript_path as string;value.paneSize=sizing.fraction;value.initialSizing=sizing;});
-  const display=readLaunch(d.file);
-  try{await (options.launch??((value,window)=>{execFileSync('wt.exe',buildTerminalArgs(value,window),{windowsHide:false,stdio:'ignore',timeout:10000});}))(display,get(config,'startup.window'));return {status:'opened'};}
-  catch(error){updateLaunch(d.file,value=>{value.state='exited';value.exitCode=1;});throw error;}
- }finally{release();}
+ if(!isMainSession(meta,event.session_id))return {status:'ignored',reason:'identity-mismatch'};
+ let record;
+ const registrationDeadline=Date.now()+2500;
+ for(;;){try{record=loadCurrentHost('hook',options.dependencies,options.environment);break;}catch(error){
+  if((error as NodeJS.ErrnoException).code!=='ERR_HUD_FRONTEND_PENDING'||Date.now()>=registrationDeadline)return {status:'ignored',reason:'unproven-host'};
+  await new Promise(r=>setTimeout(r,100));
+ }}
+ const result=await bindHostSession(record,meta.id,event.transcript_path,{role:'hook',config,configFile:file,dependencies:options.dependencies});
+ return result.status==='stopping'?{status:'ignored',reason:'hud-stopping'}:{status:result.status};
 }
+
 export async function runAutostartHook():Promise<void>{
  let status='failed',reason='startup-failed';
  try{

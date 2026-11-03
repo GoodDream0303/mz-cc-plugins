@@ -1,0 +1,112 @@
+# Automatic per-Codex HUD implementation plan
+
+> **For agentic workers:** Use superpowers:executing-plans inline. Steps use checkbox syntax.
+
+**Goal:** Every simultaneous Codex launched normally from PowerShell tabs/windows has an independent, correctly paired HUD.
+
+**Architecture:** A transparent PowerShell entry creates a unique psmux host per interactive invocation and calls the original official command. A real source-pane bootstrap publishes process/server incarnations and opens a waiting HUD. Native SessionStart binds metadata only after physical ownership verification; no MRU routing remains.
+
+**Tech Stack:** TypeScript, Node 20+, Windows PowerShell 5/7, pinned portable psmux 3.4.0, Node test runner.
+
+**Spec:** `../specs/2026-11-03-hud-session-host-design.md` (user approved).
+
+## Global Constraints
+
+- Preserve official Codex, original arguments, native statusline, CODEX_HOME and security/daemon settings.
+- UI English, task names in their original language; never display session IDs as names.
+- Do not guess via MRU/focus/title/latest logs. Unknown ownership stops attachment, not completion of the goal.
+- Do not persist invocation arguments, conversation content, credentials or environment dumps.
+- Work in the existing HUD worktree; preserve unrelated files. No publishing or user profile/config edits during development.
+- Bootstrap must show its own waiting HUD before a model turn; no hidden model prompts.
+- Shared-daemon per-client origin remains a feasibility gate; do not substitute an inherited live nonce for proof.
+
+## Review Focus
+
+- Two live frontends of the same resumed thread must not share a physical HUD (Task 2).
+- A late/failed split may have created a pane: uncertain intent must prevent duplicate creation (Task 2).
+- Shared daemon retaining frontend A's environment must not route frontend B to A (Task 1/2).
+- CLI maintenance commands and non-TTY pipelines retain original behavior and exit codes (Task 3).
+- An upgrade/deletion or user-edited profile block must not silently invoke stale code or erase user content (Task 3/4).
+
+### Task 1: Exact physical identity and psmux operations
+
+**Files:** create `codex-hud/src/psmux.ts`, `codex-hud/bin/process-facts.ps1`, `codex-hud/test/psmux.test.mjs`.
+
+**Interfaces:** `ProcessFact {pid,parentPid,name,startedAt}`; `HostOrigin {binary,dataDir,namespace,tmux,session,pane,originId,hostDir}`; `HostProof {origin,owner,server,window}`. Export `readHostOrigin(env)`, `readProcessFacts(pids,rootPid)`, `PsmuxClient.pane(id)`, `PsmuxClient.split(rows,launchFile)`, `proveOwner(origin, dependencies?)`, `verifyHost(proof, role, dependencies?)`. Dependencies isolate external command/process queries; no test mode in production.
+
+- [x] Write tests for missing/contradictory endpoint, reused PID, non-owner ancestry, shared-daemon ancestry, exact detached split argv and duplicate pane IDs across servers. Expected: explicit ownership failures, zero mutation on invalid origin, exact source target on valid split.
+- [x] Run `node --test codex-hud/test/psmux.test.mjs`; observe RED before implementing (5 missing-backend failures).
+- [x] Implement strict origin validation, allowlisted process helper and scoped psmux client. Query commands have bounded time/output and no shell interpolation.
+- [x] Run full `npm test`: 66/66; real process helper verified node.exe PID/birth and 9 ancestors.
+- [x] Commit only Task 1 source, tests and generated dist after verification.
+
+### Task 2: One waiting/bound display per live owner
+
+**Files:** create `codex-hud/src/host-session.ts`, `codex-hud/test/host-session.test.mjs`; modify runtime/cli/autostart and their tests, hook configuration, diagnostics, height calculation as required.
+
+**Consumes:** Task 1 proof/client/process interfaces.
+**Produces:** `registerHost(proof,root)`, `readHost(file)`, `ensureHostDisplay(record,config,options?)`, `bindHostSession(record,sessionId,transcriptPath,options?)`, `closeHost(record,exitCode)`, `acknowledgeViewer(launchFile)`. Host records contain only identity/lifecycle metadata and a validated launch reference.
+
+- [x] Write RED tests: waiting HUD with no transcript, cross-owner same thread independence, duplicate concurrent hook, rebind without stale reader data, closed HUD reopen, uncertain split refusal, dead/reused owner/server, independent shutdown; ordinary start/hook must never launch WT MRU.
+- [x] Implement owner-slot locking, metadata intents, viewer PID/pane acknowledgement and lifecycle. Bind hook metadata only with proven frontend ancestry; refuse unproven shared-daemon origins.
+- [x] Update watch to display waiting telemetry without selecting any session; recreate reader and discard stale snapshot on identity changes. Validate exact viewer identity before marking running.
+- [x] Change SessionStart to a bounded synchronous binding stage. Keep diagnostics quiet and English; no trust modifications.
+- [x] Run focused tests and full `npm test`; expect zero failures, with no live terminal/process changes from unit tests.
+- [x] Commit Task 2 including generated dist and updated tests.
+
+### Task 3: Transparent PowerShell entry and safe setup
+
+**Files:** create `src/host-launch.ts`, `src/profile-setup.ts`, `bin/powershell-entry.ps1`, `bin/official-codex.ps1`, corresponding tests; integrate CLI/config.
+
+**Consumes:** registration/display/lifecycle from Task 2.
+**Produces:** `classifyCodexInvocation(args)`, `launchHostedCodex(invocation,options?)`, `runHostOwner(invocation)`, `profileChange(file,entry)` and explicit dry-run/apply/remove CLI commands. Invocation contains official command path, shell path and original argv in memory only.
+
+- [x] Write RED tests for interactive/maintenance/pipeline routing and literal argv preservation through PS5/7; test profile create/update/conflict/uninstall with temporary files.
+- [x] Implement entry routing and unique in-place psmux namespace. Run official launcher exactly once; preserve its arguments and eventual exit status. Never edit installed official Codex shims.
+- [x] Register actual bootstrap, open waiting display, execute official command, stop only owned display on exit. Detached hosts remain independent and alive.
+- [x] Add `host.psmuxPath`; setup prints concrete changes by default and writes only with explicit apply. Existing function/alias or modified blocks require resolution, not overwrite.
+- [x] Run focused tests and full `npm test`; commit source/tests/dist. Do not apply setup to user profiles.
+
+### Task 4: Packaged integration and acceptance evidence
+
+**Files:** create isolated host smoke script and update README, skills, validation docs and plan checkboxes.
+
+- [x] Use a fresh data root/namespace and verified pinned portable psmux to exercise production backend with real OS owner processes and synthetic telemetry; no fixture owner files as production authority.
+- [x] Check two independent hosts, same-thread/two-owner, pending HUD, rebind, concurrency, closed/crashed HUD, owner exit, stale server and uncertain launch. Check background targeting with UI evidence.
+- [x] Exercise installed-package copy without node_modules. Validate PS5/7, hostile argv, and Node20 where available.
+- [x] Run full suite; inspect all results. Perform independent whole-change review, address important findings with RED→GREEN tests, then commit.
+- [x] Prepare exact deployment changes and truthful remaining acceptance steps. Real Codex hook/trust and two UI scenarios need actual evidence; do not mark goal complete from synthetic smoke alone.
+
+## Execution evidence
+
+- Baseline before implementation: 61/61 tests passed; branch `feat/codex-hud`; unrelated `task-handoff/scripts/__pycache__/` preserved.
+- Ruling: create a waiting HUD from the real bootstrap before SessionStart — meets the idle-TUI requirement without model requests; data remains unbound until proven.
+- Pre-flight: Task 2 consumes Task 1 identity; Task 3 consumes Task 2 lifecycle; Task 4 exercises all production interfaces. No independent implementer delegation needed.
+
+- Task 2 evidence: 74/74 full tests; stale-thread recovery regression observed RED with the identity reset absent, then GREEN after implementing the reset. Waiting HUD, exact-slot concurrent hook, uncertain intent and independent shutdown tests passed.
+
+- Task 3 evidence: 85/85 full tests; PS5/7 argv, pipeline and exit-code checks passed. Profile edit/conflict/encoding/separator and caller preference regressions observed RED then GREEN.
+- Ruling: resolve the verified npm package JavaScript entry instead of forwarding through an additional PowerShell official-codex.ps1 bridge — preserves PS5 quoted/empty arguments while executing the official entry unchanged; unsupported custom shims require an explicit diagnostic.
+- Task 4 preliminary evidence: production backend synthetic smoke passed five native-process lifecycle checks in hud-production-host-dUn2dn. The codex.exe in that smoke is explicitly a renamed Node fixture, not official Codex acceptance.
+
+- Final review: five findings reproduced RED and fixed GREEN: registered frontend + ambiguous daemon ancestry rejection; official hidden CLI grammar; standalone profile markers; native active-cache authority at load/invocation; shared manual/hook main-session provenance.
+- Final: fixed cold-start acknowledgement race — deterministic 4.2-second startup RED→GREEN; one snapshot per proof stage, 8-second budget, retained pane response and scoped absence reconciliation. Native killed-before-ack recovery passed.
+- Ruling: register the frontend from its own bootstrap before importing the untouched official npm launcher or spawning the native executable — prevents the initial prompt outrunning parent-side process probing; unsupported shared-daemon origins remain unproven.
+- Final source evidence: Node24 100/100; Node20.19.0 100/100; final production smoke 6 checks; final desktop smoke 4 checks with 6 synthetic source processes. Evidence archived under codex-hud/docs/evidence/2026-11-03-host.
+- Ruling: independent review declined actual native trust/daemon topology/event timeout ordering, real UI/input/statusline, deployed upgrades, Node20/package reruns and OS access-denial/PID reuse certification. Synthetic/author tests cover the stated cases only; real/deployed gates remain pending and are not treated as completion. Cost if wrong: a correctly tested candidate could still fail in actual sessions.
+- Deferred minors: none from the independent review.
+- Deployment preview prepared separately with exact current-host profile blocks and two config-key deltas. No real profile, startup setting, formal source, installed plugin or real Codex/model process was changed during development.
+
+- Ruling: preserve legacy startup.enabled=false during deployment and opt in through the 0.4-only host.autoStart=enabled override — avoids reviving old loaded 0.3.4 MRU launchers; its inherited default leaves existing preferences unchanged. Isolated installed-0.3.4 compatibility probe stayed disabled while new API opened its exact host.
+
+- Final: new-only host.autoStart override and Startup menu regression passed; legacy flag remains unchanged. Installed 0.3.4 probe confirmed disabled. Node24/Node20 full suites 100/100.
+- Native crash experiment: an unparked forced-kill run (xsVDL1) failed to regain a waiting HUD under concurrent test load. The final crash harness explicitly parks the first viewer before ACK (0nkJPu), then verifies exact absence before recovery; this controls the phase without changing production identity guards. Full nested Windows child-process crash cleanup remains part of real acceptance, not an inferred pass.
+
+## Remaining end-state gates
+
+- [ ] User authorizes formal publication/reinstallation and the concrete two-profile/config proposal.
+- [ ] Native /hooks review and real official Codex metadata inheritance/interaction are accepted.
+- [ ] Default shared-daemon client attribution is proved or the unresolved capability is addressed without hidden overrides.
+- [ ] Every actual simultaneous source in the user's normal workflow is managed and has its own correct HUD; only then mark the goal complete.
+
+- Final menu evidence: exact-host controls are reachable in Startup; the deprecated legacy switch is read-only there. Startup-menu save preserved legacy false and enabled only the new override. Full Node24/Node20 suites: 100/100.

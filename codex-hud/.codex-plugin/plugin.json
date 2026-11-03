@@ -1,7 +1,7 @@
 {
   "name": "codex-hud",
-  "version": "0.3.4",
-  "description": "A configurable multiline HUD for Codex in native Windows Terminal.",
+  "version": "0.4.0",
+  "description": "Independent per-Codex HUDs for PowerShell tabs and windows.",
   "author": {
     "name": "mzzhu2"
   },

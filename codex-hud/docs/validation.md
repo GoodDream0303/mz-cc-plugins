@@ -1,6 +1,91 @@
-# Validation: companion HUD with minimal autostart
+# Validation: exact per-source HUD candidate
 
-## 0.3.4 independent conversations
+## 0.4.0 candidate — source verified, not deployed
+
+The goal remains **every simultaneously running real Codex has an independent,
+correctly paired HUD**. This candidate is not installed, user profiles/configuration
+are unchanged, and legacy startup remains false. The evidence below does not mark
+the real-session goal complete.
+
+- Node 24: `npm test`, 100/100 passed on the final runtime tree.
+- Node 20.19.0: all 100 tests passed against the built runtime. Its portable ZIP
+  was checked against the official Node SHASUMS256 file before execution; no global
+  Node installation or PATH change was made.
+- Package copy without src/node_modules: doctor, quiet hook, setup and the actual
+  generated ASCII loader work from a Unicode path through PS5/PS7. Literal argv,
+  empty strings, pipeline input and official exit status are preserved.
+- One independent code review found five actionable issues: daemon-descendant
+  false attribution, missing CLI aliases/maintenance verbs, profile marker suffix
+  execution, retained obsolete cache entry, and manual subagent provenance. Each
+  was reproduced RED and corrected with regression coverage; no second review is
+  claimed for the fix pass.
+
+### Native process and desktop fixtures
+
+[Archived evidence](evidence/2026-11-03-host/manifest.json) includes checksums,
+explicit scope/limitations, two summaries and five screenshots. It excludes
+executables, private psmux keys, active registry files, invocation arguments and
+real session content.
+
+The final production-backend smoke passed six checks with a test-only preload
+parking the first viewer before acknowledgement, making the intended crash phase
+deterministic. An earlier unparked forced-kill run did not recover a waiting HUD;
+it is retained as a failed experiment, not counted as passing evidence. The final
+controlled check deliberately killed a
+returned HUD pane **before acknowledgement**: recovery happened only after a
+successful scoped pane listing proved that exact pane absent. Lost responses,
+failed scope queries and still-present panes remain uncertain and do not trigger
+another split.
+
+The desktop entry smoke executed the actual PowerShell `codex` function and
+production bootstrap in real WT tabs, separate PowerShell windows and a native
+WT split. PS5/PS7 were both exercised. A20%/B70%, C35%/D65%, and L25%/R75% remained
+correctly paired. B stayed selected while background A reopened its HUD; the
+active right native neighbour retained its geometry/focus while L reopened.
+All CLI/telemetry in these checks is **synthetic**: the codex.exe is an explicitly
+renamed Node fixture, not official Codex. No model prompt was issued.
+
+### Cold-start defect and correction
+
+One earlier four-window run left D in a created/uncertain state. Its frontend
+started 4.22 seconds after the display intent: the 4-second acknowledgement
+budget could expire while sequential bounded process probes were still running.
+A deterministic 4.2-second startup regression reproduced the failure. The final
+code shares one identity snapshot per proof stage, allows an 8-second startup
+acknowledgement, retains the reported pane ID, and retries only after exact absence
+proof. The final six-source desktop run and killed-before-ack smoke passed.
+
+The official entry now registers its own incarnation before executing the
+unmodified official launcher, so an initial user prompt cannot race a parent's
+asynchronous registration. That ordering has a consumer-side regression which
+checks the registration before the first synthetic official-entry instruction.
+
+### Legacy startup compatibility
+
+`host.autoStart=enabled` explicitly enables the 0.4 exact-host path while
+`startup.enabled=false` keeps older loaded 0.3.4 hooks paused. The default `inherit`
+preserves prior preferences. A direct isolated probe of the installed 0.3.4 hook
+confirmed it stays disabled with that new-only override enabled. No global user
+configuration was changed by the probe.
+
+### Remaining real acceptance gates
+
+Native hook trust/review, actual official Codex environment inheritance and event
+ordering, keyboard/mouse/scroll/copy, native statusline and deployed upgrade flow
+still require real acceptance after authorized formal installation. Default shared
+daemon per-client origin is unproven and conservatively rejected; ordinary daemon
+environment inheritance is not accepted as proof. No --no-daemon or security/trust
+override is injected to hide that gap. Existing ordinary sessions cannot be
+retroactively moved into psmux.
+
+## Historical results below
+
+The older sections document then-current data/layout checks. In particular,
+0.3.4's MRU physical routing was later demonstrated incorrect: those tests are not
+proof that arbitrary existing tabs/panes receive the right HUD, and their manual
+attachment instructions are superseded by the current README.
+
+## 0.3.4 historical conversation-data checks
 
 The user clarified that multiple distinct conversations must each have a HUD.
 Deduplication already uses Codex home plus the exact thread identity, not a global

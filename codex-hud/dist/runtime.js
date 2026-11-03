@@ -3,8 +3,9 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { get, configPath, loadConfig } from './config.js';
+import { get, configPath, loadConfig, startupEnabled } from './config.js';
 import { codexHome } from './sessions.js';
+import { readHostOrigin } from './psmux.js';
 const guid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function runtimeRoot() { return path.join(path.dirname(configPath()), 'runtime'); }
 function write(file, value) { const temp = file + '.' + randomUUID() + '.tmp'; try {
@@ -67,6 +68,8 @@ export function selectSessionId(explicit, environment = process.env) {
     return id;
 }
 export function buildTerminalArgs(d, window = 'last') {
+    if (!d.demo)
+        throw new Error('Windows Terminal cannot identify the exact source pane; a verified psmux host is required');
     if (!/^[a-zA-Z0-9_.-]{1,100}$/.test(window))
         throw new Error('Invalid Windows Terminal window ID or name');
     const entry = pathToFileURL(path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'cli.js')).href;
@@ -75,9 +78,7 @@ export function buildTerminalArgs(d, window = 'last') {
     const viewer = [...shared, 'watch', '--launch64', launch64];
     if (d.demo)
         return ['-w', 'mz-codex-hud-' + d.id, 'new-tab', '--title', 'Codex HUD Preview ' + d.id.slice(0, 8), '--suppressApplicationTitle', ...shared, 'demo-runner', '--launch64', launch64, ';', 'split-pane', '--horizontal', '--size', String(d.paneSize), '--title', 'Codex HUD', '--suppressApplicationTitle', ...viewer, ';', 'focus-pane', '-t', '0'];
-    if (!d.sessionId)
-        throw new Error('Select a Codex session before opening the HUD');
-    return ['-w', window, 'split-pane', '--horizontal', '--size', String(d.paneSize), '--title', 'Codex HUD', '--suppressApplicationTitle', ...viewer, ';', 'move-focus', 'up'];
+    throw new Error('A verified psmux host is required');
 }
 export function checkRuntime(options = {}) {
     let terminal = false;
@@ -87,13 +88,26 @@ export function checkRuntime(options = {}) {
     }
     catch { }
     const file = options.configFile ?? configPath();
-    let status = fs.existsSync(file) ? 'valid' : 'defaults', enabled = false;
+    let status = fs.existsSync(file) ? 'valid' : 'defaults', enabled = false, legacyEnabled = false;
     try {
-        enabled = !!get(loadConfig(file), 'startup.enabled');
+        const config = loadConfig(file);
+        enabled = startupEnabled(config);
+        legacyEnabled = !!get(config, 'startup.enabled');
     }
     catch {
         status = 'invalid';
     }
+    let configured = false;
+    try {
+        configured = !!get(loadConfig(file), 'host.psmuxPath');
+    }
+    catch { }
+    let origin = 'unavailable';
+    try {
+        readHostOrigin();
+        origin = 'present';
+    }
+    catch { }
     let display = { status: 'not-selected' };
     if (options.launchFile) {
         try {
@@ -117,5 +131,5 @@ export function checkRuntime(options = {}) {
             lastResult = result.status;
     }
     catch { }
-    return { node: process.version, terminal, hooksRequired: false, nativeStatusline: 'unchanged', autostart: { enabled, trigger: 'SessionStart', trust: 'unknown', hookFilesPresent: ['hooks/hooks.json', 'hooks/session-start.mjs', 'dist/autostart.js'].every(f => fs.existsSync(path.join(pluginRoot, f))), lastResult }, configuration: { status, path: file }, session: { status: current ? 'Codex environment available' : 'Select explicitly or start from inside Codex' }, display, notes: process.platform === 'win32' ? [] : ['Automatic split attachment requires native Windows Terminal'] };
+    return { node: process.version, terminal, hooksRequired: false, nativeStatusline: 'unchanged', host: { backend: 'psmux', configured, origin, verification: 'required-at-attach' }, autostart: { enabled, legacyEnabled, trigger: 'SessionStart', trust: 'unknown', hookFilesPresent: ['hooks/hooks.json', 'hooks/session-start.mjs', 'dist/autostart.js'].every(f => fs.existsSync(path.join(pluginRoot, f))), lastResult }, configuration: { status, path: file }, session: { status: current ? 'Codex environment available' : 'Select explicitly or start from inside Codex' }, display, notes: process.platform === 'win32' ? [] : ['Automatic split attachment requires native Windows and a verified psmux host'] };
 }

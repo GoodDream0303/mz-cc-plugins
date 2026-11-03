@@ -1,22 +1,48 @@
 # Codex HUD
 
-A configurable multiline companion pane for **native Windows Terminal**.
-It attaches to an existing Codex session. The native statusline stays intact.
+An independent companion HUD for each simultaneously running Codex in PowerShell
+WT tabs or separate PowerShell windows. The official CLI and native statusline
+remain intact. UI is English; task names retain their original language.
 
-**Automatically opens for each main Codex conversation through a minimal hook.**
-No replacement statusline, new Codex session, daemon override or model request.
+> This checkout contains the unreleased 0.4.0 exact-host implementation. Installed
+> 0.3.4 still has the WT MRU placement defect. Source tests and synthetic desktop
+> checks do not establish real Codex trust/shared-daemon acceptance or deployment.
 
-UI labels, menus and diagnostics default to English. Task/session names retain
-their original language. Model, reasoning effort, directory and session-name
-fields are off by default because Codex already shows them; their optional
-display settings remain configurable.
+## How automatic pairing works
 
-![Windows Terminal HUD preview](docs/hud-preview.png)
+After one-time setup, keep typing `codex` normally. A PowerShell function opens a
+unique psmux host inside that same tab/window and executes the verified official
+npm JavaScript entry or native executable once, preserving the original argv.
+Help, maintenance commands and non-TTY pipelines run without the terminal host.
 
-## Install from the Git marketplace
+Each source bootstrap opens its own waiting HUD before the first model turn.
+Native SessionStart later binds that source's main CLI metadata. The hook verifies
+the actual launched entry process incarnation, Codex ancestry, server/session,
+source pane and viewer pane; thread ID or `%1` alone never establishes ownership.
+Two frontends resuming the same conversation still have separate physical HUDs.
 
-Requires Node.js 20+ and native Windows Terminal on PATH. Version 0.3.1 ships
-its compiled runtime and TOML parser; installation needs no npm install or build.
+The backend does not use WT last/MRU, active tabs, titles, focus or newest logs.
+Unproven/ambiguous shared-daemon origins are refused. Default shared-service
+per-client propagation remains a real-acceptance gate; the plugin never adds
+`--no-daemon` or security/trust bypasses to make a test pass. Administrator
+Windows launches use the official CLI's own embedded behavior.
+
+Closing a HUD keeps its Codex running. A later valid main start/resume can reopen
+it. Source exit requests only its owned HUD to stop. Uncertain split outcomes
+block duplicate creation until their exact process/pane can be established.
+
+Existing ordinary PowerShell Codex processes cannot be moved retroactively into
+psmux. Apply setup to future launches, then verify the actual multi-session flow.
+
+## Installation and one-time PowerShell setup
+
+Requires native Windows, Node 20+, and verified portable psmux **3.4.0 build
+20aa1d7**. The fixed official ZIP SHA256 is
+`a66b6be7c13c6fa0dc3660a267b9e34eaa91a4eb7f07fbd55a0468018bd0f721`.
+See [the fixed release](https://github.com/psmux/psmux/releases/tag/v3.4.0).
+No global PATH changes or automatic dependency installation are performed.
+
+After the candidate has actually been published, use the formal marketplace:
 
 ```powershell
 codex plugin marketplace add GoodDream0303/mz-cc-plugins
@@ -24,126 +50,62 @@ codex plugin marketplace upgrade mz-cc-plugins
 codex plugin add codex-hud@mz-cc-plugins
 ```
 
-Start a new Codex session, then inspect `/hooks` and review/trust the command
-whose source is `codex-hud@mz-cc-plugins` and event is `SessionStart`. It may be
-listed by its command path rather than the display name "Codex HUD".
+Use the installed plugin's direct `node <plugin-root>/bin/hud.mjs` entry for the
+following operations; the optional global npm link can target older source.
+Do not silently replace the formal marketplace with a local installation.
 
-Version 0.3.2 also supports PowerShell hook execution. Its command starts with
-`node -e` and resolves PLUGIN_ROOT inside Node, so it works through both CMD and
-PowerShell. Review the updated hook command in `/hooks` when upgrading.
+1. Configure `host.psmuxPath` to the verified portable executable's absolute path.
+2. From each PowerShell 5/7 shell, resolve `$PROFILE.CurrentUserCurrentHost`.
+3. Preview `setup --profile <absolute-profile-path>`. Review the concrete block,
+   then explicitly apply with the same command plus `--apply`.
+4. Review/trust the current plugin SessionStart definition through native Codex
+   `/hooks`. Do not edit trust hashes. The binding stage is synchronous and bounded.
+5. Keep legacy `startup.enabled=false` while older sessions may still exist.
+   Enable only the 0.4 override `host.autoStart=enabled` when setup is ready; older
+   0.3.4 runtimes ignore it and remain paused. Its default `inherit` preserves
+   existing preferences; `disabled` explicitly pauses the exact-host path.
+6. Open new PowerShell tabs/windows and type `codex`; verify each real source.
 
-For the earlier development install, first remove only
-`codex-hud@mz-codex-plugins` and its local `mz-codex-plugins` marketplace using
-`codex plugin remove` and `codex plugin marketplace remove`. Then install from
-the Git marketplace above. The HUD configuration in LOCALAPPDATA is retained;
-task-handoff and the Claude marketplace retain their existing identities.
+Setup preserves existing profile content/encoding and refuses modified managed
+blocks or conflicting functions/aliases. `setup --profile ... --remove --apply`
+removes only its own verified block. Cache upgrades are checked against the
+installed-version selection: an obsolete retained loader reports that setup must
+be regenerated, rather than silently using old code. Deleted paths fail visibly.
 
-Inside Codex, use `$hud-doctor`, `$hud-configure`, or `$hud-start`. The global
-`mz-codex-hud.cmd` commands below require a separate optional npm link; installing
-a Codex plugin does not add a global command to PATH.
+No prompts, invocation arguments, command output, credentials or environment dumps
+are persisted in HUD state. Bindings contain only allowlisted identity/lifecycle
+metadata. Official Codex shims, approval/sandbox/daemon settings and WT settings
+are unchanged. No automatic model request is made for setup or self-test.
 
-## Automatic opening (default)
-
-After installing the plugin, open Codex `/hooks` and review/trust its SessionStart
-hook. Exit and open Codex again after the first trust review.
-Future main-session startups, resumes, new conversations and forks add the companion pane
-when Codex dispatches SessionStart. In Codex 0.166.0 this is on the first turn
-path, so do not expect an idle, never-used TUI to split immediately on opening.
-
-The hook is asynchronous and emits no stdout or model/developer context. It
-uses the supplied transcript metadata, skips subagents/non-CLI/compact events,
-and does not create a second display for an already open or pending session.
-Manual attachment remains available without trusting hooks.
-
-Each different conversation gets its own HUD, including conversations in the
-same directory and Codex home. Deduplication applies only to that exact
-conversation; another conversation's HUD never suppresses its launch. Version
-0.3.4 covers all main `SessionStart` sources: `startup`, `resume`, `clear`, `fork`.
-Subagents remain excluded by event and transcript identity checks.
-
-Existing Codex instances opened before the plugin was installed do not replay
-past start events. Invoke `$hud-start` once inside each such conversation, or
-restart/resume it after loading and trusting the plugin. Run attachment from
-the conversation being displayed so its Codex-provided identity is used.
-As with other plugin upgrades, review changed hooks in native `/hooks`.
+## Commands and diagnostics
 
 ```powershell
-mz-codex-hud.cmd config set startup.enabled false
-mz-codex-hud.cmd config set startup.enabled true
-mz-codex-hud.cmd config set startup.window last
+node "<plugin-root>/bin/hud.mjs" doctor
+node "<plugin-root>/bin/hud.mjs" start
+node "<plugin-root>/bin/hud.mjs" setup --profile "<absolute-profile-path>"
+node "<plugin-root>/bin/hud.mjs" config set host.psmuxPath '"C:/portable/psmux.exe"'
 ```
 
-Autostart targets the most recently active Terminal window by default. Set
-`startup.window` to a known window ID/name when a fixed target is preferred.
-Closing a HUD keeps Codex running; the next startup/resume may open it again.
+`start` reopens/reuses the HUD only from the current proven Codex host, with main
+CLI provenance. `--session` must name that current conversation. A WT window name
+cannot identify a pane, so `--window` and legacy `startup.window` no longer route
+real attachments. The latter is preserved only for configuration compatibility.
 
-From inside Codex, invoke `$hud-start` or run:
+`doctor` reports backend configuration, presence of origin metadata and the need
+for live proof separately. `origin: present` is not a verified ownership claim.
+`once --session <ID>` can inspect explicit telemetry, but is not a placed HUD.
+`watch` remains available for manual rendering; `demo` uses an isolated preview.
 
-```powershell
-mz-codex-hud.cmd start
-```
+The initial HUD height uses the exact source pane's geometry and configured
+content. It runs only at creation; later wrapping/paging preserves manual resizing.
+Use q/Ctrl+C to close the HUD, or `stop --launch <launch-id>` to request its exit.
 
-The HUD uses `CODEX_THREAD_ID` supplied to Codex tool processes, falling back to
-`CODEX_SESSION_ID`. It does not parse visible statusline text or guess the newest
-conversation. No session ID is displayed by the HUD.
+## Source development
 
-## Initial pane height
-
-Version 0.3.3 fits the initial split to the selected session's configured content.
-It uses the real parent console width/height, counts wrapped display rows, and
-allows two rows for padding and cell rounding. `terminal.paneSize` is the maximum
-fraction in this mode; the upper pane keeps ten rows when the window permits.
-
-This runs only when opening the HUD. Later content changes use wrapping/paging,
-and manual divider adjustments are retained. Windows Terminal does not expose a
-supported command to continuously resize a specific existing pane.
-
-Set `terminal.autoHeight` to `false` to use the configured fraction directly.
-Missing console geometry or session telemetry, explicit target windows, and demo
-windows retain that fraction because their exact target size is not established.
-The viewport helper reads console geometry only; it never sends keys, moves the
-mouse, changes Terminal settings, or resizes an existing window.
-
-Empty activity rows are omitted until facts are observed. MCP shows configured
-or called servers, without claiming connectivity. Completed plans show an
-explicit completion message, and stale/error warnings remain visible when paging.
-
-From an ordinary terminal without this environment, explicitly supply the ID
-from the native statusline or use interactive selection:
-
-```powershell
-mz-codex-hud.cmd start --session YOUR_SESSION_ID
-mz-codex-hud.cmd list
-mz-codex-hud.cmd watch --session YOUR_SESSION_ID
-```
-
-`start` adds a lower pane to the most recently active Windows Terminal window.
-With several windows, explicitly target a known window name/ID using `--window`.
-It does not start or configure Codex, change security settings, or edit statusline.
-Codex launch arguments after `--` are not accepted.
-
-Close only the HUD with q, Ctrl+C, or `stop --launch LAUNCH_ID`. In passive mode,
-closing Codex does not automatically close its companion pane. Close that pane
-or the whole Terminal window normally.
-
-## Local plugin installation
-
-From the repository root:
-
-```powershell
-codex plugin marketplace add .
-codex plugin add codex-hud@mz-cc-plugins
-```
-
-The Codex marketplace is `.agents/plugins/marketplace.json`, separate from the
-original Claude marketplace. Both retain the market name `mz-cc-plugins`; the
-Codex catalog lists task-handoff and codex-hud. The HUD registers one asynchronous SessionStart
-hook for main conversation starts. Skills: `$hud-start`, `$hud-configure`, `$hud-doctor`.
-Published Git packages include `dist/` and do not need a build in the cache.
-
-For source development, run `npm ci --ignore-scripts` and `npm run build` in
-`codex-hud/`. The build also copies the pinned parser and its BSD license into
-`dist/vendor/`. Commit regenerated `dist/` files with their source changes.
+Run `npm ci --ignore-scripts`, `npm run build`, and `npm test` in `codex-hud/`.
+Published packages include dist and the pinned TOML parser/license, without a
+runtime build or node_modules requirement. Commit regenerated dist with source.
+Daily changes are not automatically published or applied to user profiles.
 
 ## Configuration
 
@@ -173,15 +135,17 @@ See [configuration compatibility](docs/compatibility.md).
 ## Preview and checks
 
 ```powershell
-mz-codex-hud.cmd demo
+node bin/hud.mjs demo
 npm test
-powershell -NoProfile -File ./scripts/smoke-terminal.ps1
-powershell -NoProfile -File ./scripts/smoke-autostart.ps1
+node scripts/smoke-host.mjs --psmux "C:/portable/psmux.exe"
+node scripts/smoke-entry-gui.mjs --psmux "C:/portable/psmux.exe"
 ```
 
-The demo uses synthetic telemetry and makes no model request.
-See [validation](docs/validation.md).
+Both smoke scripts explicitly use synthetic CLI/telemetry fixtures. The desktop
+script opens uniquely named temporary test windows and runs the real PowerShell
+entry and production backend. Neither starts official Codex or requests a model.
+See [validation](docs/validation.md) for actual evidence and remaining gates.
 
-Remove the plugin with `codex plugin remove codex-hud@mz-cc-plugins`.
-Remove an explicitly installed global link with `npm uninstall -g mz-codex-hud`.
-User configuration is retained.
+Remove the plugin with `codex plugin remove codex-hud@mz-cc-plugins` after removing
+the authorized PowerShell loader blocks. Remove an explicitly installed global
+npm link separately. User display configuration is retained.

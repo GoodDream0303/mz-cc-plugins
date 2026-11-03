@@ -1,0 +1,25 @@
+{
+  "scope": "Synthetic CLI/data, production backend and actual PowerShell/WT processes; not official Codex acceptance",
+  "node24Tests": 100,
+  "node20Version": "20.19.0",
+  "node20Tests": 100,
+  "psmuxVersion": "3.4.0",
+  "psmuxBuild": "20aa1d7",
+  "legacyPaused": true,
+  "exactHostOverride": "enabled",
+  "files": {
+    ".gitattributes": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da",
+    "desktop-summary.json": "095d28201e5a60ab5385e82d3753b4d951c8fc6efbc39135e1000c00dd80b347",
+    "native-split.png": "f18b834d84db45d92267fd65d4d636da258bdef6187402ea2e32e9835dc20ff8",
+    "production-summary.json": "9995729a47209ab5852460e370b41d56208cab003816ccff35734ee0e01e5357",
+    "tab-A.png": "ad61a68028a1adb09274b7d3c39018daee977dcb14a9af5b008df0ce41941243",
+    "tab-B.png": "72b848bca194016eea71f02e7338504d6de34c3423d245e5f51091533a8f1352",
+    "window-C.png": "1cf7807c1f59af809b76fab25143775222685a5956912277dd60933447b5df5b",
+    "window-D.png": "e6397461c2542109b984a35cd4e9bbcfe6e1d066cd5ac7a6a4c03bbf147e9f72"
+  },
+  "legacyCompatibility": {
+    "runtime": "0.3.4",
+    "status": "disabled",
+    "newOverrideEnabled": true
+  }
+}

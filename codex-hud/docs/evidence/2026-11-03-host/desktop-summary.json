@@ -1,0 +1,31 @@
+{
+  "verdict": "PASS_SYNTHETIC_DESKTOP_ENTRY",
+  "root": "<isolated-temp>/hud-entry-desktop-t3HVvw",
+  "ownedWindows": {
+    "tabs": "mzhud-tabs-fb285b28",
+    "C": "mzhud-window-C-fb285b28",
+    "D": "mzhud-window-D-fb285b28",
+    "split": "mzhud-split-fb285b28"
+  },
+  "titles": {
+    "A": "HUD TEST A fb285b28",
+    "B": "HUD TEST B fb285b28",
+    "C": "HUD TEST C fb285b28",
+    "D": "HUD TEST D fb285b28",
+    "L": "HUD TEST L fb285b28",
+    "R": "HUD TEST R fb285b28"
+  },
+  "checks": [
+    "PS5 and PS7 bare codex entries create two independent HUDs in real WT tabs",
+    "B remains selected while background A recreates its exact HUD; B geometry unchanged",
+    "two separately opened PowerShell windows each run bare codex with their own HUD (PS5/PS7)",
+    "native WT split preserves active right neighbour geometry/focus while left recreates its own HUD"
+  ],
+  "limitations": [
+    "Synthetic npm package and renamed Node codex.exe fixture; not official Codex trust/daemon/input acceptance."
+  ],
+  "startup": {
+    "legacyEnabled": false,
+    "exactHost": "enabled"
+  }
+}

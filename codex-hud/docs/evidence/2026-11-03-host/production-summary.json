@@ -1,0 +1,19 @@
+{
+  "verdict": "PASS_SYNTHETIC_PRODUCTION_BACKEND",
+  "root": "<isolated-temp>/hud-production-host-0nkJPu",
+  "checks": [
+    "killed a reported viewer before acknowledgement; source recovered only after exact absence proof",
+    "two real source owners each open an independent waiting HUD before a hook",
+    "native hook process ancestry binds A20% and B70% independently (synthetic CLI)",
+    "same thread in two source owners retains two displays; rebind does not duplicate",
+    "closing/reopening one HUD keeps the other source and display alive",
+    "source exit closes only its owned display"
+  ],
+  "limitations": [
+    "Renamed Node fixture, not official Codex; real hook trust/default shared-daemon behavior and actual interactive desktop use remain unverified."
+  ],
+  "startup": {
+    "legacyEnabled": false,
+    "exactHost": "enabled"
+  }
+}
