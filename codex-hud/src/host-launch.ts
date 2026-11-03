@@ -8,6 +8,8 @@ import {readHostOrigin,proveOwner} from './psmux.js';
 import {registerHost,ensureHostDisplay,readHost,closeHost,registerCurrentFrontend} from './host-session.js';
 import {assertActiveEntry} from './entry-install.js';
 import {verifyBackend} from './backend-version.js';
+import {resolveOfficial} from './entry-resolver.js';
+export {resolveOfficial} from './entry-resolver.js';
 
 export interface CodexInvocation {command:string;args:string[]}
 const commands=new Set(['agents','exec','e','review','login','logout','mcp','mcp-server','plugin','app-server','remote-control','app','completion','update','doctor','sandbox','debug','apply','a','queue','archive','delete','migrate-rollouts','migrate-nfs-db','unarchive','cloud','cloud-tasks','execpolicy','tcp-tunnel','responses-api-proxy','stdio-to-uds','exec-server','features','help']);
@@ -33,18 +35,6 @@ export function decodeInvocation(encoded:string|undefined):CodexInvocation {
  const value=JSON.parse(Buffer.from(encoded,'base64').toString('utf8'));
  if(!value||typeof value.command!=='string'||!path.isAbsolute(value.command)||!Array.isArray(value.args)||!value.args.every((v:unknown)=>typeof v==='string'&&!v.includes('\0')))throw new Error('Invalid Codex invocation');
  return {command:value.command,args:value.args};
-}
-export function resolveOfficial(command:string):{file:string;prefix:string[]} {
- const resolved=fs.realpathSync(command);if(path.extname(resolved).toLowerCase()==='.exe')return {file:resolved,prefix:[]};
- // Follow the verified npm package entry, not a shell command string. This also
- // preserves empty/quoted arguments on PowerShell 5, whose native argv is lossy.
- if(!['.ps1','.cmd'].includes(path.extname(resolved).toLowerCase()))throw new Error('Unsupported official Codex launcher; select its native executable or npm PowerShell shim');
- const directory=path.dirname(resolved),root=path.join(directory,'node_modules','@openai','codex'),manifest=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8'));
- const entry=typeof manifest.bin==='string'?manifest.bin:manifest.bin?.codex;
- if(manifest.name!=='@openai/codex'||typeof entry!=='string')throw new Error('Codex npm entry ownership is not established');
- const script=fs.realpathSync(path.resolve(root,entry)),relative=path.relative(fs.realpathSync(root),script);
- if(relative.startsWith('..')||path.isAbsolute(relative)||path.extname(script)!=='.js')throw new Error('Invalid official Codex npm entry');
- const adjacent=path.join(directory,'node.exe');return {file:fs.existsSync(adjacent)?adjacent:process.execPath,prefix:[script]};
 }
 async function foreground(file:string,args:string[],env:NodeJS.ProcessEnv):Promise<number> {
  const child=spawn(file,args,{env,stdio:'inherit',windowsHide:false});

@@ -8,6 +8,8 @@ import { readHostOrigin, proveOwner } from './psmux.js';
 import { registerHost, ensureHostDisplay, readHost, closeHost, registerCurrentFrontend } from './host-session.js';
 import { assertActiveEntry } from './entry-install.js';
 import { verifyBackend } from './backend-version.js';
+import { resolveOfficial } from './entry-resolver.js';
+export { resolveOfficial } from './entry-resolver.js';
 const commands = new Set(['agents', 'exec', 'e', 'review', 'login', 'logout', 'mcp', 'mcp-server', 'plugin', 'app-server', 'remote-control', 'app', 'completion', 'update', 'doctor', 'sandbox', 'debug', 'apply', 'a', 'queue', 'archive', 'delete', 'migrate-rollouts', 'migrate-nfs-db', 'unarchive', 'cloud', 'cloud-tasks', 'execpolicy', 'tcp-tunnel', 'responses-api-proxy', 'stdio-to-uds', 'exec-server', 'features', 'help']);
 const values = new Set(['-c', '--config', '--enable', '--disable', '--remote', '--remote-auth-token-env', '-m', '--model', '--local-provider', '-p', '--profile', '-s', '--sandbox', '-C', '--cd', '--add-dir', '-a', '--ask-for-approval']);
 const flags = new Set(['--strict-config', '--oss', '--approve-for-me', '--dangerously-bypass-approvals-and-sandbox', '--dangerously-bypass-hook-trust', '--yolo', '--not-so-yolo', '--worktree', '--search', '--no-alt-screen', '--no-daemon', '--last', '--all', '--include-non-interactive']);
@@ -52,24 +54,6 @@ export function decodeInvocation(encoded) {
     if (!value || typeof value.command !== 'string' || !path.isAbsolute(value.command) || !Array.isArray(value.args) || !value.args.every((v) => typeof v === 'string' && !v.includes('\0')))
         throw new Error('Invalid Codex invocation');
     return { command: value.command, args: value.args };
-}
-export function resolveOfficial(command) {
-    const resolved = fs.realpathSync(command);
-    if (path.extname(resolved).toLowerCase() === '.exe')
-        return { file: resolved, prefix: [] };
-    // Follow the verified npm package entry, not a shell command string. This also
-    // preserves empty/quoted arguments on PowerShell 5, whose native argv is lossy.
-    if (!['.ps1', '.cmd'].includes(path.extname(resolved).toLowerCase()))
-        throw new Error('Unsupported official Codex launcher; select its native executable or npm PowerShell shim');
-    const directory = path.dirname(resolved), root = path.join(directory, 'node_modules', '@openai', 'codex'), manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-    const entry = typeof manifest.bin === 'string' ? manifest.bin : manifest.bin?.codex;
-    if (manifest.name !== '@openai/codex' || typeof entry !== 'string')
-        throw new Error('Codex npm entry ownership is not established');
-    const script = fs.realpathSync(path.resolve(root, entry)), relative = path.relative(fs.realpathSync(root), script);
-    if (relative.startsWith('..') || path.isAbsolute(relative) || path.extname(script) !== '.js')
-        throw new Error('Invalid official Codex npm entry');
-    const adjacent = path.join(directory, 'node.exe');
-    return { file: fs.existsSync(adjacent) ? adjacent : process.execPath, prefix: [script] };
 }
 async function foreground(file, args, env) {
     const child = spawn(file, args, { env, stdio: 'inherit', windowsHide: false });
