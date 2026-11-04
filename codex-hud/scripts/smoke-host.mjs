@@ -62,6 +62,7 @@ if(process.argv[2]==='--fixture'){
    const id=randomUUID(),namespace='mzhudsmoke'+role+id.replaceAll('-','').slice(0,16),dataDir=path.join(root,'state',role),env={...process.env};for(const key of Object.keys(env))if(/^TMUX|^PSMUX_/i.test(key))delete env[key];
    const roleConfig=role==='A'?configFileA:configFile;
    Object.assign(env,{MZ_HUD_ORIGIN:id,MZ_HUD_NAMESPACE:namespace,MZ_HUD_HOST_DIR:hostDir,MZ_HUD_PSMUX:binary,MZ_HUD_CONFIG_FILE:roleConfig,PSMUX_DATA_DIR:dataDir,PSMUX_CONFIG_FILE:config,PSMUX_NO_WARM:'1',LOCALAPPDATA:path.join(root,'local'),CODEX_HOME:codexHome});
+   if(role==='A'&&process.argv.includes('--obsolete-backend'))env.MZ_HUD_PSMUX=path.join(codexHome,'plugins/cache/mz-cc-plugins/codex-hud/0.0.0-removed/backend/psmux.exe');
    if(role==='A'&&process.argv.includes('--kill-first-viewer'))env.NODE_OPTIONS='--import='+new URL('file:///'+preload.replaceAll('\\','/')).href;
    roles.set(role,{id,namespace,env});const encoded=Buffer.from(JSON.stringify({command:fake,args:[self,'--fixture',role,root,process.execPath]})).toString('base64');
    command(role,['new-session','-d','-s','codex','-x','120','-y','40','-c',cwd,'--',process.execPath,path.join(product,'bin/hud.mjs'),'host-owner','--invocation64',encoded,'--config',roleConfig]);
@@ -71,6 +72,7 @@ if(process.argv[2]==='--fixture'){
    }else await ready(role);
   }
   const a=descriptor('A'),b=descriptor('B');assert.equal(a.sessionId,undefined);assert.equal(b.sessionId,undefined);assert.notEqual(a.id,b.id);assert.notEqual(a.host.proof.server.pid,b.host.proof.server.pid);checks.push('two real source owners each open an independent waiting HUD before a hook');
+  if(process.argv.includes('--obsolete-backend')){assert.ok(!fs.existsSync(a.host.proof.origin.binary));checks.push('removed package-managed backend path attaches using the verified current bundle while retaining the original host proof');}
   geometry('A');const untouchedB=geometry('B');checks.push('both HUDs start at six rows with the backend-specific separator geometry');
   if(backend.kind==='compact'){
    command('A',['resize-window','-t','codex','-x','120','-y','60']);command('A',['resize-pane','-t',a.host.hudPane,'-y','6']);geometry('A');

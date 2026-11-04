@@ -1,6 +1,7 @@
 import path from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
+import {effectiveBackendPath} from './backend-version.js';
 
 export interface ProcessFact {pid:number;parentPid:number;name:string;startedAt:string}
 export interface HostOrigin {binary:string;dataDir:string;hostDir:string;namespace:string;tmux:string;session:string;pane:string;originId:string}
@@ -42,7 +43,9 @@ export class PsmuxClient {
   const argv=['-L',this.origin.namespace,...args];if(this.dependencies.run)return this.dependencies.run(argv);
   const env={...process.env,TMUX:this.origin.tmux,TMUX_PANE:this.origin.pane,PSMUX_SESSION:this.origin.session,PSMUX_DATA_DIR:this.origin.dataDir};
   for(const key of ['PSMUX_TARGET_SESSION','PSMUX_TARGET_FULL','PSMUX_SESSION_NAME','PSMUX_ROUTE_WARM'])delete env[key as keyof typeof env];
-  return execFileSync(this.origin.binary,argv,{env,encoding:'utf8',windowsHide:true,timeout:5000,maxBuffer:65536,stdio:['ignore','pipe','pipe']});
+  const binary=effectiveBackendPath(this.origin.binary);
+  if(!binary)throw new Error('A verified packaged backend is required for this host');
+  return execFileSync(binary,argv,{env,encoding:'utf8',windowsHide:true,timeout:5000,maxBuffer:65536,stdio:['ignore','pipe','pipe']});
  }
  pane(id:string):PaneFact {
   if(!panePattern.test(id))throw new Error('Invalid exact pane target');

@@ -5,6 +5,11 @@ WT tabs or separate PowerShell windows. The official CLI and native statusline
 remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
 task names retain their original language.
 
+> Version 0.6.1 also lets new clients reopen an existing verified host after its
+> old package cache has been removed. Package-managed backend paths follow the
+> current checksum-verified bundle; explicit portable paths stay explicit, and
+> server/process/pane ownership checks remain required.
+>
 > Version 0.6.0 adds guided first-use setup, optional continuous content height,
 > correlated agent lifecycle and actual model labels, and live tool status.
 > Existing fixed/manual sizing is preserved; enable `terminal.dynamicHeight`

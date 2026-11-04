@@ -1,5 +1,22 @@
 # Validation: exact per-source HUD
 
+## 0.6.1: reopening a live host after package-cache replacement — 2026-11-04
+
+The actual formal 0.5.2 -> 0.6.0 update removed the old cache while this Codex
+source remained alive. Its registered origin still named that removed backend;
+the installed 0.6.0 `start --dry-run` reproduced ENOENT. The new client now uses
+the existing package-managed backend resolver for command execution, preserving
+the immutable origin/proof, exact endpoint and all ownership checks. Explicit
+portable paths and paths outside the current Codex home's HUD cache stay explicit.
+
+The development CLI then passed `start --dry-run` against the same real source.
+The patch's full `npm test` run passed 193/193 on Node 24.15.0.
+`smoke-host.mjs --dynamic-height --obsolete-backend` passed 13 native synthetic
+checks, including an absent old package backend path, independent sources,
+live 3/6/3 height, tool transitions and agent model retention. The narrow fix was
+independently reviewed without a remaining finding. This does not claim a new
+real model session or complete fresh-machine acceptance.
+
 ## 0.6.0: onboarding, live height and activity — 2026-11-04
 
 The following implementation checks preceded publication. No live profile
