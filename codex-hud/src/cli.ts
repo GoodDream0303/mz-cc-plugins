@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import {execFileSync} from 'node:child_process';
+import {emitKeypressEvents} from 'node:readline';
 import {createInterface} from 'node:readline/promises';
 import {setTimeout as delay} from 'node:timers/promises';
 import {configPath,defaultConfig,get,importClaude,loadConfig,saveConfig,set,type Config} from './config.js';
@@ -23,9 +24,6 @@ import {inspectSetup} from './setup-readiness.js';
 import {sessionMetadata,isMainSession} from './autostart.js';
 import {DynamicHeightController} from './dynamic-height.js';
 import {AgentSessionTracker} from './agent-sessions.js';
-import {HudSelection} from './selection.js';
-import {copyHudText} from './clipboard.js';
-import {HudInput} from './input.js';
 
 function option(args:string[],key:string):string|undefined{const i=args.indexOf(key);return i>=0?args[i+1]:args.find(v=>v.startsWith(key+'='))?.slice(key.length+1);}
 function launchFile(args:string[]):string|undefined{const encoded=option(args,'--launch64');return encoded?Buffer.from(encoded,'base64').toString('utf8'):option(args,'--launch');}
@@ -45,22 +43,12 @@ async function watch(args:string[],once=false):Promise<void>{
  let selected=descriptor?.host?descriptor.sessionId:descriptor?.sessionId??selectSessionId(option(args,'--session'));if(!selected&&!descriptor?.host)selected=await chooseSession(root);
  if(descriptor?.host&&!once){acknowledgeViewer(ownedFile!);descriptor=readLaunch(ownedFile!);}
  let cfgFile=descriptor?.configFile??configFile(args),config=loadConfig(cfgFile);let page=0,quit=false,reader:SessionReader|undefined,nextDiscover=0,nextOwnerCheck=0,knownPath='',statusMessage='';let lastSnapshot=emptySnapshot(selected??'pending');
- const selection=new HudSelection();let lastPaint='',clipboardError='';
- const paint=(lines:string[])=>{const text=lines.join('\r\n');if(text!==lastPaint){process.stdout.write('\x1b[H\x1b[2J'+text);lastPaint=text;}};
- const onMouse=(data:string)=>{if(selection.feed(data))paint(selection.paint());};
- const onKey=(_:unknown,key:{name?:string;ctrl?:boolean;sequence?:string})=>{
-  if(key?.name==='q'){quit=true;return;}
-  if(key?.name==='escape'){selection.clear();lastPaint='';return;}
-  if(key?.name==='c'&&key.ctrl){const text=selection.text();if(text)try{copyHudText(text);clipboardError='';}catch{selection.clear();lastPaint='';clipboardError='Clipboard copy failed; select again and retry';}return;}
-  if(selection.active)return;
-  if(key?.name==='right'||key?.name==='n')page++;else if(key?.name==='left'||key?.name==='p')page=Math.max(0,page-1);
- };
- const input=new HudInput(onMouse,onKey),onData=(data:Buffer)=>input.feed(data);
+ const onKey=(_:unknown,key:{name?:string;ctrl?:boolean})=>{if(key?.name==='q')quit=true;else if(key?.name==='right'||key?.name==='n')page++;else if(key?.name==='left'||key?.name==='p')page=Math.max(0,page-1);};
  const interactive=!once&&!!process.stdin.isTTY;
  const dynamicHeight=new DynamicHeightController();
  const agentSessions=new AgentSessionTracker(root);
- if(interactive){process.stdin.setRawMode(true);process.stdin.on('data',onData);process.stdin.resume();}
- if(!once&&process.stdout.isTTY)process.stdout.write('\x1b[?1049h\x1b[?25l\x1b[?1002h\x1b[?1006h');
+ if(interactive){emitKeypressEvents(process.stdin);process.stdin.setRawMode(true);process.stdin.on('keypress',onKey);process.stdin.resume();}
+ if(!once&&process.stdout.isTTY)process.stdout.write('\x1b[?1049h\x1b[?25l');
  if(descriptor&&!descriptor.demo)updateLaunch(ownedFile!,d=>{d.state='running';d.pid=process.pid;d.heartbeat=Date.now();});
  try{
   do{
@@ -90,17 +78,15 @@ async function watch(args:string[],once=false):Promise<void>{
    if(reader)await agentSessions.refresh(snapshot,reader);
    if(snapshot.cwd)snapshot.environment=readEnvironment(snapshot.cwd,home);
    if(statusMessage)snapshot.errors.push(statusMessage);
-   if(clipboardError)snapshot.errors.push(clipboardError);
    const width=Number(option(args,'--width'))||process.stdout.columns||100,color=!args.includes('--no-color')&&!!process.stdout.isTTY;
    let rows=once?1000:process.stdout.rows||12,result=render(snapshot,config,{width,height:rows,page,color});
-   selection.frame(result.lines,width,rows);
-   if(!once&&process.stdout.isTTY&&descriptor?.host&&!selection.active){
+   if(!once&&process.stdout.isTTY&&descriptor?.host){
     try{const fitted=dynamicHeight.fit(descriptor,config,result.totalLines);if(fitted!==undefined)rows=fitted;result=render(snapshot,config,{width,height:rows,page,color,showPager:!dynamicHeight.awaitingGrowth});}
     catch{snapshot.errors.push('Automatic height unavailable; keeping the current pane size');result=render(snapshot,config,{width,height:rows,page,color});}
    }
-   if(descriptor&&!descriptor.demo)updateLaunch(ownedFile!,d=>{d.heartbeat=Date.now();d.viewport={columns:process.stdout.columns??100,rows,contentRows:result.totalLines,pages:result.pages,copying:selection.active};});
+   if(descriptor&&!descriptor.demo)updateLaunch(ownedFile!,d=>{d.heartbeat=Date.now();d.viewport={columns:process.stdout.columns??100,rows,contentRows:result.totalLines,pages:result.pages};});
    if(args.includes('--json'))console.log(JSON.stringify(snapshot));else{
-    if(!once&&process.stdout.isTTY){selection.frame(result.lines,width,rows);paint(selection.active?selection.paint():result.lines);}
+    if(!once&&process.stdout.isTTY)process.stdout.write('\x1b[H\x1b[2J'+result.lines.join('\r\n'));
     else console.log(result.lines.join('\n'));
    }
    if(once)break;
@@ -108,8 +94,8 @@ async function watch(args:string[],once=false):Promise<void>{
    await delay(get(config,'terminal.refreshMs'));
   }while(!quit);
  }finally{
-  input.close();if(interactive){process.stdin.off('data',onData);process.stdin.setRawMode(false);process.stdin.pause();}
-  if(!once&&process.stdout.isTTY)process.stdout.write('\x1b[?1002l\x1b[?1006l\x1b[0m\x1b[?25h\x1b[?1049l');
+  if(interactive){process.stdin.off('keypress',onKey);process.stdin.setRawMode(false);process.stdin.pause();}
+  if(!once&&process.stdout.isTTY)process.stdout.write('\x1b[0m\x1b[?25h\x1b[?1049l');
   if(descriptor&&!descriptor.demo)updateLaunch(ownedFile!,d=>{d.state='exited';d.exitCode=0;});
  }
 }

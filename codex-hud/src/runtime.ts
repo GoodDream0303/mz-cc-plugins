@@ -12,7 +12,7 @@ import {inspectSetup,type InspectSetupOptions,type SetupReadiness} from './setup
 export interface LaunchDescriptor {
  kind:'mz-codex-hud/1'|'mz-codex-hud/2';id:string;file:string;cwd:string;codexHome:string;configFile:string;createdAt:string;
  state:'created'|'running'|'exited';sessionId?:string;heartbeat?:number;pid?:number;
- exitCode?:number;hudStop?:boolean;paneSize:number;initialSizing?:InitialPaneSize;viewport?:{columns:number;rows:number;contentRows:number;pages:number;copying?:boolean};demo?:boolean;demoDurationMs?:number;sessionsRoot?:string;transcriptPath?:string;
+ exitCode?:number;hudStop?:boolean;paneSize:number;initialSizing?:InitialPaneSize;viewport?:{columns:number;rows:number;contentRows:number;pages:number};demo?:boolean;demoDurationMs?:number;sessionsRoot?:string;transcriptPath?:string;
  host?:{recordFile:string;proof:HostProof;phase:'opening'|'running'|'uncertain'|'closed';reportedPane?:string;hudPane?:string;hudProcess?:ProcessFact};
 }
 const guid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

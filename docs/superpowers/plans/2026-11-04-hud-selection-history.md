@@ -1,5 +1,32 @@
 # Persistent HUD selection, recent tool history and old-viewer recovery
 
+## Superseding rollback for 0.7.2
+
+The user requested restoring native terminal selection after trying 0.7.1.
+Restore the watch loop and runtime viewport interface to the 0.7.0 baseline;
+remove mouse ownership, the frozen selection, explicit clipboard writes and the
+custom input decoder. Keep truthful current/recent tool history and the accepted
+completion-timestamp fix. The original selection plan below records the prior
+release and is superseded by this rollback.
+
+`watch-terminal.test.mjs` exercises the real watch loop with an in-memory TTY:
+mouse reporting must remain disabled and Ctrl+C must keep the viewer alive until
+q is pressed. It failed before the rollback and passed after it. Full Node24
+verification passed 227/227; the independent rollback review found no Important
+or Critical issues.
+Node20 affected checks passed 60/60. The production-backend native smoke passed
+16 checks, including Ctrl+C/q behavior and exact viewer respawn; report:
+`C:/Users/mzzhu2/AppData/Local/Temp/hud-production-host-G86aM0/summary.json`.
+
+Three fresh production hosts exited with frontend status 1 before a SessionStart
+binding. Their HUD viewers then stopped cleanly. Read-only startup log inspection
+found model-list request timeouts and remote-plugin catalog network failures,
+without an identified fatal initialization error. These observations do not prove
+the startup cause. A user-run direct official launch with `--no-alt-screen`
+succeeded; the hosted path must be checked again after the rollback is installed.
+Do not replace the official CLI, edit daemon/security/hook-trust settings, retry a
+failed official session automatically, or resurrect closed hosts.
+
 ## Evidence and scope
 
 - Reported failed exec_command entries have real exit_code=1; the logged failures

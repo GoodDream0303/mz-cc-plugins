@@ -1,6 +1,6 @@
 {
   "name": "codex-hud",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "Independent per-Codex HUDs for PowerShell tabs and windows.",
   "author": {
     "name": "mzzhu2"
