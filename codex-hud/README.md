@@ -5,6 +5,11 @@ WT tabs or separate PowerShell windows. The official CLI and native statusline
 remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
 task names retain their original language.
 
+> Version 0.6.2 keeps Ctrl+C from closing the HUD, suppresses the pager during
+> pending automatic growth, and fills missing parent agent completion events
+> from exact child-session lifecycle metadata after checking parent and timing.
+> Ordinary messages do not start a new agent turn; q still closes the viewer.
+>
 > Version 0.6.1 also lets new clients reopen an existing verified host after its
 > old package cache has been removed. Package-managed backend paths follow the
 > current checksum-verified bundle; explicit portable paths stay explicit, and
@@ -244,7 +249,10 @@ waits at least two seconds to avoid flicker. With this option off (the compatibi
 default), later wrapping/paging preserves manual sizing; with it on, content
 fitting resumes after a manual drag. Additional internal panes or changed host
 identity stop automatic resizing and leave the existing size in place.
-Use q/Ctrl+C to close the HUD, or `stop --launch <launch-id>` to request its exit.
+While a verified growth is pending, the HUD clips to its current viewport without
+showing a temporary pager. Genuine overflow at the size cap still shows paging.
+Use q to close the HUD, or `stop --launch <launch-id>` to request its exit.
+Ctrl+C does not close the HUD; terminal selection/copy shortcuts remain available.
 
 ## Source development
 
@@ -283,6 +291,11 @@ metadata is shown as `status not reported`; prompt and result bodies are discard
 Each agent also shows its reported actual model. The requested or parent model
 does not override resolved spawn/activity metadata; absent data is displayed as
 `model not reported`. Later completion updates keep the last reported model.
+If the parent misses a completion notification, active agents can be reconciled
+with their exact child session logs. The recorded parent must match, and an old
+child completion cannot undo a newer task request. This reads lifecycle/model
+metadata, not message bodies or agent-service APIs. Sending an ordinary message
+does not imply that an idle agent started working again.
 Tool activity refreshes from the same incremental log reader (every second by
 default). Running calls stay visible ahead of recent completions; yielded command
 sessions remain running until a final process/poll result. Symbols distinguish

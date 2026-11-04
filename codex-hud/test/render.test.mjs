@@ -23,6 +23,13 @@ test('each agent displays its actual model or an explicit missing-model label',(
  const english=render(s,config,{width:200,height:30,color:false}).lines.join('\n');assert.match(english,/Task 原文 \[running\] \(actual-model\)/);assert.match(english,/review \[done\] \(model not reported\)/);
  const chinese=render(s,set(config,'language','zh-Hans'),{width:200,height:30,color:false}).lines.join('\n');assert.match(chinese,/Task 原文 \[运行中\] \(actual-model\)/);assert.match(chinese,/review \[已完成\] \(模型未报告\)/);
 });
+test('a temporarily suppressed pager uses the full viewport and preserves warnings',()=>{
+ const config=set(set(defaultConfig(),'display.showContextBar',false),'display.customLine','x'.repeat(200));
+ const s={...emptySnapshot('parent'),errors:['important warning']};
+ const result=render(s,config,{width:40,height:3,color:false,showPager:false});
+ assert.equal(result.lines.length,3);assert.match(result.lines[0],/important warning/);assert.doesNotMatch(result.lines.join('\n'),/page|翻页|q close/);assert.ok(result.pages>1);
+ const capped=render(s,config,{width:40,height:3,color:false});assert.match(capped.lines.join('\n'),/page/);
+});
 test('default quota display shows both reported windows even at zero usage',()=>{
  const snapshot={...sample(),quotas:[{id:'codex:primary',minutes:10080,usedPercent:0},{id:'codex:secondary',minutes:300,usedPercent:0}]};
  const text=render(snapshot,defaultConfig(),{width:200,height:50,color:false}).lines.join('\n');

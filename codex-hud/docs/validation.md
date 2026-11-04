@@ -1,5 +1,33 @@
 # Validation: exact per-source HUD
 
+## 0.6.2: copy-safe input, transient pager and child lifecycle — 2026-11-04
+
+Ctrl+C previously exited the viewer; the native regression reproduced that
+failure before removing only its close binding. A Ctrl+C byte now keeps the
+viewer alive and updating, while q closes only its own viewer. This does not
+claim OS clipboard/selection acceptance, which remains a terminal interaction.
+
+The pager is hidden only while verified automatic growth is pending. Content
+still stays within the actual viewport, warnings remain visible, and capped
+overflow retains the pager. Native smoke observes both the pending frame and
+the capped frame rather than checking only their final geometry.
+
+The real hud_demo_2 worker completed while its parent missed the completed
+activity/delivery. Reading its exact child ID and recorded parent relationship
+confirmed task_complete. The supplemental reader reconciles such active agents
+from verified child lifecycle/model metadata, comparing against the latest task
+start/resume time. It rejects wrong parents, ambiguous logs and old completions.
+Ordinary messages and replayed notifications do not imply a new task or advance
+the lifecycle threshold. Discovery errors keep the viewer alive with a short
+metadata warning; no message body or agent-service API is used.
+
+[Native evidence](evidence/2026-11-04-copy-pagination/summary.json) records 15
+passing synthetic production-backend checks. Independent review's ordinary-message
+and replay timing findings received failing regressions before correction; the
+focused follow-up found no remaining issue.
+Final `npm test` passed 207/207 on Node 24.15.0; the related Node 20.19.0 scope
+passed 67/67. OS clipboard contents were not inspected or changed.
+
 ## 0.6.1: reopening a live host after package-cache replacement — 2026-11-04
 
 The actual formal 0.5.2 -> 0.6.0 update removed the old cache while this Codex

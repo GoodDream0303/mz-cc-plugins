@@ -26,6 +26,14 @@ test('live height follows stable 3 to 6 to 3 content with a delayed shrink',asyn
  assert.equal(controller.fit(d,config,3,3200),undefined);assert.equal(controller.fit(d,config,3,5199),undefined);assert.equal(controller.fit(d,config,3,5200),3);
  assert.deepEqual(state.resizes,[3,6,3]);assert.equal(controller.fit(d,config,3,9000),undefined);
 });
+test('only an outstanding growth suppresses the pager, not caps, fixed sizing or failures',async t=>{
+ const {controller,d,config,state}=await fixture(t);state.rows=3;
+ controller.fit(d,config,6,0);assert.equal(controller.awaitingGrowth,true);
+ controller.fit(d,config,6,1000);assert.equal(controller.awaitingGrowth,false);
+ state.rows=20;controller.fit(d,config,60,2000);assert.equal(controller.awaitingGrowth,false);
+ state.rows=3;controller.fit(d,config,6,3000);controller.fit(d,set(config,'terminal.dynamicHeight',false),6,3100);assert.equal(controller.awaitingGrowth,false);
+ controller.fit(d,config,6,4000);state.extra=true;assert.throws(()=>controller.fit(d,config,6,5000));assert.equal(controller.awaitingGrowth,false);
+});
 
 test('fixed sizing and disabling a pending live resize send no backend mutations',async t=>{
  const {controller,d,config,state}=await fixture(t),fixed=set(config,'terminal.dynamicHeight',false);

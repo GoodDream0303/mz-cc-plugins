@@ -23,6 +23,7 @@ import {assertActiveEntry} from './entry-install.js';
 import {inspectSetup} from './setup-readiness.js';
 import {sessionMetadata,isMainSession} from './autostart.js';
 import {DynamicHeightController} from './dynamic-height.js';
+import {AgentSessionTracker} from './agent-sessions.js';
 
 function option(args:string[],key:string):string|undefined{const i=args.indexOf(key);return i>=0?args[i+1]:args.find(v=>v.startsWith(key+'='))?.slice(key.length+1);}
 function launchFile(args:string[]):string|undefined{const encoded=option(args,'--launch64');return encoded?Buffer.from(encoded,'base64').toString('utf8'):option(args,'--launch');}
@@ -42,9 +43,10 @@ async function watch(args:string[],once=false):Promise<void>{
  let selected=descriptor?.host?descriptor.sessionId:descriptor?.sessionId??selectSessionId(option(args,'--session'));if(!selected&&!descriptor?.host)selected=await chooseSession(root);
  if(descriptor?.host&&!once){acknowledgeViewer(ownedFile!);descriptor=readLaunch(ownedFile!);}
  let cfgFile=descriptor?.configFile??configFile(args),config=loadConfig(cfgFile);let page=0,quit=false,reader:SessionReader|undefined,nextDiscover=0,nextOwnerCheck=0,knownPath='',statusMessage='';let lastSnapshot=emptySnapshot(selected??'pending');
- const onKey=(_:unknown,key:{name?:string;ctrl?:boolean})=>{if(key?.name==='q'||key?.name==='c'&&key.ctrl)quit=true;else if(key?.name==='right'||key?.name==='n')page++;else if(key?.name==='left'||key?.name==='p')page=Math.max(0,page-1);};
+ const onKey=(_:unknown,key:{name?:string;ctrl?:boolean})=>{if(key?.name==='q')quit=true;else if(key?.name==='right'||key?.name==='n')page++;else if(key?.name==='left'||key?.name==='p')page=Math.max(0,page-1);};
  const interactive=!once&&!!process.stdin.isTTY;
  const dynamicHeight=new DynamicHeightController();
+ const agentSessions=new AgentSessionTracker(root);
  if(interactive){emitKeypressEvents(process.stdin);process.stdin.setRawMode(true);process.stdin.on('keypress',onKey);process.stdin.resume();}
  if(!once&&process.stdout.isTTY)process.stdout.write('\x1b[?1049h\x1b[?25l');
  if(descriptor&&!descriptor.demo)updateLaunch(ownedFile!,d=>{d.state='running';d.pid=process.pid;d.heartbeat=Date.now();});
@@ -73,12 +75,13 @@ async function watch(args:string[],once=false):Promise<void>{
      if(reader){try{snapshot=await reader.read();lastSnapshot=structuredClone(snapshot);}catch(e){snapshot=structuredClone(lastSnapshot);snapshot.errors.push('Session log unavailable; showing stale telemetry and retrying');}}
     else snapshot.errors.push('Waiting for the selected session log');
    }else snapshot.errors.push(descriptor?.host?'Waiting for this Codex conversation':'Select the existing Codex session to display');
+   if(reader)await agentSessions.refresh(snapshot,reader);
    if(snapshot.cwd)snapshot.environment=readEnvironment(snapshot.cwd,home);
    if(statusMessage)snapshot.errors.push(statusMessage);
    const width=Number(option(args,'--width'))||process.stdout.columns||100,color=!args.includes('--no-color')&&!!process.stdout.isTTY;
    let rows=once?1000:process.stdout.rows||12,result=render(snapshot,config,{width,height:rows,page,color});
    if(!once&&process.stdout.isTTY&&descriptor?.host){
-    try{const fitted=dynamicHeight.fit(descriptor,config,result.totalLines);if(fitted!==undefined){rows=fitted;result=render(snapshot,config,{width,height:rows,page,color});}}
+    try{const fitted=dynamicHeight.fit(descriptor,config,result.totalLines);if(fitted!==undefined)rows=fitted;result=render(snapshot,config,{width,height:rows,page,color,showPager:!dynamicHeight.awaitingGrowth});}
     catch{snapshot.errors.push('Automatic height unavailable; keeping the current pane size');result=render(snapshot,config,{width,height:rows,page,color});}
    }
    if(descriptor&&!descriptor.demo)updateLaunch(ownedFile!,d=>{d.heartbeat=Date.now();d.viewport={columns:process.stdout.columns??100,rows,contentRows:result.totalLines,pages:result.pages};});

@@ -52,6 +52,7 @@ export class SessionReader {
         this.snapshot = emptySnapshot(sessionId);
         this.agents = new AgentTracker(this.snapshot.agents, sessionId);
     }
+    agentActivityAt(id) { return this.agents.activityAt(id); }
     reset() { this.offset = 0; this.carry = ''; this.decoder = new StringDecoder('utf8'); this.snapshot = emptySnapshot(this.sessionId); this.agents = new AgentTracker(this.snapshot.agents, this.sessionId); this.mismatch = false; this.absolute = false; this.discard = false; this.canonicalCompleted.clear(); this.canonicalTools.clear(); this.processTools.clear(); this.pollTargets.clear(); this.prefix = undefined; this.checkpoint = undefined; }
     async unchanged(handle) {
         for (const point of [this.prefix, this.checkpoint])
@@ -131,6 +132,7 @@ export class SessionReader {
                 this.error('session identity mismatch');
                 return;
             }
+            this.snapshot.parentId = text(p.source?.subagent?.thread_spawn?.parent_thread_id);
             this.snapshot.cwd = text(p.cwd, 32768);
             this.snapshot.startedAt = text(p.timestamp ?? record.timestamp);
             this.snapshot.version = text(p.cli_version);
@@ -141,7 +143,7 @@ export class SessionReader {
             return;
         if (p.session_id && p.session_id !== this.sessionId)
             return;
-        if (type === 'event_msg' && this.agents.event(p))
+        if (type === 'event_msg' && this.agents.event(p, record.timestamp))
             return;
         if (p.thread_id && p.thread_id !== this.sessionId)
             return;
@@ -197,13 +199,16 @@ export class SessionReader {
             }
             case 'task_started':
                 this.snapshot.status = 'working';
+                this.snapshot.activityAt = text(record.timestamp);
                 return;
             case 'task_complete':
                 this.snapshot.status = 'idle';
+                this.snapshot.activityAt = text(record.timestamp);
                 this.snapshot.lastResponseAt = text(p.completed_at ?? record.timestamp);
                 return;
             case 'turn_aborted':
                 this.snapshot.status = 'interrupted';
+                this.snapshot.activityAt = text(record.timestamp);
                 for (const t of this.snapshot.tools)
                     if (t.status === 'running') {
                         t.status = 'cancelled';
@@ -258,7 +263,7 @@ export class SessionReader {
         if (!safe(p))
             return;
         if (p.type === 'SubAgentActivity') {
-            this.agents.event({ ...p, type: 'sub_agent_activity' });
+            this.agents.event({ ...p, type: 'sub_agent_activity' }, timestamp);
             return;
         }
         if (p.type === 'McpToolCall' || p.type === 'CommandExecution' || p.type === 'Extension') {
@@ -304,7 +309,7 @@ export class SessionReader {
                 if (target)
                     this.pollTargets.set(id, target);
             }
-            this.agents.call(id, leaf ?? '', args);
+            this.agents.call(id, leaf ?? '', args, timestamp);
         }
         if (['function_call_output', 'custom_tool_call_output'].includes(p.type)) {
             const id = text(p.call_id), tool = this.snapshot.tools.find(t => t.id === id);

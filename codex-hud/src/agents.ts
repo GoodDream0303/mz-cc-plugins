@@ -6,13 +6,20 @@ export function agentStatus(value:any):string {
  const key=typeof value==='string'?value:object(value)?Object.keys(value)[0]:undefined;
  return ({pending_init:'starting',starting:'starting',running:'running',interrupted:'interrupted',completed:'done',done:'done',errored:'failed',failed:'failed',shutdown:'closed',closed:'closed',not_found:'not-found'} as Record<string,string>)[key??'']??'unreported';
 }
-interface Call {kind:string;target?:string;canonical?:boolean}
+interface Call {kind:string;target?:string;canonical?:boolean;startedAt?:number}
 
 /** Retains identity/lifecycle metadata only, never prompt or completion bodies. */
 export class AgentTracker {
  private calls=new Map<string,Call>();private aliases=new Map<string,string>();private activityEvents=new Set<string>();
+ private activityTimes=new Map<string,number>();
  constructor(private readonly agents:Agent[],private readonly parent:string){}
  private resolve(id:string):string{return this.aliases.get(id)??id;}
+ activityAt(id:string):number|undefined{return this.activityTimes.get(this.resolve(id));}
+ private touch(id:string,value:unknown){
+  const at=typeof value==='number'?value:Date.parse(String(value??''));if(!Number.isFinite(at))return;
+  this.activityTimes.set(id,Math.max(at,this.activityTimes.get(id)??-Infinity));
+  while(this.activityTimes.size>128)this.activityTimes.delete(this.activityTimes.keys().next().value!);
+ }
  private model(id:string,value:any,fillOnly=false){const model=text(value),agent=this.agents.find(a=>a.id===this.resolve(id));if(agent&&model&&(!fillOnly||!agent.model))agent.model=model;}
  private update(id:string,name:string|undefined,status:string,alias?:string,preserve=false){
   const previous=alias?this.resolve(alias):id,old=this.agents.find(a=>a.id===previous),existing=this.agents.find(a=>a.id===id);
@@ -22,16 +29,17 @@ export class AgentTracker {
   if(row){row.id=id;row.name=preferred;if(!preserve||['starting','unreported'].includes(row.status))row.status=status;}
   else this.agents.push({id,name:preferred,status});
   if(alias){for(const [key,value] of this.aliases)if(value===previous)this.aliases.set(key,id);this.aliases.set(alias,id);}
+  const previousTime=this.activityTimes.get(previous);if(previousTime!==undefined)this.touch(id,previousTime);
   this.agents.splice(0,Math.max(0,this.agents.length-64));
   while(this.aliases.size>128)this.aliases.delete(this.aliases.keys().next().value!);
  }
- call(id:string,kind:string,args:any){
+ call(id:string,kind:string,args:any,timestamp?:unknown){
   const previous=this.calls.get(id);
   if(previous){const name=text(args?.task_name),row=this.agents.find(a=>a.id===this.resolve(previous.target??'call:'+id));if(kind==='spawn_agent'&&name&&row)row.name=name;return;}
-  if(!['spawn_agent','wait','wait_agent','close_agent','resume_agent','interrupt_agent','followup_task'].includes(kind))return;
+  if(!['spawn_agent','wait','wait_agent','close_agent','resume_agent','interrupt_agent','followup_task','send_message'].includes(kind))return;
   const target=text(args?.agent_id??args?.id??args?.target);
-  this.calls.set(id,{kind,target});while(this.calls.size>128)this.calls.delete(this.calls.keys().next().value!);
-  if(kind==='spawn_agent')this.update('call:'+id,text(args?.task_name??args?.agent_type),'starting');
+  const startedAt=Date.parse(String(timestamp??''));this.calls.set(id,{kind,target,startedAt:Number.isFinite(startedAt)?startedAt:undefined});while(this.calls.size>128)this.calls.delete(this.calls.keys().next().value!);
+  if(kind==='spawn_agent'){this.update('call:'+id,text(args?.task_name??args?.agent_type),'starting');this.touch('call:'+id,timestamp);}
  }
  result(id:string,output:any,failed:boolean){
   const call=this.calls.get(id);if(!call)return;
@@ -43,25 +51,29 @@ export class AgentTracker {
   if(call.kind==='spawn_agent'){
    const pending='call:'+id,real=text(output?.agent_id??output?.thread_id??output?.task_name);
    if(failed)this.update(this.resolve(pending),undefined,'failed');
-   else if(real){this.update(this.resolve(real),text(output?.nickname??output?.agent_nickname),output?.status===undefined?'running':agentStatus(output.status),pending,true);call.target=this.resolve(real);this.model(real,output?.model,true);}
+   else if(real){this.update(this.resolve(real),text(output?.nickname??output?.agent_nickname),output?.status===undefined?'running':agentStatus(output.status),pending,true);call.target=this.resolve(real);this.model(real,output?.model,true);this.touch(this.resolve(real),call.startedAt);}
    return;
   }
   if(failed)return;
+  if(call.kind==='send_message')return;
   if(['wait','wait_agent'].includes(call.kind)){this.statuses(output?.status??output?.statuses);return;}
   if(call.target){
-   const status=call.kind==='close_agent'?'closed':call.kind==='interrupt_agent'?'interrupted':output?.status===undefined?undefined:agentStatus(output.status);
-   if(status)this.update(this.resolve(call.target),undefined,status);
+   const restarts=['followup_task','resume_agent'].includes(call.kind);
+   if(restarts&&!this.agents.some(a=>a.id===this.resolve(call.target!)))return;
+   const status=call.kind==='close_agent'?'closed':call.kind==='interrupt_agent'?'interrupted':output?.status===undefined?restarts?'starting':undefined:agentStatus(output.status);
+   if(status){this.update(this.resolve(call.target),undefined,status);this.touch(this.resolve(call.target),call.startedAt);}
   }
  }
  private statuses(values:any){if(object(values))for(const [id,status]of Object.entries(values).slice(0,64))this.update(this.resolve(id),undefined,agentStatus(status));}
- event(p:any):boolean {
+ event(p:any,timestamp?:unknown):boolean {
   const type=p.type;if(typeof type!=='string'||!(/^(collab_|sub_agent_activity$|subagent_|agent_started$|agent_completed$)/.test(type)))return false;
   if(p.sender_thread_id&&p.sender_thread_id!==this.parent)return true;
   const call=text(p.call_id),receiver=text(p.receiver_thread_id),nickname=text(p.receiver_agent_nickname??p.receiver_agent_role);
+  let advanceActivity=true,activityTimestamp=timestamp;
   switch(type){
-   case 'collab_agent_spawn_begin':if(call&&!this.calls.has(call))this.call(call,'spawn_agent',{});break;
+   case 'collab_agent_spawn_begin':if(call&&!this.calls.has(call))this.call(call,'spawn_agent',{},timestamp);break;
    case 'collab_agent_spawn_end':{
-    if(call&&this.calls.get(call)?.canonical)break;
+    if(call&&this.calls.get(call)?.canonical)return true;
     const id=text(p.new_thread_id),status=agentStatus(p.status);
     if(id){this.update(this.resolve(id),text(p.new_agent_nickname??p.new_agent_role),status,call?'call:'+call:undefined);this.model(id,p.model);}
     else if(call)this.update(this.resolve('call:'+call),undefined,status==='unreported'?'failed':status);
@@ -74,11 +86,14 @@ export class AgentTracker {
    // The close event reports status before closing, not the resulting lifecycle.
    case 'collab_close_end':if(receiver)this.update(this.resolve(receiver),nickname,agentStatus(p.status)==='not-found'?'not-found':'closed');break;
    case 'sub_agent_activity':{
-    const event=text(p.event_id??p.id);if(event&&this.activityEvents.has(event))break;
+    const event=text(p.event_id??p.id);if(event&&this.activityEvents.has(event))return true;
     if(event){this.activityEvents.add(event);while(this.activityEvents.size>128)this.activityEvents.delete(this.activityEvents.values().next().value!);}
-    const id=text(p.agent_thread_id),alias=text(p.agent_path),status=({started:'running',interacted:'running',interrupted:'interrupted',completed:'done'} as Record<string,string>)[p.kind];
+    const request=event?this.calls.get(event):undefined,id=text(p.agent_thread_id),alias=text(p.agent_path);
+    const restarts=!!request&&['followup_task','resume_agent'].includes(request.kind);
+    if(p.kind==='interacted'){advanceActivity=restarts;if(restarts)activityTimestamp=request!.startedAt??timestamp;}
+    const existing=this.agents.find(a=>a.id===id||!!alias&&a.id===this.resolve(alias));
+    const status=p.kind==='interacted'?(restarts?'running':existing?.status??'unreported'):({started:'running',interrupted:'interrupted',completed:'done'} as Record<string,string>)[p.kind];
     if(id&&status){
-     const request=event?this.calls.get(event):undefined;
      this.update(id,alias?.split('/').at(-1),status,request?.kind==='spawn_agent'?'call:'+event:alias);
      if(alias)this.aliases.set(alias,id);
      this.model(id,p.model);
@@ -89,6 +104,8 @@ export class AgentTracker {
     const id=text(p.agent_id??p.thread_id);if(id)this.update(this.resolve(id),text(p.name??p.agent_name),['subagent_started','agent_started'].includes(type)?'running':p.success===false?'failed':'done');break;
    }
   }
+  const affected=text(p.agent_thread_id??p.new_thread_id??p.receiver_thread_id??p.agent_id??p.thread_id);if(affected&&advanceActivity)this.touch(this.resolve(affected),activityTimestamp);
+  if(type==='collab_waiting_end'&&object(p.statuses))for(const id of Object.keys(p.statuses).slice(0,64))this.touch(this.resolve(id),timestamp);
   while(this.calls.size>128)this.calls.delete(this.calls.keys().next().value!);
   return true;
  }

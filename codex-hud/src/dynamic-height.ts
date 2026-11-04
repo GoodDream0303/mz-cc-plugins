@@ -5,9 +5,11 @@ import type {LaunchDescriptor} from './runtime.js';
 
 /** Resize only this viewer's registered two-pane stack; fixed sizing is untouched. */
 export class DynamicHeightController {
- private candidate?:number;private since=0;
+ private candidate?:number;private since=0;private growing=false;
+ get awaitingGrowth():boolean{return this.growing;}
  constructor(private readonly dependencies:HostDependencies={}){}
  fit(d:LaunchDescriptor,config:Config,contentRows:number,now=Date.now()):number|undefined {
+  this.growing=false;
   if(!get(config,'terminal.dynamicHeight')||!d.host||d.demo){this.candidate=undefined;return;}
   if(!Number.isInteger(contentRows)||contentRows<1)throw new Error('Invalid rendered content height');
   const host=d.host,viewer=host.hudProcess,pid=this.dependencies.pid??process.pid;
@@ -24,6 +26,7 @@ export class DynamicHeightController {
   if(cap<1){this.candidate=undefined;return;}
   const target=Math.max(1,Math.min(contentRows,cap));
   if(target===hud.height){this.candidate=undefined;return;}
+  this.growing=target>hud.height;
   if(target!==this.candidate){this.candidate=target;this.since=now;return;}
   const refresh=get(config,'terminal.refreshMs'),debounce=target<hud.height?Math.max(2000,refresh):refresh;
   if(now-this.since<debounce)return;
@@ -33,6 +36,6 @@ export class DynamicHeightController {
   registered();client.resizePane(hud.pane,target);
   const resized=client.pane(hud.pane);
   if(resized.pid!==pid||resized.window!==owner.window)throw new Error('Resized HUD viewer identity changed');
-  this.candidate=undefined;return resized.height;
+  this.candidate=undefined;this.growing=false;return resized.height;
  }
 }

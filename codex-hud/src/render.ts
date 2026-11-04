@@ -2,7 +2,7 @@ import {get,unsupported,type Config} from './config.js';
 import {colorize,displayWidth,sanitize,truncate,wrapAnsi,wrapFields} from './terminal-text.js';
 import type {HudSnapshot,Quota} from './types.js';
 export interface RenderResult {lines:string[];totalLines:number;pages:number}
-export interface RenderOptions {width?:number;height?:number;page?:number;color?:boolean;now?:number}
+export interface RenderOptions {width?:number;height?:number;page?:number;color?:boolean;now?:number;showPager?:boolean}
 function num(n:number):string{return n>=1000000?(n/1000000).toFixed(1)+'M':n>=1000?(n/1000).toFixed(1)+'k':String(Math.round(n));}
 function percent(n:number):string{return Number.isInteger(n)?String(n):n.toFixed(1);}
 function windowLabel(minutes:number):string{return minutes%1440===0?minutes/1440+'d':minutes%60===0?minutes/60+'h':minutes+'m';}
@@ -118,7 +118,7 @@ export function render(s:HudSnapshot,c:Config,o:RenderOptions={}):RenderResult {
  if(height===1&&warnings.length)return {lines:[warnings[0]],totalLines:all.length,pages:1};
  const pinned=warnings.length?[warnings[0]]:[];
  const pageable=warnings.length?[...warnings.slice(1),...body]:all;
- const showPager=height>=pinned.length+2,capacity=Math.max(1,height-pinned.length-(showPager?1:0));
+ const showPager=o.showPager!==false&&height>=pinned.length+2,capacity=Math.max(1,height-pinned.length-(showPager?1:0));
  const pages=Math.max(1,Math.ceil(pageable.length/capacity)),page=Math.min(pages-1,Math.max(0,o.page??0));
  const lines=[...pinned,...pageable.slice(page*capacity,(page+1)*capacity)];
  if(showPager&&pages>1)lines.push(ink(truncate('['+(page+1)+'/'+pages+'] '+label('←/→ page · q close','←/→ 翻页 · q 关闭','←/→ 翻頁 · q 關閉'),width),'label'));

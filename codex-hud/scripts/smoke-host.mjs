@@ -91,7 +91,15 @@ if(process.argv[2]==='--fixture'){
     await wait(()=>{try{const d=descriptor('A');return d.viewport?.contentRows===rows&&d.viewport?.rows===rows?geometry('A',rows):undefined;}catch{return;}},'Dynamic HUD did not reach '+rows+' actual rows');
     assert.equal(descriptor('A').pid,viewerPid);assert.equal(descriptor('A').host.proof.owner.pid,sourcePid);assert.deepEqual(geometry('B'),neighbour);
    }
-   await content(3);await content(6);await content(3);checks.push('live watch loop follows 3/6/3 content with exact native rows and unchanged neighbour');
+   await content(3);
+   live=set(set(live,'terminal.refreshMs',1000),'display.customLine','x'.repeat(696));saveConfig(configFileA,live);
+   await wait(()=>{const d=descriptor('A');return d.viewport?.contentRows===6&&d.viewport?.rows===3;},'No pending-growth frame was observed');
+   assert.doesNotMatch(command('A',['capture-pane','-p','-t',descriptor('A').host.hudPane]).stdout,/←\/→ page/);
+   await wait(()=>{try{return geometry('A',6);}catch{return;}},'Growth did not finish');await content(3);checks.push('live watch loop follows 3/6/3 content with exact native rows and unchanged neighbour');
+   live=set(set(live,'terminal.paneSize',0.15),'display.customLine','x'.repeat(928));saveConfig(configFileA,live);
+   await wait(()=>{try{return geometry('A',6);}catch{return;}},'Capped growth did not finish');
+   await wait(()=>command('A',['capture-pane','-p','-t',descriptor('A').host.hudPane]).stdout.includes('←/→ page'),'Real overflow has no pager');
+   live=set(live,'terminal.paneSize',0.3);await content(3);checks.push('pending growth hides the pager and capped overflow restores it');
    command('A',['resize-window','-t','codex','-x','60','-y','40']);
    await wait(()=>{try{return descriptor('A').viewport?.contentRows===7?geometry('A',7):undefined;}catch{return;}},'Narrow wrapping did not grow the live HUD');
    assert.deepEqual(geometry('B'),neighbour);checks.push('narrower viewport grows wrapped content to seven rows without changing the other server');
@@ -108,6 +116,13 @@ if(process.argv[2]==='--fixture'){
    append({type:'SubAgentActivity',id:'agent-start',kind:'started',agent_thread_id:'synthetic-agent',agent_path:'/root/reviewer',model:'synthetic-agent-model'});await visible('reviewer [running] (synthetic-agent-model)');
    append({type:'SubAgentActivity',id:'agent-done',kind:'completed',agent_thread_id:'synthetic-agent',agent_path:'/root/reviewer',model:null});await visible('reviewer [done] (synthetic-agent-model)');
    assert.equal(descriptor('A').pid,viewerPid);assert.deepEqual(geometry('B'),neighbour);checks.push('same viewer updates agent lifecycle and retains the reported actual model');
+  }
+  if(process.argv.includes('--copy-safe')){
+   const current=descriptor('A'),heartbeat=current.heartbeat;
+   command('A',['send-keys','-t',current.host.hudPane,'C-c']);
+   await wait(()=>{const d=descriptor('A');assert.equal(d.state,'running','Ctrl+C closed the HUD');return d.heartbeat>heartbeat;},'HUD stopped updating after Ctrl+C');
+   command('A',['send-keys','-t',current.host.hudPane,'q']);await wait(()=>descriptor('A').state==='exited','q did not close the HUD');
+   assert.equal(descriptor('B').state,'running');checks.push('Ctrl+C keeps the HUD alive and q closes only its own viewer');
   }
   for(const role of ['A','B'])fs.writeFileSync(path.join(root,'stop-'+role),'stop');
   await wait(()=>['A','B'].every(role=>readHost(path.join(hostDir,roles.get(role).id+'.json')).state==='closed'),'Source wrappers did not close');

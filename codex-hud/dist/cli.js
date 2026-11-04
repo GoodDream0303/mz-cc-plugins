@@ -23,6 +23,7 @@ import { assertActiveEntry } from './entry-install.js';
 import { inspectSetup } from './setup-readiness.js';
 import { sessionMetadata, isMainSession } from './autostart.js';
 import { DynamicHeightController } from './dynamic-height.js';
+import { AgentSessionTracker } from './agent-sessions.js';
 function option(args, key) { const i = args.indexOf(key); return i >= 0 ? args[i + 1] : args.find(v => v.startsWith(key + '='))?.slice(key.length + 1); }
 function launchFile(args) { const encoded = option(args, '--launch64'); return encoded ? Buffer.from(encoded, 'base64').toString('utf8') : option(args, '--launch'); }
 function configFile(args) { return option(args, '--config') ?? configPath(); }
@@ -62,7 +63,7 @@ async function watch(args, once = false) {
     let cfgFile = descriptor?.configFile ?? configFile(args), config = loadConfig(cfgFile);
     let page = 0, quit = false, reader, nextDiscover = 0, nextOwnerCheck = 0, knownPath = '', statusMessage = '';
     let lastSnapshot = emptySnapshot(selected ?? 'pending');
-    const onKey = (_, key) => { if (key?.name === 'q' || key?.name === 'c' && key.ctrl)
+    const onKey = (_, key) => { if (key?.name === 'q')
         quit = true;
     else if (key?.name === 'right' || key?.name === 'n')
         page++;
@@ -70,6 +71,7 @@ async function watch(args, once = false) {
         page = Math.max(0, page - 1); };
     const interactive = !once && !!process.stdin.isTTY;
     const dynamicHeight = new DynamicHeightController();
+    const agentSessions = new AgentSessionTracker(root);
     if (interactive) {
         emitKeypressEvents(process.stdin);
         process.stdin.setRawMode(true);
@@ -143,6 +145,8 @@ async function watch(args, once = false) {
             }
             else
                 snapshot.errors.push(descriptor?.host ? 'Waiting for this Codex conversation' : 'Select the existing Codex session to display');
+            if (reader)
+                await agentSessions.refresh(snapshot, reader);
             if (snapshot.cwd)
                 snapshot.environment = readEnvironment(snapshot.cwd, home);
             if (statusMessage)
@@ -152,10 +156,9 @@ async function watch(args, once = false) {
             if (!once && process.stdout.isTTY && descriptor?.host) {
                 try {
                     const fitted = dynamicHeight.fit(descriptor, config, result.totalLines);
-                    if (fitted !== undefined) {
+                    if (fitted !== undefined)
                         rows = fitted;
-                        result = render(snapshot, config, { width, height: rows, page, color });
-                    }
+                    result = render(snapshot, config, { width, height: rows, page, color, showPager: !dynamicHeight.awaitingGrowth });
                 }
                 catch {
                     snapshot.errors.push('Automatic height unavailable; keeping the current pane size');

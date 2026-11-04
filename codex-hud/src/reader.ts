@@ -23,6 +23,7 @@ export class SessionReader {
  private prefix?:Checkpoint;private checkpoint?:Checkpoint;
  private canonicalTools=new Set<string>();private processTools=new Map<string,string>();private pollTargets=new Map<string,string>();
  constructor(public readonly file:string,public readonly sessionId:string){this.snapshot=emptySnapshot(sessionId);this.agents=new AgentTracker(this.snapshot.agents,sessionId);}
+ agentActivityAt(id:string):number|undefined{return this.agents.activityAt(id);}
  private reset(){this.offset=0;this.carry='';this.decoder=new StringDecoder('utf8');this.snapshot=emptySnapshot(this.sessionId);this.agents=new AgentTracker(this.snapshot.agents,this.sessionId);this.mismatch=false;this.absolute=false;this.discard=false;this.canonicalCompleted.clear();this.canonicalTools.clear();this.processTools.clear();this.pollTargets.clear();this.prefix=undefined;this.checkpoint=undefined;}
  private async unchanged(handle:FileHandle):Promise<boolean>{
   for(const point of [this.prefix,this.checkpoint])if(point&&await fingerprint(handle,point.start,point.length)!==point.digest)return false;
@@ -62,11 +63,11 @@ export class SessionReader {
   if(!safe(record)||!safe(record.payload))return;const p=record.payload;const type=record.type;
   if(type==='session_meta'){
    const id=p.id??p.session_id;if(id&&id!==this.sessionId){this.mismatch=true;this.snapshot=emptySnapshot(this.sessionId);this.error('session identity mismatch');return;}
-   this.snapshot.cwd=text(p.cwd,32768);this.snapshot.startedAt=text(p.timestamp??record.timestamp);this.snapshot.version=text(p.cli_version);this.snapshot.sessionName=text(p.title??p.name??p.slug);return;
+   this.snapshot.parentId=text(p.source?.subagent?.thread_spawn?.parent_thread_id);this.snapshot.cwd=text(p.cwd,32768);this.snapshot.startedAt=text(p.timestamp??record.timestamp);this.snapshot.version=text(p.cli_version);this.snapshot.sessionName=text(p.title??p.name??p.slug);return;
   }
   if(this.mismatch)return;
   if(p.session_id&&p.session_id!==this.sessionId)return;
-  if(type==='event_msg'&&this.agents.event(p))return;
+  if(type==='event_msg'&&this.agents.event(p,record.timestamp))return;
   if(p.thread_id&&p.thread_id!==this.sessionId)return;
   if(type==='turn_context'){
    this.snapshot.model=text(p.model);this.snapshot.effort=text(p.effort??p.reasoning_effort);
@@ -91,9 +92,9 @@ export class SessionReader {
      this.snapshot.quotas=quotas;if(typeof limits.plan_type==='string')this.snapshot.plan=text(limits.plan_type);
     }return;
    }
-   case 'task_started':this.snapshot.status='working';return;
-   case 'task_complete':this.snapshot.status='idle';this.snapshot.lastResponseAt=text(p.completed_at??record.timestamp);return;
-   case 'turn_aborted':this.snapshot.status='interrupted';for(const t of this.snapshot.tools)if(t.status==='running'){t.status='cancelled';this.canonicalCompleted.add(t.id);}return;
+   case 'task_started':this.snapshot.status='working';this.snapshot.activityAt=text(record.timestamp);return;
+   case 'task_complete':this.snapshot.status='idle';this.snapshot.activityAt=text(record.timestamp);this.snapshot.lastResponseAt=text(p.completed_at??record.timestamp);return;
+   case 'turn_aborted':this.snapshot.status='interrupted';this.snapshot.activityAt=text(record.timestamp);for(const t of this.snapshot.tools)if(t.status==='running'){t.status='cancelled';this.canonicalCompleted.add(t.id);}return;
    case 'context_compacted':case 'compact_boundary':this.snapshot.compactions++;return;
    case 'item_started':if(safe(p.item))this.item(p.item,record.timestamp);return;
    case 'item_completed':if(safe(p.item))this.item(p.item,record.timestamp,true);return;
@@ -113,7 +114,7 @@ export class SessionReader {
  }
  private item(p:any,timestamp:unknown,completed=false){
   if(!safe(p))return;
-  if(p.type==='SubAgentActivity'){this.agents.event({...p,type:'sub_agent_activity'});return;}
+  if(p.type==='SubAgentActivity'){this.agents.event({...p,type:'sub_agent_activity'},timestamp);return;}
   if(p.type==='McpToolCall'||p.type==='CommandExecution'||p.type==='Extension'){
    let id=text(p.id??p.call_id);if(!id)return;
    let name=p.type==='Extension'?text(p.kind):'exec_command';if(!name)return;
@@ -130,7 +131,7 @@ export class SessionReader {
    const args=parse(p.arguments??p.input);
    if(leaf==='update_plan'&&Array.isArray(args?.plan))this.snapshot.todos=args.plan.filter(safe).filter((x:any)=>typeof x.step==='string'&&['pending','in_progress','completed'].includes(x.status)).slice(0,200).map((x:any)=>({step:x.step.slice(0,200),status:x.status}));
    if(['write_stdin','wait'].includes(leaf??'')){const key=args?.cell_id!==undefined?'cell:'+String(args.cell_id):'session:'+String(args?.session_id),target=this.processTools.get(key);if(target)this.pollTargets.set(id,target);}
-   this.agents.call(id,leaf??'',args);
+   this.agents.call(id,leaf??'',args,timestamp);
   }
   if(['function_call_output','custom_tool_call_output'].includes(p.type)){
    const id=text(p.call_id),tool=this.snapshot.tools.find(t=>t.id===id);if(tool&&!this.canonicalCompleted.has(tool.id)){

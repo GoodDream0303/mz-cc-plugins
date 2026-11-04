@@ -4,7 +4,7 @@ export interface Tool {id:string;name:string;status:'running'|'done'|'failed'|'c
 export interface Agent {id:string;name:string;status:string;model?:string}
 export interface Todo {step:string;status:string}
 export interface HudSnapshot {
- sessionId:string;cwd?:string;startedAt?:string;model?:string;effort?:string;version?:string;provider?:string;plan?:string;
+ sessionId:string;parentId?:string;activityAt?:string;cwd?:string;startedAt?:string;model?:string;effort?:string;version?:string;provider?:string;plan?:string;
  context?:{used:number;window:number};totals?:Tokens;latest?:Tokens;quotas:Quota[];
  tools:Tool[];agents:Agent[];todos:Todo[];mcpUsed:string[];compactions:number;lastResponseAt?:string;
  errors:string[];status:string;sessionName?:string;

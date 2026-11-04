@@ -6,10 +6,13 @@ export class DynamicHeightController {
     dependencies;
     candidate;
     since = 0;
+    growing = false;
+    get awaitingGrowth() { return this.growing; }
     constructor(dependencies = {}) {
         this.dependencies = dependencies;
     }
     fit(d, config, contentRows, now = Date.now()) {
+        this.growing = false;
         if (!get(config, 'terminal.dynamicHeight') || !d.host || d.demo) {
             this.candidate = undefined;
             return;
@@ -39,6 +42,7 @@ export class DynamicHeightController {
             this.candidate = undefined;
             return;
         }
+        this.growing = target > hud.height;
         if (target !== this.candidate) {
             this.candidate = target;
             this.since = now;
@@ -57,6 +61,7 @@ export class DynamicHeightController {
         if (resized.pid !== pid || resized.window !== owner.window)
             throw new Error('Resized HUD viewer identity changed');
         this.candidate = undefined;
+        this.growing = false;
         return resized.height;
     }
 }

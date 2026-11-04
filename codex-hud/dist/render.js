@@ -192,7 +192,7 @@ export function render(s, c, o = {}) {
         return { lines: [warnings[0]], totalLines: all.length, pages: 1 };
     const pinned = warnings.length ? [warnings[0]] : [];
     const pageable = warnings.length ? [...warnings.slice(1), ...body] : all;
-    const showPager = height >= pinned.length + 2, capacity = Math.max(1, height - pinned.length - (showPager ? 1 : 0));
+    const showPager = o.showPager !== false && height >= pinned.length + 2, capacity = Math.max(1, height - pinned.length - (showPager ? 1 : 0));
     const pages = Math.max(1, Math.ceil(pageable.length / capacity)), page = Math.min(pages - 1, Math.max(0, o.page ?? 0));
     const lines = [...pinned, ...pageable.slice(page * capacity, (page + 1) * capacity)];
     if (showPager && pages > 1)
