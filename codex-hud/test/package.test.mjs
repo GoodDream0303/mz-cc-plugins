@@ -20,6 +20,15 @@ test('packaged ASCII profile loader runs from a Unicode path without node_module
  const runner=path.join(tmp,'run.ps1');fs.writeFileSync(runner,". '"+profile.replaceAll("'","''")+"'\ncodex --version\nexit $LASTEXITCODE\n");
  for(const shell of ['powershell.exe','pwsh.exe']){const result=spawnSync(shell,['-NoLogo','-NoProfile','-NonInteractive','-File',runner],{encoding:'utf8',timeout:15000,env:{...process.env,PATH:npm+path.delimiter+process.env.PATH,LOCALAPPDATA:tmp}});assert.equal(result.status,23,result.stderr);assert.equal(result.stdout.trim(),'SYNTHETIC-OFFICIAL-ENTRY');}
 });
+test('marketplace onboarding resolves to a shipped skill without source or build dependencies',t=>{
+ const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'hud-onboarding-'));t.after(()=>fs.rmSync(tmp,{recursive:true,force:true}));
+ for(const item of ['.codex-plugin','skills'])fs.cpSync(path.join(root,item),path.join(tmp,item),{recursive:true});
+ const manifest=JSON.parse(fs.readFileSync(path.join(tmp,'.codex-plugin','plugin.json'),'utf8'));
+ assert.equal(typeof manifest.onboardingSkill,'string','marketplace setup has no onboarding target');
+ const skill=path.resolve(tmp,manifest.onboardingSkill);assert.ok(skill.startsWith(tmp+path.sep));
+ assert.ok(fs.statSync(skill).isFile());assert.equal(path.basename(skill),'SKILL.md');
+});
+
 test('package registers one quiet hook for every main-conversation start source',t=>{
  const marketplace=JSON.parse(fs.readFileSync(path.join(root,'..','.agents','plugins','marketplace.json'),'utf8'));assert.equal(marketplace.name,'mz-cc-plugins');assert.ok(marketplace.plugins.some(p=>p.name==='task-handoff'));const entry=marketplace.plugins.find(p=>p.name==='codex-hud');assert.ok(entry);assert.equal(path.resolve(root,'..',entry.source.path),root);
  const manifest=JSON.parse(fs.readFileSync(path.join(root,'.codex-plugin','plugin.json'),'utf8'));assert.equal(manifest.hooks,'./hooks/hooks.json');const hooks=JSON.parse(fs.readFileSync(path.join(root,manifest.hooks),'utf8'));assert.deepEqual(Object.keys(hooks.hooks),['SessionStart']);const group=hooks.hooks.SessionStart[0];const matcher=new RegExp(group.matcher);for(const source of ['startup','resume','clear','fork'])assert.ok(matcher.test(source));assert.ok(!matcher.test('compact'));assert.equal(group.hooks[0].async,false);

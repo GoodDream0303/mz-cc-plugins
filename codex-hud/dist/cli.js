@@ -22,11 +22,12 @@ import { fileURLToPath } from 'node:url';
 import { assertActiveEntry } from './entry-install.js';
 import { inspectSetup } from './setup-readiness.js';
 import { sessionMetadata, isMainSession } from './autostart.js';
+import { DynamicHeightController } from './dynamic-height.js';
 function option(args, key) { const i = args.indexOf(key); return i >= 0 ? args[i + 1] : args.find(v => v.startsWith(key + '='))?.slice(key.length + 1); }
 function launchFile(args) { const encoded = option(args, '--launch64'); return encoded ? Buffer.from(encoded, 'base64').toString('utf8') : option(args, '--launch'); }
 function configFile(args) { return option(args, '--config') ?? configPath(); }
 function preview(config) {
-    return render({ ...emptySnapshot('preview'), model: 'Codex Demo', effort: 'high', cwd: 'C:/projects/firmware', context: { used: 45000, window: 200000 }, latest: { input: 42000, cached: 30000, output: 3000, reasoning: 1000, total: 45000 }, totals: { input: 120000, cached: 90000, output: 10000, reasoning: 3000, total: 130000 }, quotas: [{ id: 'demo:5h', minutes: 300, usedPercent: 25, resetsAt: Math.floor(Date.now() / 1000) + 3600 }, { id: 'demo:7d', minutes: 10080, usedPercent: 35, resetsAt: Math.floor(Date.now() / 1000) + 86400 }], agents: [{ id: 'demo', name: 'reviewer', status: 'unknown' }], todos: [{ step: 'Validate firmware', status: 'in_progress' }], mcpUsed: ['docs'] }, config, { width: process.stdout.columns ?? 100, height: 100, color: !!process.stdout.isTTY }).lines;
+    return render({ ...emptySnapshot('preview'), model: 'Codex Demo', effort: 'high', cwd: 'C:/projects/firmware', context: { used: 45000, window: 200000 }, latest: { input: 42000, cached: 30000, output: 3000, reasoning: 1000, total: 45000 }, totals: { input: 120000, cached: 90000, output: 10000, reasoning: 3000, total: 130000 }, quotas: [{ id: 'demo:5h', minutes: 300, usedPercent: 25, resetsAt: Math.floor(Date.now() / 1000) + 3600 }, { id: 'demo:7d', minutes: 10080, usedPercent: 35, resetsAt: Math.floor(Date.now() / 1000) + 86400 }], agents: [{ id: 'demo', name: 'reviewer', status: 'running' }], todos: [{ step: 'Validate firmware', status: 'in_progress' }], mcpUsed: ['docs'] }, config, { width: process.stdout.columns ?? 100, height: 100, color: !!process.stdout.isTTY }).lines;
 }
 async function chooseSession(root) {
     const sessions = (await listSessions(root)).filter(s => !s.parentId).slice(0, 20);
@@ -68,6 +69,7 @@ async function watch(args, once = false) {
     else if (key?.name === 'left' || key?.name === 'p')
         page = Math.max(0, page - 1); };
     const interactive = !once && !!process.stdin.isTTY;
+    const dynamicHeight = new DynamicHeightController();
     if (interactive) {
         emitKeypressEvents(process.stdin);
         process.stdin.setRawMode(true);
@@ -145,9 +147,23 @@ async function watch(args, once = false) {
                 snapshot.environment = readEnvironment(snapshot.cwd, home);
             if (statusMessage)
                 snapshot.errors.push(statusMessage);
-            const result = render(snapshot, config, { width: Number(option(args, '--width')) || process.stdout.columns || 100, height: once ? 1000 : process.stdout.rows || 12, page, color: !args.includes('--no-color') && !!process.stdout.isTTY });
+            const width = Number(option(args, '--width')) || process.stdout.columns || 100, color = !args.includes('--no-color') && !!process.stdout.isTTY;
+            let rows = once ? 1000 : process.stdout.rows || 12, result = render(snapshot, config, { width, height: rows, page, color });
+            if (!once && process.stdout.isTTY && descriptor?.host) {
+                try {
+                    const fitted = dynamicHeight.fit(descriptor, config, result.totalLines);
+                    if (fitted !== undefined) {
+                        rows = fitted;
+                        result = render(snapshot, config, { width, height: rows, page, color });
+                    }
+                }
+                catch {
+                    snapshot.errors.push('Automatic height unavailable; keeping the current pane size');
+                    result = render(snapshot, config, { width, height: rows, page, color });
+                }
+            }
             if (descriptor && !descriptor.demo)
-                updateLaunch(ownedFile, d => { d.heartbeat = Date.now(); d.viewport = { columns: process.stdout.columns ?? 100, rows: process.stdout.rows ?? 12, contentRows: result.totalLines, pages: result.pages }; });
+                updateLaunch(ownedFile, d => { d.heartbeat = Date.now(); d.viewport = { columns: process.stdout.columns ?? 100, rows, contentRows: result.totalLines, pages: result.pages }; });
             if (args.includes('--json'))
                 console.log(JSON.stringify(snapshot));
             else {

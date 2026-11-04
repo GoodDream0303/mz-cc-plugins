@@ -22,12 +22,13 @@ import {fileURLToPath} from 'node:url';
 import {assertActiveEntry} from './entry-install.js';
 import {inspectSetup} from './setup-readiness.js';
 import {sessionMetadata,isMainSession} from './autostart.js';
+import {DynamicHeightController} from './dynamic-height.js';
 
 function option(args:string[],key:string):string|undefined{const i=args.indexOf(key);return i>=0?args[i+1]:args.find(v=>v.startsWith(key+'='))?.slice(key.length+1);}
 function launchFile(args:string[]):string|undefined{const encoded=option(args,'--launch64');return encoded?Buffer.from(encoded,'base64').toString('utf8'):option(args,'--launch');}
 function configFile(args:string[]):string{return option(args,'--config')??configPath();}
 function preview(config:Config):string[]{
- return render({...emptySnapshot('preview'),model:'Codex Demo',effort:'high',cwd:'C:/projects/firmware',context:{used:45000,window:200000},latest:{input:42000,cached:30000,output:3000,reasoning:1000,total:45000},totals:{input:120000,cached:90000,output:10000,reasoning:3000,total:130000},quotas:[{id:'demo:5h',minutes:300,usedPercent:25,resetsAt:Math.floor(Date.now()/1000)+3600},{id:'demo:7d',minutes:10080,usedPercent:35,resetsAt:Math.floor(Date.now()/1000)+86400}],agents:[{id:'demo',name:'reviewer',status:'unknown'}],todos:[{step:'Validate firmware',status:'in_progress'}],mcpUsed:['docs']},config,{width:process.stdout.columns??100,height:100,color:!!process.stdout.isTTY}).lines;
+ return render({...emptySnapshot('preview'),model:'Codex Demo',effort:'high',cwd:'C:/projects/firmware',context:{used:45000,window:200000},latest:{input:42000,cached:30000,output:3000,reasoning:1000,total:45000},totals:{input:120000,cached:90000,output:10000,reasoning:3000,total:130000},quotas:[{id:'demo:5h',minutes:300,usedPercent:25,resetsAt:Math.floor(Date.now()/1000)+3600},{id:'demo:7d',minutes:10080,usedPercent:35,resetsAt:Math.floor(Date.now()/1000)+86400}],agents:[{id:'demo',name:'reviewer',status:'running'}],todos:[{step:'Validate firmware',status:'in_progress'}],mcpUsed:['docs']},config,{width:process.stdout.columns??100,height:100,color:!!process.stdout.isTTY}).lines;
 }
 async function chooseSession(root:string):Promise<string>{
  const sessions=(await listSessions(root)).filter(s=>!s.parentId).slice(0,20);if(!sessions.length)throw new Error('No sessions found');
@@ -43,6 +44,7 @@ async function watch(args:string[],once=false):Promise<void>{
  let cfgFile=descriptor?.configFile??configFile(args),config=loadConfig(cfgFile);let page=0,quit=false,reader:SessionReader|undefined,nextDiscover=0,nextOwnerCheck=0,knownPath='',statusMessage='';let lastSnapshot=emptySnapshot(selected??'pending');
  const onKey=(_:unknown,key:{name?:string;ctrl?:boolean})=>{if(key?.name==='q'||key?.name==='c'&&key.ctrl)quit=true;else if(key?.name==='right'||key?.name==='n')page++;else if(key?.name==='left'||key?.name==='p')page=Math.max(0,page-1);};
  const interactive=!once&&!!process.stdin.isTTY;
+ const dynamicHeight=new DynamicHeightController();
  if(interactive){emitKeypressEvents(process.stdin);process.stdin.setRawMode(true);process.stdin.on('keypress',onKey);process.stdin.resume();}
  if(!once&&process.stdout.isTTY)process.stdout.write('\x1b[?1049h\x1b[?25l');
  if(descriptor&&!descriptor.demo)updateLaunch(ownedFile!,d=>{d.state='running';d.pid=process.pid;d.heartbeat=Date.now();});
@@ -73,8 +75,13 @@ async function watch(args:string[],once=false):Promise<void>{
    }else snapshot.errors.push(descriptor?.host?'Waiting for this Codex conversation':'Select the existing Codex session to display');
    if(snapshot.cwd)snapshot.environment=readEnvironment(snapshot.cwd,home);
    if(statusMessage)snapshot.errors.push(statusMessage);
-   const result=render(snapshot,config,{width:Number(option(args,'--width'))||process.stdout.columns||100,height:once?1000:process.stdout.rows||12,page,color:!args.includes('--no-color')&&!!process.stdout.isTTY});
-   if(descriptor&&!descriptor.demo)updateLaunch(ownedFile!,d=>{d.heartbeat=Date.now();d.viewport={columns:process.stdout.columns??100,rows:process.stdout.rows??12,contentRows:result.totalLines,pages:result.pages};});
+   const width=Number(option(args,'--width'))||process.stdout.columns||100,color=!args.includes('--no-color')&&!!process.stdout.isTTY;
+   let rows=once?1000:process.stdout.rows||12,result=render(snapshot,config,{width,height:rows,page,color});
+   if(!once&&process.stdout.isTTY&&descriptor?.host){
+    try{const fitted=dynamicHeight.fit(descriptor,config,result.totalLines);if(fitted!==undefined){rows=fitted;result=render(snapshot,config,{width,height:rows,page,color});}}
+    catch{snapshot.errors.push('Automatic height unavailable; keeping the current pane size');result=render(snapshot,config,{width,height:rows,page,color});}
+   }
+   if(descriptor&&!descriptor.demo)updateLaunch(ownedFile!,d=>{d.heartbeat=Date.now();d.viewport={columns:process.stdout.columns??100,rows,contentRows:result.totalLines,pages:result.pages};});
    if(args.includes('--json'))console.log(JSON.stringify(snapshot));else{
     if(!once&&process.stdout.isTTY)process.stdout.write('\x1b[H\x1b[2J'+result.lines.join('\r\n'));
     else console.log(result.lines.join('\n'));

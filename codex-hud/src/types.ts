@@ -1,7 +1,7 @@
 export interface Tokens {input:number;cached:number;output:number;reasoning:number;total:number}
 export interface Quota {id:string;minutes:number;usedPercent:number;resetsAt?:number}
-export interface Tool {id:string;name:string;status:'running'|'done'|'failed'}
-export interface Agent {id:string;name:string;status:string}
+export interface Tool {id:string;name:string;status:'running'|'done'|'failed'|'cancelled'}
+export interface Agent {id:string;name:string;status:string;model?:string}
 export interface Todo {step:string;status:string}
 export interface HudSnapshot {
  sessionId:string;cwd?:string;startedAt?:string;model?:string;effort?:string;version?:string;provider?:string;plan?:string;

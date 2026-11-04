@@ -1,5 +1,41 @@
 # Validation: exact per-source HUD
 
+## 0.6.0: onboarding, live height and activity — 2026-11-04
+
+The following implementation checks preceded publication. No live profile
+initialization, marketplace deployment or additional official Codex/model
+session was performed for these checks; installation is verified separately.
+
+- Node 24.15.0: final `npm test` passed 193/193, including generated runtime,
+  PS5/PS7 startup/package regressions and all new feature checks.
+- Node 20.19.0: 95/95 related reader/render, live-height, backend, configuration,
+  package, first-run setup and prerequisite checks passed on the final runtime.
+- [Native smoke evidence](evidence/2026-11-04-live-height/summary.json): all 12
+  checks passed using the pinned compact backend and synthetic CLI/telemetry.
+  The same viewer followed 3/6/3 actual content rows, grew to seven after width
+  reduction, and preserved its neighbor. Disabling fitting preserved its height.
+  New log records updated running/completed/cancelled tool symbols and agent
+  lifecycle/model labels without restarting that viewer.
+- Read-only inspection of the existing real parent transcript confirmed two
+  completed agents with the reported `gpt-6.1-sol` and `gpt-6-astra` models. An
+  actual code-mode yielded cell was decoded as running and reconciled to done
+  after its wait. This is metadata evidence, not fresh-machine/visual acceptance.
+- Independent review found pending/canonical agent identity duplication, replayed
+  spawn state regression and unhandled executor output envelopes. Each received
+  a failing regression before correction. Follow-up review confirmed the three
+  Important findings resolved. Its missing-model fallback finding was also
+  reproduced and corrected without overwriting canonical model/state.
+- The packaged onboarding target resolves to hud-start. Its native-Codex/no-Node
+  and configured-host/reopen scenarios were independently evaluated. Both changed
+  skills pass the skill validator. Existing isolated PS5/PS7 package/setup checks
+  still apply; these do not prove a full fresh Windows installation.
+
+Full fresh-machine marketplace setup, native hook review and real user acceptance
+of continuous resizing remain manual checks. Existing fixed/manual sizing is the
+compatibility default; `terminal.dynamicHeight=true` explicitly opts in. The
+one-second default refresh follows reported metadata and cannot show events the
+upstream runtime has not emitted.
+
 ## 0.5.2 marketplace lookup correction — 2026-11-03
 
 - Node 24 full suite: 163/163 passed. Node 20.19.0 startup/package scope: 23/23

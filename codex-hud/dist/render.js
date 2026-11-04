@@ -125,10 +125,15 @@ export function render(s, c, o = {}) {
         if (facts.length)
             groups.set('mcp', ink('MCP: ' + facts.join(' | '), 'label'));
     }
-    if (on('showTools') && s.tools.length)
-        groups.set('tools', s.tools.slice(-get(c, 'display.toolsMaxVisible')).map(t => ink((t.status === 'running' ? '◐ ' : t.status === 'failed' ? '✗ ' : '✓ ') + (get(c, 'display.toolNameMaxLength') ? truncate(t.name, get(c, 'display.toolNameMaxLength')) : sanitize(t.name)), t.status === 'failed' ? 'critical' : 'label')).join(' | '));
-    if (on('showAgents') && s.agents.length)
-        groups.set('agents', ink(label('Agents: ', '子代理: ') + s.agents.map(a => sanitize(a.name) + ' [' + sanitize(a.status) + ']').join(' | '), 'label'));
+    if (on('showTools') && s.tools.length) {
+        const limit = Math.trunc(get(c, 'display.toolsMaxVisible')) || s.tools.length, running = s.tools.filter(t => t.status === 'running').slice(-limit), finished = s.tools.filter(t => t.status !== 'running');
+        const visible = [...running, ...(running.length < limit ? finished.slice(-(limit - running.length)) : [])];
+        groups.set('tools', visible.map(t => ink((t.status === 'running' ? '◐ ' : t.status === 'failed' ? '✗ ' : t.status === 'cancelled' ? '⊘ ' : '✓ ') + (get(c, 'display.toolNameMaxLength') ? truncate(t.name, get(c, 'display.toolNameMaxLength')) : sanitize(t.name)), t.status === 'failed' ? 'critical' : 'label')).join(' | '));
+    }
+    if (on('showAgents') && s.agents.length) {
+        const statuses = { starting: label('starting', '启动中', '啟動中'), running: label('running', '运行中', '執行中'), interrupted: label('interrupted', '已中断', '已中斷'), done: label('done', '已完成'), failed: label('failed', '失败', '失敗'), closed: label('closed', '已关闭', '已關閉'), 'not-found': label('not found', '未找到') };
+        groups.set('agents', ink(label('Agents: ', '子代理: ') + s.agents.map(a => sanitize(a.name) + ' [' + (statuses[a.status] ?? label('status not reported', '状态未报告', '狀態未回報')) + '] (' + sanitize(a.model ?? label('model not reported', '模型未报告', '模型未回報')) + ')').join(' | '), 'label'));
+    }
     if (on('showTodos') && s.todos.length) {
         const pending = s.todos.filter(t => t.status !== 'completed'), done = s.todos.length - pending.length;
         groups.set('todos', ink(label('Todo: ', '待办: ', '待辦: ') + (pending.length ? pending.map(t => (t.status === 'in_progress' ? '▸ ' : '○ ') + sanitize(t.step)).join(' | ') : '✓ ' + label('All tasks complete', '全部完成')) + ' (' + done + '/' + s.todos.length + ')', 'label'));

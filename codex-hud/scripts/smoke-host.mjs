@@ -1,7 +1,7 @@
 // Production backend smoke with real OS processes and explicitly synthetic CLI/data.
 // A copied Node executable named codex.exe is a fixture, NOT official Codex.
 import fs from 'node:fs';import path from 'node:path';import os from 'node:os';import assert from 'node:assert/strict';import {randomUUID,createHash} from 'node:crypto';import {spawnSync} from 'node:child_process';import {fileURLToPath} from 'node:url';import {setTimeout as delay} from 'node:timers/promises';
-import {defaultConfig,set,saveConfig} from '../dist/config.js';import {readHost} from '../dist/host-session.js';import {readLaunch,requestStop} from '../dist/runtime.js';
+import {defaultConfig,set,saveConfig,loadConfig,preset} from '../dist/config.js';import {readHost} from '../dist/host-session.js';import {readLaunch,requestStop} from '../dist/runtime.js';
 import {verifyBackend} from '../dist/backend-version.js';
 const self=fileURLToPath(import.meta.url),product=path.resolve(path.dirname(self),'..');
 const read=file=>JSON.parse(fs.readFileSync(file,'utf8'));
@@ -32,6 +32,7 @@ if(process.argv[2]==='--fixture'){
  const backend=verifyBackend(binary,spawnSync(binary,['-V'],{encoding:'utf8',windowsHide:true}).stdout);assert.ok(backend,'Backend must match an accepted build and artifact pin');
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'hud-production-host-')),runtime=path.join(root,'runtime'),hostDir=path.join(runtime,'hosts'),fake=path.join(root,'codex.exe'),configFile=path.join(root,'local/mz-codex-hud/config.json'),codexHome=path.join(root,'codex-home'),cwd=path.join(root,'samecwd');
  fs.mkdirSync(cwd,{recursive:true});fs.mkdirSync(codexHome);fs.cpSync(process.execPath,fake);saveConfig(configFile,set(set(set(defaultConfig(),'host.psmuxPath',binary),'startup.enabled',false),'host.autoStart','enabled'));
+ const configFileA=path.join(root,'local/mz-codex-hud/config-A.json');saveConfig(configFileA,loadConfig(configFile));
  const parked=path.join(root,'first-viewer-parked'),preload=path.join(root,'park-first-viewer.mjs');
  if(process.argv.includes('--kill-first-viewer'))fs.writeFileSync(preload,`import fs from 'node:fs';if(process.argv[2]==='watch'){let first=false;try{fs.writeFileSync(${JSON.stringify(parked)},String(process.pid),{flag:'wx'});first=true;}catch{}if(first)await new Promise(resolve=>setTimeout(resolve,30000));}`);
  const config=path.join(root,'psmux.conf');fs.writeFileSync(config,'set -g warm off\nset -g status off\nset -g exit-empty on\n');
@@ -59,10 +60,11 @@ if(process.argv[2]==='--fixture'){
  try{
   for(const role of ['A','B']){
    const id=randomUUID(),namespace='mzhudsmoke'+role+id.replaceAll('-','').slice(0,16),dataDir=path.join(root,'state',role),env={...process.env};for(const key of Object.keys(env))if(/^TMUX|^PSMUX_/i.test(key))delete env[key];
-   Object.assign(env,{MZ_HUD_ORIGIN:id,MZ_HUD_NAMESPACE:namespace,MZ_HUD_HOST_DIR:hostDir,MZ_HUD_PSMUX:binary,MZ_HUD_CONFIG_FILE:configFile,PSMUX_DATA_DIR:dataDir,PSMUX_CONFIG_FILE:config,PSMUX_NO_WARM:'1',LOCALAPPDATA:path.join(root,'local'),CODEX_HOME:codexHome});
+   const roleConfig=role==='A'?configFileA:configFile;
+   Object.assign(env,{MZ_HUD_ORIGIN:id,MZ_HUD_NAMESPACE:namespace,MZ_HUD_HOST_DIR:hostDir,MZ_HUD_PSMUX:binary,MZ_HUD_CONFIG_FILE:roleConfig,PSMUX_DATA_DIR:dataDir,PSMUX_CONFIG_FILE:config,PSMUX_NO_WARM:'1',LOCALAPPDATA:path.join(root,'local'),CODEX_HOME:codexHome});
    if(role==='A'&&process.argv.includes('--kill-first-viewer'))env.NODE_OPTIONS='--import='+new URL('file:///'+preload.replaceAll('\\','/')).href;
    roles.set(role,{id,namespace,env});const encoded=Buffer.from(JSON.stringify({command:fake,args:[self,'--fixture',role,root,process.execPath]})).toString('base64');
-   command(role,['new-session','-d','-s','codex','-x','120','-y','40','-c',cwd,'--',process.execPath,path.join(product,'bin/hud.mjs'),'host-owner','--invocation64',encoded,'--config',configFile]);
+   command(role,['new-session','-d','-s','codex','-x','120','-y','40','-c',cwd,'--',process.execPath,path.join(product,'bin/hud.mjs'),'host-owner','--invocation64',encoded,'--config',roleConfig]);
    if(role==='A'&&process.argv.includes('--kill-first-viewer')){
     const pending=await wait(()=>{try{const d=descriptor(role);return d?.state==='created'&&d.host?.reportedPane&&fs.existsSync(parked)?d:undefined;}catch{return;}},'A did not publish its exact parked pending pane');
     command(role,['kill-pane','-t',pending.host.reportedPane]);await ready(role);assert.notEqual(descriptor(role).file,pending.file);assert.equal(readLaunch(pending.file).host.phase,'closed');checks.push('killed a reported viewer before acknowledgement; source recovered only after exact absence proof');
@@ -79,6 +81,32 @@ if(process.argv[2]==='--fixture'){
   const launchA=descriptor('A').file;await bind('A','synthetic-shared-thread',30);await bind('B','synthetic-shared-thread',30);assert.equal(descriptor('A').file,launchA);assert.notEqual(descriptor('A').file,descriptor('B').file);checks.push('same thread in two source owners retains two displays; rebind does not duplicate');
   requestStop(descriptor('A').file);await wait(()=>descriptor('A').state==='exited','A HUD did not close');assert.equal(descriptor('B').state,'running');
   await delay(500);await bind('A','synthetic-reopened',45);assert.notEqual(descriptor('A').file,launchA);checks.push('closing/reopening one HUD keeps the other source and display alive');
+  if(process.argv.includes('--dynamic-height')){
+   const neighbour=geometry('B'),sourcePid=descriptor('A').host.proof.owner.pid,viewerPid=descriptor('A').pid;
+   let live=set(set(set(set(preset('minimal',loadConfig(configFileA)),'display.showContextBar',false),'terminal.dynamicHeight',true),'terminal.paneSize',0.3),'terminal.refreshMs',250);
+   async function content(rows,columns=120){
+    live=set(live,'display.customLine','x'.repeat((columns-4)*rows));saveConfig(configFileA,live);
+    await wait(()=>{try{const d=descriptor('A');return d.viewport?.contentRows===rows&&d.viewport?.rows===rows?geometry('A',rows):undefined;}catch{return;}},'Dynamic HUD did not reach '+rows+' actual rows');
+    assert.equal(descriptor('A').pid,viewerPid);assert.equal(descriptor('A').host.proof.owner.pid,sourcePid);assert.deepEqual(geometry('B'),neighbour);
+   }
+   await content(3);await content(6);await content(3);checks.push('live watch loop follows 3/6/3 content with exact native rows and unchanged neighbour');
+   command('A',['resize-window','-t','codex','-x','60','-y','40']);
+   await wait(()=>{try{return descriptor('A').viewport?.contentRows===7?geometry('A',7):undefined;}catch{return;}},'Narrow wrapping did not grow the live HUD');
+   assert.deepEqual(geometry('B'),neighbour);checks.push('narrower viewport grows wrapped content to seven rows without changing the other server');
+   command('A',['resize-window','-t','codex','-x','120','-y','40']);await content(3);
+   live=set(set(live,'terminal.dynamicHeight',false),'display.customLine','x'.repeat(232));saveConfig(configFileA,live);
+   await wait(()=>descriptor('A').viewport?.contentRows===2,'Fixed-mode content was not reloaded');await delay(2500);geometry('A',3);assert.deepEqual(geometry('B'),neighbour);checks.push('disabling live fitting keeps the manually/currently selected height');
+   live=set(set(set(live,'display.customLine',''),'display.showTools',true),'display.showAgents',true);saveConfig(configFileA,live);
+   const append=payload=>fs.appendFileSync(descriptor('A').transcriptPath,JSON.stringify({type:'event_msg',payload:{type:'item_completed',item:payload}})+'\n');
+   const visible=text=>wait(()=>command('A',['capture-pane','-p','-t',descriptor('A').host.hudPane]).stdout.includes(text),'Live HUD did not render '+text);
+   append({type:'CommandExecution',id:'live-command',status:'in_progress'});await visible('◐ exec_command');
+   append({type:'CommandExecution',id:'live-command',status:'completed',exit_code:0});await visible('✓ exec_command');
+   append({type:'CommandExecution',id:'cancelled-command',status:'cancelled'});await visible('⊘ exec_command');
+   checks.push('same running viewer updates actual tool running/completed/cancelled symbols as metadata arrives');
+   append({type:'SubAgentActivity',id:'agent-start',kind:'started',agent_thread_id:'synthetic-agent',agent_path:'/root/reviewer',model:'synthetic-agent-model'});await visible('reviewer [running] (synthetic-agent-model)');
+   append({type:'SubAgentActivity',id:'agent-done',kind:'completed',agent_thread_id:'synthetic-agent',agent_path:'/root/reviewer',model:null});await visible('reviewer [done] (synthetic-agent-model)');
+   assert.equal(descriptor('A').pid,viewerPid);assert.deepEqual(geometry('B'),neighbour);checks.push('same viewer updates agent lifecycle and retains the reported actual model');
+  }
   for(const role of ['A','B'])fs.writeFileSync(path.join(root,'stop-'+role),'stop');
   await wait(()=>['A','B'].every(role=>readHost(path.join(hostDir,roles.get(role).id+'.json')).state==='closed'),'Source wrappers did not close');
   await wait(()=>['A','B'].every(role=>descriptor(role).state==='exited'),'Owned HUDs did not stop after their source exit');checks.push('source exit closes only its owned display');

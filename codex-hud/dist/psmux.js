@@ -76,6 +76,25 @@ export class PsmuxClient {
             throw new Error('Backend did not return a distinct HUD pane; creation is uncertain');
         return result;
     }
+    panes() {
+        const raw = this.command(['list-panes', '-a', '-F', '#{session_name}\t#{window_id}\t#{pane_id}\t#{pane_pid}\t#{pane_width}\t#{pane_height}\t#{pid}']).trim();
+        const panes = raw ? raw.split(/\r?\n/).map(line => {
+            const values = line.split('\t'), [session, window, pane, pid, width, height, server] = values;
+            if (values.length !== 7 || session !== this.origin.session || !/^@\d+$/.test(window) || !panePattern.test(pane) || ![pid, width, height].every(value => positive(Number(value))) || Number(server) !== serverPid(this.origin))
+                throw new Error('Pane scope does not match the source server');
+            return { session, window, pane, pid: Number(pid), width: Number(width), height: Number(height), serverPid: Number(server) };
+        }) : [];
+        if (new Set(panes.map(p => p.pane)).size !== panes.length)
+            throw new Error('Source pane scope is ambiguous');
+        return panes;
+    }
+    resizePane(id, rows) {
+        if (!panePattern.test(id) || id === this.origin.pane)
+            throw new Error('Only a distinct HUD pane can be resized');
+        if (!Number.isInteger(rows) || rows < 1 || rows > 1000)
+            throw new Error('Invalid HUD pane height');
+        this.command(['resize-pane', '-t', id, '-y', String(rows)]);
+    }
     confirmsAbsent(id, ownerPid) {
         if (!panePattern.test(id) || id === this.origin.pane)
             throw new Error('Invalid HUD recovery pane');

@@ -1,6 +1,28 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {render} from '../dist/render.js';import {displayWidth,sanitize,wrapAnsi} from '../dist/terminal-text.js';import {defaultConfig,set,importClaude,preset} from '../dist/config.js';import {emptySnapshot} from '../dist/types.js';
 function sample(){return {...emptySnapshot('abc-session'),model:'gpt-example',effort:'high',cwd:'C:/项目/固件😀',context:{used:30,window:200},totals:{input:100,cached:80,output:20,reasoning:5,total:120},latest:{input:25,cached:20,output:5,reasoning:1,total:30},quotas:[{id:'codex:primary',minutes:10080,usedPercent:15,resetsAt:2000000000}],mcpUsed:['docs'],agents:[{id:'a',name:'分析',status:'unknown'}],todos:[{step:'验证驱动',status:'in_progress'}],tools:[{id:'t',name:'secret-tool',status:'running'}]};}
+test('agent lifecycle labels are localized and missing reports are explicit',()=>{
+ const s={...emptySnapshot('parent'),agents:[{id:'a',name:'Task 原文',status:'running'},{id:'b',name:'review',status:'unknown'}]};
+ const config=set(defaultConfig(),'display.showAgents',true);
+ const english=render(s,config,{width:200,height:30,color:false}).lines.join('\n');assert.match(english,/Task 原文 \[running\]/);assert.match(english,/review \[status not reported\]/);
+ const chinese=render(s,set(config,'language','zh-Hans'),{width:200,height:30,color:false}).lines.join('\n');assert.match(chinese,/Task 原文 \[运行中\]/);assert.match(chinese,/review \[状态未报告\]/);
+});
+test('running tools stay visible while later tools finish and cancelled tools are distinct',()=>{
+ const config=set(set(defaultConfig(),'display.showTools',true),'display.toolsMaxVisible',2);
+ const s={...emptySnapshot('parent'),tools:[{id:'long',name:'long_build',status:'running'},{id:'a',name:'old_done',status:'done'},{id:'b',name:'latest_done',status:'done'}]};
+ let result=render(s,config,{width:150,height:30,color:false}).lines.join('\n');assert.match(result,/◐ long_build/);assert.match(result,/✓ latest_done/);assert.doesNotMatch(result,/old_done/);
+ s.tools[0].status='cancelled';result=render(s,config,{width:150,height:30,color:false}).lines.join('\n');assert.doesNotMatch(result,/◐ long_build/);
+ s.tools.push({id:'c',name:'cancelled_check',status:'cancelled'});assert.match(render(s,config,{width:150,height:30,color:false}).lines.join('\n'),/⊘ cancelled_check/);
+});
+test('zero visible-tool limit retains its existing unlimited behavior',()=>{
+ const config=set(set(defaultConfig(),'display.showTools',true),'display.toolsMaxVisible',0),s={...emptySnapshot('parent'),tools:[{id:'a',name:'active',status:'running'},{id:'b',name:'finished',status:'done'}]};
+ const text=render(s,config,{width:150,height:30,color:false}).lines.join('\n');assert.match(text,/◐ active/);assert.match(text,/✓ finished/);
+});
+test('each agent displays its actual model or an explicit missing-model label',()=>{
+ const s={...emptySnapshot('parent'),agents:[{id:'a',name:'Task 原文',status:'running',model:'actual-model'},{id:'b',name:'review',status:'done'}]},config=set(defaultConfig(),'display.showAgents',true);
+ const english=render(s,config,{width:200,height:30,color:false}).lines.join('\n');assert.match(english,/Task 原文 \[running\] \(actual-model\)/);assert.match(english,/review \[done\] \(model not reported\)/);
+ const chinese=render(s,set(config,'language','zh-Hans'),{width:200,height:30,color:false}).lines.join('\n');assert.match(chinese,/Task 原文 \[运行中\] \(actual-model\)/);assert.match(chinese,/review \[已完成\] \(模型未报告\)/);
+});
 test('default quota display shows both reported windows even at zero usage',()=>{
  const snapshot={...sample(),quotas:[{id:'codex:primary',minutes:10080,usedPercent:0},{id:'codex:secondary',minutes:300,usedPercent:0}]};
  const text=render(snapshot,defaultConfig(),{width:200,height:50,color:false}).lines.join('\n');

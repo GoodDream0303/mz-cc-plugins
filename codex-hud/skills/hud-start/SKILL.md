@@ -1,14 +1,36 @@
 ---
 name: hud-start
-description: Use when the user wants an independent Codex HUD in PowerShell tabs or windows, or needs to reopen the current conversation's HUD.
+description: Use for first-time Codex HUD setup after marketplace installation, independent HUDs in PowerShell tabs or windows, or reopening the current conversation's HUD.
 ---
 
 Resolve this plugin root two directories above the skill. Use its direct
 `node "<plugin-root>/bin/hud.mjs"` entry; a global npm link may target older code.
 Published packages include dist. Build only an explicitly selected source checkout.
 
-The target environment already has official Codex and Node 20+. Use that runtime;
-do not introduce dependency installation as a normal first-use step.
+## First installation
+
+This is the marketplace onboarding entry. Official Codex can be installed natively
+without Node.js, so check for a Node 20+ executable before invoking the Node CLI
+or doctor. Reuse an existing compatible runtime; do not reinstall dependencies
+on an already configured machine. If Node is missing or too old, explain that it
+is a HUD prerequisite and offer an official Node LTS installation or an existing
+portable runtime. Obtain the user's choice before installing anything; do not
+guess a portable path or change PATH automatically. With no usable runtime,
+stop the Node-dependent steps and give the specific prerequisite to resolve.
+
+The one-time flow is: prerequisites, initialization preview, authorized apply,
+native hook review, new shell/profile reload, and actual HUD acceptance. Resolve
+the profile separately from each PS5/PS7 host the user uses. The existing ordinary
+Codex process cannot be moved into the new host: finish it normally and use the
+unchanged `codex` or `codex resume` command from an initialized shell.
+
+Show the concrete profile/settings preview before applying. Recommend live
+content fitting for a fresh setup: include the proposed
+`terminal.dynamicHeight=true` change in that review, and use
+`config set terminal.dynamicHeight true` only if chosen. Existing explicit
+preferences are preserved. A configured installation that needs only its current
+HUD reopened does not need another initialization or preference change.
+
 `bin/setup.ps1` is the PowerShell-first entry and accepts an explicit portable
 `-NodePath` when needed. Published packages
 include a checksum-pinned compact backend; fresh defaults select it without a

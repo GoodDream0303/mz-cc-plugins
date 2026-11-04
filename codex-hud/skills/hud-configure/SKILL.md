@@ -19,8 +19,13 @@ Quota has a master switch plus independent five-hour/seven-day switches, both
 enabled by default. Show only reported windows; do not add a five-hour placeholder
 for a weekly-only account. Initial height defaults to `terminal.initialRows=6`;
 explicit `terminal.autoHeight=true` opts into content fitting, while initialRows=0
-with auto-height off selects percentage sizing. Valid edits do not resize an
-already open HUD automatically.
+with auto-height off selects percentage sizing. Those initial-sizing edits apply
+at creation. The separate `terminal.dynamicHeight` switch enables continuous
+content fitting in an already running verified host: three visible content rows
+use three HUD rows and six use six, within the ratio cap and ten source rows.
+Growth waits one stable refresh; shrinking waits at least two seconds. While on,
+manual dragging is fitted again after the debounce. Turn it off to preserve
+fixed/manual height. Keep existing sizing preferences unless a change is requested.
 
 For import, run `import-claude --path "<claude-hud-config.json>"` to show the mapping report; use `--yes` only when importing has been requested. Never import Claude settings.json, its env, statusLine shell commands, or credentials.
 

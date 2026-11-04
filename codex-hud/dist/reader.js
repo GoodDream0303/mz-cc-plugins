@@ -2,6 +2,8 @@ import fs from 'node:fs/promises';
 import { StringDecoder } from 'node:string_decoder';
 import { createHash } from 'node:crypto';
 import { emptySnapshot } from './types.js';
+import { AgentTracker } from './agents.js';
+import { toolOutput } from './tool-output.js';
 const MAX_LINE = 2 * 1024 * 1024;
 const safe = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 function count(v) { return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0; }
@@ -34,18 +36,23 @@ export class SessionReader {
     carry = '';
     decoder = new StringDecoder('utf8');
     snapshot;
+    agents;
     mismatch = false;
     absolute = false;
     discard = false;
     canonicalCompleted = new Set();
     prefix;
     checkpoint;
+    canonicalTools = new Set();
+    processTools = new Map();
+    pollTargets = new Map();
     constructor(file, sessionId) {
         this.file = file;
         this.sessionId = sessionId;
         this.snapshot = emptySnapshot(sessionId);
+        this.agents = new AgentTracker(this.snapshot.agents, sessionId);
     }
-    reset() { this.offset = 0; this.carry = ''; this.decoder = new StringDecoder('utf8'); this.snapshot = emptySnapshot(this.sessionId); this.mismatch = false; this.absolute = false; this.discard = false; this.canonicalCompleted.clear(); this.prefix = undefined; this.checkpoint = undefined; }
+    reset() { this.offset = 0; this.carry = ''; this.decoder = new StringDecoder('utf8'); this.snapshot = emptySnapshot(this.sessionId); this.agents = new AgentTracker(this.snapshot.agents, this.sessionId); this.mismatch = false; this.absolute = false; this.discard = false; this.canonicalCompleted.clear(); this.canonicalTools.clear(); this.processTools.clear(); this.pollTargets.clear(); this.prefix = undefined; this.checkpoint = undefined; }
     async unchanged(handle) {
         for (const point of [this.prefix, this.checkpoint])
             if (point && await fingerprint(handle, point.start, point.length) !== point.digest)
@@ -132,7 +139,11 @@ export class SessionReader {
         }
         if (this.mismatch)
             return;
-        if ((p.session_id && p.session_id !== this.sessionId) || (p.thread_id && p.thread_id !== this.sessionId))
+        if (p.session_id && p.session_id !== this.sessionId)
+            return;
+        if (type === 'event_msg' && this.agents.event(p))
+            return;
+        if (p.thread_id && p.thread_id !== this.sessionId)
             return;
         if (type === 'turn_context') {
             this.snapshot.model = text(p.model);
@@ -194,8 +205,10 @@ export class SessionReader {
             case 'turn_aborted':
                 this.snapshot.status = 'interrupted';
                 for (const t of this.snapshot.tools)
-                    if (t.status === 'running')
-                        t.status = 'failed';
+                    if (t.status === 'running') {
+                        t.status = 'cancelled';
+                        this.canonicalCompleted.add(t.id);
+                    }
                 return;
             case 'context_compacted':
             case 'compact_boundary':
@@ -209,26 +222,8 @@ export class SessionReader {
                 if (safe(p.item))
                     this.item(p.item, record.timestamp, true);
                 return;
-            case 'subagent_started':
-            case 'agent_started': {
-                const id = text(p.agent_id ?? p.thread_id);
-                if (id)
-                    this.agent(id, text(p.name ?? p.agent_name) ?? id, 'unknown');
-                return;
-            }
-            case 'subagent_stopped':
-            case 'agent_completed': {
-                const id = text(p.agent_id ?? p.thread_id);
-                if (id)
-                    this.agent(id, text(p.name) ?? id, p.success === false ? 'failed' : 'done');
-                return;
-            }
         }
     }
-    agent(id, name, status) { const existing = this.snapshot.agents.find(a => a.id === id); if (existing)
-        existing.status = status;
-    else
-        this.snapshot.agents.push({ id, name, status }); this.snapshot.agents = this.snapshot.agents.slice(-64); }
     tool(id, name, status, canonical = false) {
         const previous = this.snapshot.tools.find(t => t.id === id);
         if (previous) {
@@ -239,22 +234,40 @@ export class SessionReader {
         }
         else
             this.snapshot.tools.push({ id, name, status });
-        if (canonical && status !== 'running')
-            this.canonicalCompleted.add(id);
-        this.snapshot.tools = this.snapshot.tools.slice(-64);
-        const retained = new Set(this.snapshot.tools.map(t => t.id));
-        for (const key of this.canonicalCompleted)
-            if (!retained.has(key))
-                this.canonicalCompleted.delete(key);
+        if (canonical) {
+            this.canonicalTools.add(id);
+            if (status !== 'running')
+                this.canonicalCompleted.add(id);
+        }
+        const live = this.snapshot.tools.filter(t => t.status === 'running').slice(-64), finished = this.snapshot.tools.filter(t => t.status !== 'running');
+        const retained = new Set([...live, ...(live.length < 64 ? finished.slice(-(64 - live.length)) : [])].map(t => t.id));
+        this.snapshot.tools = this.snapshot.tools.filter(t => retained.has(t.id));
+        for (const set of [this.canonicalCompleted, this.canonicalTools])
+            for (const key of set)
+                if (!retained.has(key))
+                    set.delete(key);
+        for (const [key, value] of this.processTools)
+            if (!retained.has(value))
+                this.processTools.delete(key);
+        while (this.processTools.size > 128)
+            this.processTools.delete(this.processTools.keys().next().value);
+        while (this.pollTargets.size > 128)
+            this.pollTargets.delete(this.pollTargets.keys().next().value);
     }
     item(p, timestamp, completed = false) {
         if (!safe(p))
             return;
-        if (p.type === 'McpToolCall' || p.type === 'CommandExecution') {
-            const id = text(p.id ?? p.call_id);
+        if (p.type === 'SubAgentActivity') {
+            this.agents.event({ ...p, type: 'sub_agent_activity' });
+            return;
+        }
+        if (p.type === 'McpToolCall' || p.type === 'CommandExecution' || p.type === 'Extension') {
+            let id = text(p.id ?? p.call_id);
             if (!id)
                 return;
-            let name = 'exec_command';
+            let name = p.type === 'Extension' ? text(p.kind) : 'exec_command';
+            if (!name)
+                return;
             if (p.type === 'McpToolCall') {
                 const server = text(p.server), tool = text(p.tool);
                 if (!server || !tool)
@@ -263,8 +276,14 @@ export class SessionReader {
                 if (!this.snapshot.mcpUsed.includes(server))
                     this.snapshot.mcpUsed.push(server);
             }
-            const failed = ['failed', 'cancelled', 'aborted'].includes(p.status) || !!p.error || typeof p.exit_code === 'number' && p.exit_code !== 0;
-            this.tool(id, name, failed ? 'failed' : completed || p.status === 'completed' ? 'done' : 'running', true);
+            if (p.type === 'CommandExecution' && p.process_id !== undefined && p.process_id !== null) {
+                const key = 'session:' + String(p.process_id);
+                if (p.source !== 'unified_exec_startup')
+                    id = this.processTools.get(key) ?? id;
+                this.processTools.set(key, id);
+            }
+            const failed = p.status === 'failed' || !!p.error || typeof p.exit_code === 'number' && p.exit_code !== 0, cancelled = ['cancelled', 'aborted', 'interrupted', 'declined'].includes(p.status), running = ['in_progress', 'inProgress', 'running'].includes(p.status);
+            this.tool(id, name, cancelled ? 'cancelled' : failed ? 'failed' : running ? 'running' : completed || p.status === 'completed' ? 'done' : 'running', true);
             return;
         }
         if (['function_call', 'custom_tool_call'].includes(p.type)) {
@@ -277,22 +296,32 @@ export class SessionReader {
             if (m && !this.snapshot.mcpUsed.includes(m[1]))
                 this.snapshot.mcpUsed.push(m[1]);
             const leaf = name.split('.').at(-1);
-            if (leaf === 'update_plan') {
-                const args = parse(p.arguments ?? p.input);
-                if (Array.isArray(args?.plan))
-                    this.snapshot.todos = args.plan.filter(safe).filter((x) => typeof x.step === 'string' && ['pending', 'in_progress', 'completed'].includes(x.status)).slice(0, 200).map((x) => ({ step: x.step.slice(0, 200), status: x.status }));
+            const args = parse(p.arguments ?? p.input);
+            if (leaf === 'update_plan' && Array.isArray(args?.plan))
+                this.snapshot.todos = args.plan.filter(safe).filter((x) => typeof x.step === 'string' && ['pending', 'in_progress', 'completed'].includes(x.status)).slice(0, 200).map((x) => ({ step: x.step.slice(0, 200), status: x.status }));
+            if (['write_stdin', 'wait'].includes(leaf ?? '')) {
+                const key = args?.cell_id !== undefined ? 'cell:' + String(args.cell_id) : 'session:' + String(args?.session_id), target = this.processTools.get(key);
+                if (target)
+                    this.pollTargets.set(id, target);
             }
-            if (leaf === 'spawn_agent') {
-                const args = parse(p.arguments ?? p.input);
-                this.agent(id, text(args?.task_name) ?? text(args?.agent_type) ?? 'agent', 'unknown');
-            }
+            this.agents.call(id, leaf ?? '', args);
         }
         if (['function_call_output', 'custom_tool_call_output'].includes(p.type)) {
-            const id = text(p.call_id);
-            const tool = this.snapshot.tools.find(t => t.id === id);
+            const id = text(p.call_id), tool = this.snapshot.tools.find(t => t.id === id);
             if (tool && !this.canonicalCompleted.has(tool.id)) {
-                const output = typeof p.output === 'string' ? parse(p.output) : p.output;
-                tool.status = p.is_error || output?.isError || output?.error || typeof output?.exit_code === 'number' && output.exit_code !== 0 ? 'failed' : 'done';
+                const metadata = toolOutput(p.output), output = metadata.data, leaf = tool.name.split('.').at(-1), executor = ['exec', 'exec_command', 'write_stdin', 'wait'].includes(leaf ?? '');
+                const failed = !!(p.is_error || output?.isError || output?.error) || metadata.exitCode !== undefined && metadata.exitCode !== 0 || executor && metadata.status === 'failed';
+                const pending = metadata.cellId !== undefined ? 'cell:' + metadata.cellId : metadata.sessionId !== undefined ? 'session:' + metadata.sessionId : undefined, poll = this.pollTargets.get(tool.id), processTool = poll ? this.snapshot.tools.find(t => t.id === poll) : undefined;
+                if (pending && !failed && metadata.exitCode === undefined && ['exec', 'exec_command'].includes(leaf ?? ''))
+                    this.processTools.set(pending, tool.id);
+                if (!this.canonicalTools.has(tool.id))
+                    tool.status = failed ? 'failed' : !poll && pending && this.processTools.get(pending) === tool.id ? 'running' : 'done';
+                if (processTool && (metadata.exitCode !== undefined || executor && metadata.status && metadata.status !== 'running'))
+                    this.tool(processTool.id, processTool.name, failed ? 'failed' : 'done');
+                while (this.processTools.size > 128)
+                    this.processTools.delete(this.processTools.keys().next().value);
+                this.pollTargets.delete(tool.id);
+                this.agents.result(tool.id, output, failed);
             }
         }
         if (p.type === 'compaction')

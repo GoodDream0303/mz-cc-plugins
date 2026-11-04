@@ -41,3 +41,119 @@ test('same-session in-place rewrite rebuilds telemetry instead of retaining old 
  const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'abc'})+record('turn_context',{model:'old'})+record('response_item',{type:'function_call',call_id:'old-call',name:'old_tool'}));const reader=new SessionReader(file,'abc');await reader.read();
  fs.writeFileSync(file,record('session_meta',{id:'abc'})+record('response_item',{type:'message',content:[{text:'x'.repeat(2000)}]})+record('turn_context',{model:'new'}));const s=await reader.read();assert.equal(s.model,'new');assert.deepEqual(s.tools,[]);
 });
+
+test('spawn result correlates the call with its real agent and wait completion retains no response body',async t=>{
+ const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'parent'})+record('response_item',{type:'function_call',call_id:'spawn-1',name:'collaboration.spawn_agent',arguments:JSON.stringify({task_name:'审查驱动',message:'SECRET PROMPT'})}));
+ const reader=new SessionReader(file,'parent');assert.equal((await reader.read()).agents[0].status,'starting');
+ fs.appendFileSync(file,record('response_item',{type:'function_call_output',call_id:'spawn-1',output:JSON.stringify({agent_id:'child-1',status:'running'})}));
+ assert.deepEqual((await reader.read()).agents,[{id:'child-1',name:'审查驱动',status:'running'}]);
+ fs.appendFileSync(file,record('response_item',{type:'function_call',call_id:'wait-1',name:'wait',arguments:JSON.stringify({ids:['child-1']})})+record('response_item',{type:'function_call_output',call_id:'wait-1',output:JSON.stringify({status:{'child-1':{completed:'SECRET FINAL'}},timed_out:false})}));
+ const s=await reader.read();assert.deepEqual(s.agents,[{id:'child-1',name:'审查驱动',status:'done'}]);assert.ok(!JSON.stringify(s).includes('SECRET'));
+});
+
+test('canonical spawn and completion stay authoritative over duplicate spawn tool results',async t=>{
+ const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'parent'})+record('response_item',{type:'function_call',call_id:'spawn-1',name:'spawn_agent',arguments:JSON.stringify({task_name:'Check firmware'})})+record('event_msg',{type:'collab_agent_spawn_end',sender_thread_id:'parent',call_id:'spawn-1',new_thread_id:'child-1',new_agent_nickname:'Ada',status:'running',prompt:'SECRET PROMPT'})+record('event_msg',{type:'collab_waiting_end',sender_thread_id:'parent',call_id:'wait-1',statuses:{'child-1':{completed:'SECRET RESULT'}},agent_statuses:[{thread_id:'child-1',agent_nickname:'Ada',status:{completed:'SECRET RESULT'}}]})+record('response_item',{type:'function_call_output',call_id:'spawn-1',output:JSON.stringify({agent_id:'child-1',status:'running'})}));
+ const s=await new SessionReader(file,'parent').read();assert.deepEqual(s.agents,[{id:'child-1',name:'Check firmware',status:'done'}]);assert.ok(!JSON.stringify(s).includes('SECRET'));
+});
+
+test('v2 task paths correlate with activity IDs without retaining a ghost call identity',async t=>{
+ const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'parent'})+record('response_item',{type:'function_call',call_id:'spawn-2',name:'collaboration.spawn_agent',arguments:JSON.stringify({task_name:'review'})})+record('response_item',{type:'function_call_output',call_id:'spawn-2',output:JSON.stringify({task_name:'/root/review'})})+record('event_msg',{type:'sub_agent_activity',event_id:'start',agent_thread_id:'child-2',agent_path:'/root/review',kind:'started'})+record('event_msg',{type:'sub_agent_activity',event_id:'done',agent_thread_id:'child-2',agent_path:'/root/review',kind:'completed'}));
+ assert.deepEqual((await new SessionReader(file,'parent').read()).agents,[{id:'child-2',name:'review',status:'done'}]);
+});
+
+test('agent close records closed rather than its previous status and resume uses reported status',async t=>{
+ const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'parent'})+record('event_msg',{type:'collab_agent_spawn_end',sender_thread_id:'parent',call_id:'spawn',new_thread_id:'child',new_agent_nickname:'reviewer',status:'running'})+record('event_msg',{type:'collab_close_end',sender_thread_id:'parent',receiver_thread_id:'child',status:'running'}));
+ const reader=new SessionReader(file,'parent');assert.equal((await reader.read()).agents[0].status,'closed');
+ fs.appendFileSync(file,record('event_msg',{type:'collab_resume_end',sender_thread_id:'parent',receiver_thread_id:'child',status:'pending_init'}));assert.equal((await reader.read()).agents[0].status,'starting');
+ fs.appendFileSync(file,record('event_msg',{type:'collab_agent_interaction_end',sender_thread_id:'parent',receiver_thread_id:'child',status:{errored:'SECRET ERROR'}}));
+ const s=await reader.read();assert.equal(s.agents[0].status,'failed');assert.ok(!JSON.stringify(s).includes('SECRET'));
+});
+
+test('wait timeout does not finish an agent and unrelated sender events cannot change it',async t=>{
+ const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'parent'})+record('event_msg',{type:'collab_agent_spawn_end',sender_thread_id:'parent',call_id:'spawn',new_thread_id:'child',status:'running'})+record('response_item',{type:'function_call',call_id:'wait-1',name:'wait',arguments:JSON.stringify({ids:['child']})})+record('response_item',{type:'function_call_output',call_id:'wait-1',output:JSON.stringify({status:{},timed_out:true})})+record('event_msg',{type:'collab_waiting_end',sender_thread_id:'other-parent',statuses:{child:{completed:'SECRET'}}}));
+ assert.deepEqual((await new SessionReader(file,'parent').read()).agents,[{id:'child',name:'agent',status:'running'}]);
+});
+
+test('failed spawns and unreported legacy statuses do not invent running agents',async t=>{
+ const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'parent'})+record('response_item',{type:'function_call',call_id:'bad-spawn',name:'spawn_agent',arguments:JSON.stringify({task_name:'failing'})})+record('response_item',{type:'function_call_output',call_id:'bad-spawn',output:JSON.stringify({error:'SECRET FAILURE'})})+record('event_msg',{type:'collab_agent_spawn_end',sender_thread_id:'parent',call_id:'unknown-spawn',new_thread_id:'child',status:{unrecognized:'SECRET'}}));
+ const s=await new SessionReader(file,'parent').read();assert.deepEqual(s.agents.map(a=>[a.name,a.status]),[['failing','failed'],['agent','unreported']]);assert.ok(!JSON.stringify(s).includes('SECRET'));
+});
+
+test('canonical SubAgentActivity items update v2 agents without reading delivered message text',async t=>{
+ const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'parent'})+record('response_item',{type:'function_call',call_id:'spawn',name:'spawn_agent',arguments:JSON.stringify({task_name:'review'})})+record('event_msg',{type:'item_completed',item:{type:'SubAgentActivity',id:'spawn',agent_thread_id:'child',agent_path:'/root/review',kind:'started'}})+record('response_item',{type:'function_call_output',call_id:'spawn',output:JSON.stringify({task_name:'/root/review'})})+record('event_msg',{type:'item_completed',item:{type:'SubAgentActivity',id:'completed-event',agent_thread_id:'child',agent_path:'/root/review',kind:'completed'}}));
+ assert.deepEqual((await new SessionReader(file,'parent').read()).agents,[{id:'child',name:'review',status:'done'}]);
+});
+
+test('canonical in-progress commands remain live until a final process event arrives',async t=>{
+ const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'parent'})+record('event_msg',{type:'item_completed',item:{type:'CommandExecution',id:'cmd-start',process_id:'session-42',status:'in_progress'}}));
+ const reader=new SessionReader(file,'parent');assert.equal((await reader.read()).tools[0].status,'running');
+ fs.appendFileSync(file,record('event_msg',{type:'item_completed',item:{type:'CommandExecution',id:'cmd-poll',process_id:'session-42',status:'completed',exit_code:0,aggregated_output:'SECRET'}}));
+ const s=await reader.read();assert.equal(s.tools.length,1);assert.equal(s.tools[0].status,'done');assert.ok(!JSON.stringify(s).includes('SECRET'));
+});
+
+test('yielded command sessions update the original live tool through later polling',async t=>{
+ const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'parent'})+record('response_item',{type:'function_call',call_id:'command',name:'exec_command',arguments:'{}'})+record('response_item',{type:'function_call_output',call_id:'command',output:JSON.stringify({session_id:42,output:'SECRET'})}));
+ const reader=new SessionReader(file,'parent');assert.equal((await reader.read()).tools.find(x=>x.id==='command').status,'running');
+ fs.appendFileSync(file,record('response_item',{type:'function_call',call_id:'poll',name:'write_stdin',arguments:JSON.stringify({session_id:42})})+record('response_item',{type:'function_call_output',call_id:'poll',output:JSON.stringify({session_id:42,output:'SECRET'})}));
+ assert.equal((await reader.read()).tools.find(x=>x.id==='command').status,'running');
+ fs.appendFileSync(file,record('response_item',{type:'function_call',call_id:'last-poll',name:'write_stdin',arguments:JSON.stringify({session_id:42})})+record('response_item',{type:'function_call_output',call_id:'last-poll',output:JSON.stringify({exit_code:2,output:'SECRET'})}));
+ const s=await reader.read();assert.equal(s.tools.find(x=>x.id==='command').status,'failed');assert.ok(!JSON.stringify(s).includes('SECRET'));
+});
+
+test('cancellation and completed extension tools replace their live states',async t=>{
+ const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'parent'})+record('event_msg',{type:'item_started',item:{type:'Extension',id:'search',kind:'web.search'}})+record('event_msg',{type:'item_started',item:{type:'CommandExecution',id:'command',status:'in_progress'}}));
+ const reader=new SessionReader(file,'parent');assert.deepEqual((await reader.read()).tools.map(t=>t.status),['running','running']);
+ fs.appendFileSync(file,record('event_msg',{type:'item_completed',item:{type:'Extension',id:'search',kind:'web.search'}})+record('event_msg',{type:'item_completed',item:{type:'CommandExecution',id:'command',status:'cancelled'}}));
+ assert.deepEqual((await reader.read()).tools.map(t=>t.status),['done','cancelled']);
+});
+
+test('a late spawn request preserves the original task name and replayed activity does not regress completion',async t=>{
+ const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'parent'})+record('event_msg',{type:'collab_agent_spawn_begin',call_id:'spawn',sender_thread_id:'parent'})+record('response_item',{type:'function_call',call_id:'spawn',name:'spawn_agent',arguments:JSON.stringify({task_name:'审查原名'})})+record('event_msg',{type:'item_completed',item:{type:'SubAgentActivity',id:'started',agent_thread_id:'child',agent_path:'/root/review',kind:'started'}})+record('response_item',{type:'function_call_output',call_id:'spawn',output:JSON.stringify({task_name:'/root/review'})})+record('event_msg',{type:'item_completed',item:{type:'SubAgentActivity',id:'finished',agent_thread_id:'child',agent_path:'/root/review',kind:'completed'}})+record('event_msg',{type:'item_completed',item:{type:'SubAgentActivity',id:'started',agent_thread_id:'child',agent_path:'/root/review',kind:'started'}}));
+ assert.deepEqual((await new SessionReader(file,'parent').read()).agents,[{id:'child',name:'审查原名',status:'done'}]);
+});
+
+test('recent-history eviction retains a still-running tool until its result arrives',async t=>{
+ const {file}=fixture(t);let content=record('session_meta',{id:'parent'})+record('response_item',{type:'function_call',call_id:'long',name:'long_build',arguments:'{}'});
+ for(let i=0;i<80;i++)content+=record('response_item',{type:'function_call',call_id:'quick-'+i,name:'quick',arguments:'{}'})+record('response_item',{type:'function_call_output',call_id:'quick-'+i,output:'{}'});
+ fs.writeFileSync(file,content);const reader=new SessionReader(file,'parent');const s=await reader.read();assert.equal(s.tools.length,64);assert.equal(s.tools.find(t=>t.id==='long').status,'running');
+ fs.appendFileSync(file,record('response_item',{type:'function_call_output',call_id:'long',output:'{}'}));assert.equal((await reader.read()).tools.find(t=>t.id==='long').status,'done');
+});
+
+test('canonical activity links a pending spawn immediately even when its tool result is missing',async t=>{
+ const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'parent'})+record('response_item',{type:'function_call',call_id:'spawn',name:'spawn_agent',arguments:JSON.stringify({task_name:'Original task'})})+record('event_msg',{type:'item_completed',item:{type:'SubAgentActivity',id:'spawn',agent_thread_id:'child',agent_path:'/root/review',kind:'started'}}));
+ assert.deepEqual((await new SessionReader(file,'parent').read()).agents,[{id:'child',name:'Original task',status:'running'}]);
+});
+
+test('replayed canonical spawn acknowledgement cannot overwrite a later agent completion',async t=>{
+ const {file}=fixture(t),spawn={type:'collab_agent_spawn_end',sender_thread_id:'parent',call_id:'spawn',new_thread_id:'child',status:'running'};
+ fs.writeFileSync(file,record('session_meta',{id:'parent'})+record('event_msg',spawn)+record('event_msg',{type:'collab_waiting_end',sender_thread_id:'parent',statuses:{child:{completed:'SECRET'}}})+record('event_msg',spawn));
+ assert.deepEqual((await new SessionReader(file,'parent').read()).agents,[{id:'child',name:'agent',status:'done'}]);
+});
+
+test('exec and wait correlate fixed metadata envelopes without interpreting result-body text',async t=>{
+ const {file}=fixture(t),output=text=>[{type:'input_text',text}];
+ fs.writeFileSync(file,record('session_meta',{id:'parent'})+record('response_item',{type:'custom_tool_call',call_id:'exec',name:'functions.exec',input:'SECRET CODE'})+record('response_item',{type:'custom_tool_call_output',call_id:'exec',output:output('Script running with cell ID 42\nWall time: 0.1 seconds\nOutput:\nSECRET BODY')}));
+ const reader=new SessionReader(file,'parent');assert.equal((await reader.read()).tools.find(t=>t.id==='exec').status,'running');
+ fs.appendFileSync(file,record('response_item',{type:'function_call',call_id:'wait',name:'functions.wait',arguments:JSON.stringify({cell_id:'42'})})+record('response_item',{type:'function_call_output',call_id:'wait',output:output('Script completed\nWall time: 2 seconds\nOutput:\nProcess running with session ID 99\nSECRET BODY')}));
+ const s=await reader.read();assert.equal(s.tools.find(t=>t.id==='exec').status,'done');assert.equal(s.tools.find(t=>t.id==='wait').status,'done');assert.ok(!JSON.stringify(s).includes('SECRET'));
+});
+
+test('canonical activity resolves a short interrupt target before its tool result',async t=>{
+ const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'parent'})+record('response_item',{type:'function_call',call_id:'spawn',name:'spawn_agent',arguments:JSON.stringify({task_name:'review'})})+record('response_item',{type:'function_call_output',call_id:'spawn',output:JSON.stringify({task_name:'/root/review'})})+record('event_msg',{type:'item_completed',item:{type:'SubAgentActivity',id:'spawn',agent_thread_id:'child',agent_path:'/root/review',kind:'started'}})+record('response_item',{type:'function_call',call_id:'interrupt',name:'interrupt_agent',arguments:JSON.stringify({target:'review'})})+record('event_msg',{type:'item_completed',item:{type:'SubAgentActivity',id:'interrupt',agent_thread_id:'child',agent_path:'/root/review',kind:'interrupted'}})+record('response_item',{type:'function_call_output',call_id:'interrupt',output:'{}'}));
+ assert.deepEqual((await new SessionReader(file,'parent').read()).agents,[{id:'child',name:'review',status:'interrupted'}]);
+});
+
+test('agents show the resolved model and keep it through later lifecycle updates',async t=>{
+ const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'parent'})+record('turn_context',{model:'parent-model'})+record('response_item',{type:'function_call',call_id:'spawn',name:'spawn_agent',arguments:JSON.stringify({task_name:'review',model:'requested-model'})})+record('event_msg',{type:'item_completed',item:{type:'SubAgentActivity',id:'spawn',agent_thread_id:'child',agent_path:'/root/review',kind:'started',model:'actual-model'}})+record('response_item',{type:'function_call_output',call_id:'spawn',output:JSON.stringify({task_name:'/root/review',model:'requested-model'})})+record('event_msg',{type:'item_completed',item:{type:'SubAgentActivity',id:'done',agent_thread_id:'child',agent_path:'/root/review',kind:'completed',model:null}})+record('event_msg',{type:'collab_agent_spawn_end',sender_thread_id:'parent',call_id:'legacy',new_thread_id:'legacy-child',new_agent_nickname:'legacy',model:'resolved-legacy-model',status:'running'})+record('response_item',{type:'function_call',call_id:'unreported',name:'spawn_agent',arguments:JSON.stringify({task_name:'unreported',model:'requested-only'})})+record('response_item',{type:'function_call_output',call_id:'unreported',output:JSON.stringify({agent_id:'unknown-model-child'})}));
+ const s=await new SessionReader(file,'parent').read();assert.deepEqual(s.agents,[{id:'child',name:'review',status:'done',model:'actual-model'},{id:'legacy-child',name:'legacy',status:'running',model:'resolved-legacy-model'},{id:'unknown-model-child',name:'unreported',status:'running'}]);
+});
+
+test('a spawn result can fill an unreported canonical model without changing agent status',async t=>{
+ const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'parent'})+record('response_item',{type:'function_call',call_id:'spawn',name:'spawn_agent',arguments:JSON.stringify({task_name:'review'})})+record('event_msg',{type:'item_completed',item:{type:'SubAgentActivity',id:'spawn',agent_thread_id:'child',agent_path:'/root/review',kind:'started',model:null}})+record('event_msg',{type:'item_completed',item:{type:'SubAgentActivity',id:'done',agent_thread_id:'child',agent_path:'/root/review',kind:'completed'}})+record('response_item',{type:'function_call_output',call_id:'spawn',output:[{type:'input_text',text:JSON.stringify({task_name:'/root/review',model:'reported-model'})}]}));
+ assert.deepEqual((await new SessionReader(file,'parent').read()).agents,[{id:'child',name:'review',status:'done',model:'reported-model'}]);
+});
+
+test('a reported canonical model is preserved even when activity and spawn call IDs differ',async t=>{
+ const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'parent'})+record('response_item',{type:'function_call',call_id:'spawn',name:'spawn_agent',arguments:JSON.stringify({task_name:'review'})})+record('event_msg',{type:'item_completed',item:{type:'SubAgentActivity',id:'activity',agent_thread_id:'child',agent_path:'/root/review',kind:'started',model:'canonical-model'}})+record('response_item',{type:'function_call_output',call_id:'spawn',output:JSON.stringify({task_name:'/root/review',model:'fallback-model'})}));
+ assert.deepEqual((await new SessionReader(file,'parent').read()).agents,[{id:'child',name:'review',status:'running',model:'canonical-model'}]);
+});

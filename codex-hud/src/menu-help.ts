@@ -64,7 +64,7 @@ const flags:Record<string,readonly [string,string,string]>={
  showTokenBreakdown:['Token 明细','Token 明細','in:42k cache:30k out:3k'],showUsage:['额度','額度','5h: 25%'],
  usageBarEnabled:['额度进度条','額度進度條',''],showResetLabel:['重置标签','重設標籤',''],usageCompact:['紧凑额度','緊湊額度',''],
  showModelScopedUsage:['按模型统计额度','按模型統計額度',''],showTools:['工具活动','工具活動','✓ exec_command'],showSkills:['技能活动','技能活動',''],
- showMcp:['MCP 信息','MCP 資訊','MCP: configured docs'],showAgents:['子代理','子代理','Agents: reviewer [unknown]'],
+ showMcp:['MCP 信息','MCP 資訊','MCP: configured docs'],showAgents:['子代理','子代理','Agents: reviewer [running] (gpt-example)'],
  showTodos:['待办进度','待辦進度','Todo: Verify configuration (0/1)'],showSessionName:['会话名称','會話名稱','Session: Task name'],
  showAuth:['订阅类型','訂閱類型','pro'],showAuthUser:['登录用户','登入使用者',''],showCodexVersion:['Codex 版本','Codex 版本','Codex 0.166.0'],
  showEffortLevel:['推理强度','推理強度','◕ high'],showMemoryUsage:['内存占用','記憶體用量',''],showPromptCache:['提示缓存','提示快取',''],
@@ -75,7 +75,7 @@ const flags:Record<string,readonly [string,string,string]>={
 const samples:Record<string,Copy>={
  showContextBar:text('Context: 25%','上下文：25%'),showDuration:text('Duration 1h 20m','时长 1h 20m','時長 1h 20m'),
  showTodos:text('Todo: Verify configuration (0/1)','待办：Verify configuration (0/1)','待辦：Verify configuration (0/1)'),
- showSessionName:text('Session: Task name','会话：Task name','會話：Task name'),showAgents:text('Agents: reviewer [unknown]','子代理：reviewer [unknown]'),
+ showSessionName:text('Session: Task name','会话：Task name','會話：Task name'),showAgents:text('Agents: reviewer [running] (gpt-example)','子代理：reviewer [运行中] (gpt-example)','子代理：reviewer [執行中] (gpt-example)'),
  showSessionTokens:text('Session tokens 130k','会话 Token 130k','會話 Token 130k'),
  showSessionStartDate:text('Started 20m ago','开始 20m前','開始 20m前'),showLastResponseAt:text('Last response 1m ago','最后响应 1m前','最後回應 1m前'),
  showCompactions:text('Compactions: 2','压缩：2','壓縮：2'),showMcp:text('MCP: configured docs','MCP：配置 docs')
@@ -122,6 +122,7 @@ add('colors.barEmpty','进度条空白字符','進度條空白字元','░','At 
 add('terminal.paneSize','备用面板比例','備用面板比例',0.3,'0.3: use about 30% height when initial rows is 0, or cap content fitting. Fixed initial rows ignore this ratio.','0.3：初始行数为 0 时使用约 30% 高度，或限制内容适配的高度。固定初始行数不受此比例限制。','0.3：初始列數為 0 時使用約 30% 高度，或限制內容適配的高度。固定初始列數不受此比例限制。');
 add('terminal.initialRows','初始可见行数','初始可見列數',6,'6: create a HUD with six visible inner rows; short panes reduce this to preserve Codex space. 0: use the fallback ratio. Content fitting takes priority when enabled. Applies only at creation; later manual resizing is preserved.','6：创建时 HUD 内部可见 6 行；窗口过矮时缩小以保留 Codex 空间。0：使用备用面板比例。启用内容适配时优先适配内容。仅在创建时使用，之后保留手动拖动尺寸。','6：建立時 HUD 內部可見 6 列；視窗過矮時縮小以保留 Codex 空間。0：使用備用面板比例。啟用內容適配時優先適配內容。僅在建立時使用，之後保留手動拖曳尺寸。');
 add('terminal.autoHeight','初始高度适应内容','初始高度配合內容',true,'On: fit content at creation within the ratio cap instead of using initial rows. Off by default: create six visible rows. Later manual resizing is preserved.','开启：创建时在比例上限内适应内容，优先于初始行数。默认关闭：创建时可见 6 行。之后保留手动拖动尺寸。','開啟：建立時在比例上限內配合內容，優先於初始列數。預設關閉：建立時可見 6 列。之後保留手動拖曳尺寸。');
+add('terminal.dynamicHeight','持续高度适应内容','持續高度配合內容',true,'On: 3 visible content rows use 3 HUD rows and 6 use 6, within the ratio cap and ten source rows. Growth waits one stable refresh; shrink waits at least two seconds. Manual sizes are fitted again while on. Off: preserve fixed/manual height.','开启：3 行内容占 3 行，6 行占 6 行；受比例上限限制并保留主区 10 行。增高等待一个稳定刷新周期，缩小至少等待 2 秒；开启时手动拖动后会重新适配。关闭：保留固定或手动高度。','開啟：3 列內容占 3 列，6 列占 6 列；受比例上限限制並保留主區 10 列。增高等待一個穩定更新週期，縮小至少等待 2 秒；開啟時手動拖曳後會重新配合。關閉：保留固定或手動高度。');
 add('terminal.refreshMs','刷新间隔（毫秒）','重新整理間隔（毫秒）',2000,'2000: refresh telemetry every two seconds.','2000：每 2 秒刷新一次显示数据。','2000：每 2 秒重新整理一次顯示資料。');
 add('terminal.margin','预留列数','預留欄數',4,'Reserve four columns when computing content width.','计算内容宽度时预留 4 列。','計算內容寬度時預留 4 欄。');
 add('startup.enabled','旧版自动启动','舊版自動啟動',false,'Keep false while old 0.3.4 sessions exist; use exact-host auto start instead.','仍有旧版 0.3.4 会话时保持 false；使用精确宿主自动启动。','仍有舊版 0.3.4 會話時保持 false；使用精確宿主自動啟動。');

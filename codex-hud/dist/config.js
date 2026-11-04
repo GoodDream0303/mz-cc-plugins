@@ -75,6 +75,7 @@ def('colors.barEmpty', '░', 'colors', '进度条空白');
 def('terminal.paneSize', 0.22, 'terminal', '下方面板比例', { min: 0.1, max: 0.75 });
 def('terminal.initialRows', 6, 'terminal', 'Initial HUD rows', { min: 0, max: 1000 });
 def('terminal.autoHeight', false, 'terminal', 'Fit initial pane to content');
+def('terminal.dynamicHeight', false, 'terminal', 'Follow visible content height');
 def('terminal.refreshMs', 1000, 'terminal', '刷新间隔（毫秒）', { min: 250, max: 60000 });
 def('terminal.margin', 4, 'terminal', '预留列数', { min: 0, max: 20 });
 def('startup.enabled', true, 'startup', 'Auto open HUD', { label: 'Legacy startup', reason: 'Preserved for compatibility; use exact-host Auto start and keep this false while 0.3.4 sessions exist' });

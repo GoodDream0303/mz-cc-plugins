@@ -5,6 +5,13 @@ WT tabs or separate PowerShell windows. The official CLI and native statusline
 remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
 task names retain their original language.
 
+> Version 0.6.0 adds guided first-use setup, optional continuous content height,
+> correlated agent lifecycle and actual model labels, and live tool status.
+> Existing fixed/manual sizing is preserved; enable `terminal.dynamicHeight`
+> in Configuration → Terminal to fit content continuously. Existing PowerShell
+> loaders select the new installed runtime on the next ordinary Codex launch;
+> running viewers keep their loaded code until reopened.
+>
 > Version 0.5.2 limits startup metadata lookup to this plugin's configured
 > marketplace, avoiding delays from unrelated markets. Fallback notices include
 > a safe failure stage/code without logging invocation arguments or credentials.
@@ -70,6 +77,16 @@ SHA256 is
 `a66b6be7c13c6fa0dc3660a267b9e34eaa91a4eb7f07fbd55a0468018bd0f721`.
 See [the fixed release](https://github.com/psmux/psmux/releases/tag/v3.4.0).
 No global PATH changes or automatic dependency installation are performed.
+
+The marketplace's **Set up** action opens the packaged `hud-start` onboarding
+skill. It checks prerequisites, previews the one-time changes, guides native hook
+review and keeps the normal `codex` / `codex resume` commands. An existing plain
+Codex process must be resumed from a newly initialized shell to gain its HUD host.
+
+Native Codex does not require a separately callable Node runtime. This HUD does:
+use an existing Node 20+ executable, or choose an official Node LTS installation
+or portable runtime during onboarding. No compiler, Rust toolchain or manual
+package build is required. Missing Node is reported before Node-based diagnostics.
 
 Installing the package alone does not change PowerShell profiles. Initialization
 uses the existing Node runtime; an explicit portable executable can also be
@@ -213,8 +230,15 @@ for live proof separately. `origin: present` is not a verified ownership claim.
 The default initial HUD height is six visible rows (`terminal.initialRows = 6`).
 Small terminals reduce that target to preserve room for Codex. Enable
 `terminal.autoHeight` to fit content instead, or use `initialRows = 0` with
-auto-height disabled to use the percentage limit. Sizing runs only at creation;
-later wrapping/paging preserves manual resizing.
+auto-height disabled to use the percentage limit. Initial sizing runs at creation.
+For continuous fitting, enable `terminal.dynamicHeight` in Configuration →
+Terminal. Three content rows then occupy three HUD rows, six occupy six, including
+wrapped lines and warnings. The pane ratio limits growth and ten source rows are
+reserved; overflow stays paged. Growth waits one stable refresh and shrinking
+waits at least two seconds to avoid flicker. With this option off (the compatibility
+default), later wrapping/paging preserves manual sizing; with it on, content
+fitting resumes after a manual drag. Additional internal panes or changed host
+identity stop automatic resizing and leave the existing size in place.
 Use q/Ctrl+C to close the HUD, or `stop --launch <launch-id>` to request its exit.
 
 ## Source development
@@ -247,6 +271,18 @@ Use Left/Right or p/n for overflow pages; drag the pane divider to resize.
 Context uses latest telemetry; cumulative/cache token counts remain distinct.
 Quota labels use actual window durations. MCP reports configured/called/unknown
 facts. Unavailable cost, speed, cache expiry and Skills data is never invented.
+Agent entries correlate spawn calls with actual thread IDs or task paths and
+follow reported start, run, interrupt, complete, fail, close and resume events.
+Completed spawn/wait tools alone do not mean an agent finished. Missing lifecycle
+metadata is shown as `status not reported`; prompt and result bodies are discarded.
+Each agent also shows its reported actual model. The requested or parent model
+does not override resolved spawn/activity metadata; absent data is displayed as
+`model not reported`. Later completion updates keep the last reported model.
+Tool activity refreshes from the same incremental log reader (every second by
+default). Running calls stay visible ahead of recent completions; yielded command
+sessions remain running until a final process/poll result. Symbols distinguish
+running `◐`, completed `✓`, failed `✗` and cancelled `⊘`. Reported events determine
+status; unavailable runtime events are not invented from command output text.
 See [configuration compatibility](docs/compatibility.md).
 
 ## Preview and checks
