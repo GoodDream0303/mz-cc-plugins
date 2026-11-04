@@ -8,7 +8,7 @@ import { codexHome } from './sessions.js';
 import { readHostOrigin } from './psmux.js';
 import { inspectSetup } from './setup-readiness.js';
 const guid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-export function runtimeRoot() { return path.join(path.dirname(configPath()), 'runtime'); }
+export function runtimeRoot(file = configPath()) { return path.join(path.dirname(file), 'runtime'); }
 function write(file, value) { const temp = file + '.' + randomUUID() + '.tmp'; try {
     fs.writeFileSync(temp, JSON.stringify(value), { flag: 'wx', mode: 0o600 });
     fs.renameSync(temp, file);
@@ -82,12 +82,16 @@ export function buildTerminalArgs(d, window = 'last') {
     throw new Error('A verified psmux host is required');
 }
 export function checkRuntime(options = {}) {
-    let terminal = false;
+    let terminalCheck = { status: 'available' };
     try {
         execFileSync('where.exe', ['wt.exe'], { stdio: 'ignore', windowsHide: true, timeout: 1500 });
-        terminal = true;
     }
-    catch { }
+    catch (error) {
+        const failure = error;
+        const code = typeof failure?.code === 'string' && /^[A-Z0-9_]{1,64}$/.test(failure.code) ? failure.code : Number.isSafeInteger(failure?.status) ? 'EXIT_' + failure.status : undefined;
+        terminalCheck = { status: failure?.code === 'ETIMEDOUT' ? 'timed-out' : failure?.status === 1 && !failure.code ? 'missing' : 'failed', ...(code ? { code } : {}) };
+    }
+    const terminal = terminalCheck.status === 'available';
     const file = options.configFile ?? configPath();
     let status = fs.existsSync(file) ? 'valid' : 'defaults', enabled = false, legacyEnabled = false, config = defaultConfig();
     try {
@@ -124,10 +128,10 @@ export function checkRuntime(options = {}) {
     const pluginRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
     let lastResult;
     try {
-        const result = JSON.parse(fs.readFileSync(path.join(runtimeRoot(), 'autostart-status.json'), 'utf8'));
+        const result = JSON.parse(fs.readFileSync(path.join(runtimeRoot(file), 'autostart-status.json'), 'utf8'));
         if (['opened', 'already-open', 'disabled', 'ignored', 'busy', 'failed'].includes(result.status))
             lastResult = result.status;
     }
     catch { }
-    return { node: process.version, terminal, hooksRequired: false, nativeStatusline: 'unchanged', host: { backend: 'psmux', configured, origin, verification: 'required-at-attach' }, autostart: { enabled, legacyEnabled, trigger: 'SessionStart', trust: 'unknown', hookFilesPresent: ['hooks/hooks.json', 'hooks/session-start.mjs', 'dist/autostart.js'].every(f => fs.existsSync(path.join(pluginRoot, f))), lastResult }, configuration: { status, path: file }, session: { status: current ? 'Codex environment available' : 'Select explicitly or start from inside Codex' }, display, setup, notes: setup.steps };
+    return { node: process.version, terminal, terminalCheck, hooksRequired: false, nativeStatusline: 'unchanged', host: { backend: 'psmux', configured, origin, verification: 'required-at-attach' }, autostart: { enabled, legacyEnabled, trigger: 'SessionStart', trust: 'unknown', hookFilesPresent: ['hooks/hooks.json', 'hooks/session-start.mjs', 'dist/autostart.js'].every(f => fs.existsSync(path.join(pluginRoot, f))), lastResult }, configuration: { status, path: file }, session: { status: current ? 'Codex environment available' : 'Select explicitly or start from inside Codex' }, display, setup, notes: setup.steps };
 }

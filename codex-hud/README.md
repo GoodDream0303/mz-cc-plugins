@@ -5,6 +5,13 @@ WT tabs or separate PowerShell windows. The official CLI and native statusline
 remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
 task names retain their original language.
 
+> Version 0.7.4 separates a missing Windows Terminal from a timed-out or failed
+> lookup. Demo dry-run only prepares isolated launch metadata and needs no
+> Terminal lookup; actual demos still check Terminal. Explicit configurations
+> keep their demo/doctor/stop runtime records together. Ordinary psmux hosting
+> does not require Windows Terminal. Packaged runtime errors direct users to
+> repair the formal installation.
+>
 > Version 0.7.3 displays common tool actions as readable names such as Run command,
 > Run script, Follow up on task, Ask user and Wait. Labels follow the configured
 > English, Simplified Chinese or Traditional Chinese language. Unknown tools keep

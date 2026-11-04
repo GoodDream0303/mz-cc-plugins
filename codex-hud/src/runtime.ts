@@ -16,7 +16,7 @@ export interface LaunchDescriptor {
  host?:{recordFile:string;proof:HostProof;phase:'opening'|'running'|'uncertain'|'closed';reportedPane?:string;hudPane?:string;hudProcess?:ProcessFact};
 }
 const guid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-export function runtimeRoot():string{return path.join(path.dirname(configPath()),'runtime');}
+export function runtimeRoot(file=configPath()):string{return path.join(path.dirname(file),'runtime');}
 function write(file:string,value:unknown){const temp=file+'.'+randomUUID()+'.tmp';try{fs.writeFileSync(temp,JSON.stringify(value),{flag:'wx',mode:0o600});fs.renameSync(temp,file);}finally{try{fs.unlinkSync(temp);}catch{}}}
 export function createLaunch(cwd:string,config:Config,root=runtimeRoot(),configFile=configPath()):LaunchDescriptor{
  const id=randomUUID();fs.mkdirSync(root,{recursive:true});const file=path.resolve(root,id+'.json');
@@ -53,13 +53,20 @@ export function buildTerminalArgs(d:LaunchDescriptor,window='last'):string[]{
 }
 export interface DoctorReport {
  node:string;terminal:boolean;hooksRequired:false;nativeStatusline:'unchanged';
+ terminalCheck:{status:'available'|'missing'|'timed-out'|'failed';code?:string};
  host:{backend:'psmux';configured:boolean;origin:'present'|'unavailable';verification:'required-at-attach'};
  autostart:{enabled:boolean;legacyEnabled:boolean;trigger:'SessionStart';trust:'unknown';hookFilesPresent:boolean;lastResult?:string};
  configuration:{status:string;path:string};session:{status:string};display:{status:string};notes:string[];
  setup:SetupReadiness;
 }
 export function checkRuntime(options:{configFile?:string;launchFile?:string;setup?:InspectSetupOptions}={}):DoctorReport{
- let terminal=false;try{execFileSync('where.exe',['wt.exe'],{stdio:'ignore',windowsHide:true,timeout:1500});terminal=true;}catch{}
+ let terminalCheck:DoctorReport['terminalCheck']={status:'available'};
+ try{execFileSync('where.exe',['wt.exe'],{stdio:'ignore',windowsHide:true,timeout:1500});}catch(error){
+  const failure=error as (NodeJS.ErrnoException&{status?:number})|null;
+  const code=typeof failure?.code==='string'&&/^[A-Z0-9_]{1,64}$/.test(failure.code)?failure.code:Number.isSafeInteger(failure?.status)?'EXIT_'+failure!.status:undefined;
+  terminalCheck={status:failure?.code==='ETIMEDOUT'?'timed-out':failure?.status===1&&!failure.code?'missing':'failed',...(code?{code}:{})};
+ }
+ const terminal=terminalCheck.status==='available';
  const file=options.configFile??configPath();let status=fs.existsSync(file)?'valid':'defaults',enabled=false,legacyEnabled=false,config=defaultConfig();try{config=loadConfig(file);enabled=startupEnabled(config);legacyEnabled=!!get(config,'startup.enabled');}catch{status='invalid';}
  const configured=status!=='invalid'&&!!get(config,'host.psmuxPath');
  const setup=inspectSetup(config,{...options.setup,configValid:status!=='invalid'&&options.setup?.configValid!==false});
@@ -67,6 +74,6 @@ export function checkRuntime(options:{configFile?:string;launchFile?:string;setu
  let display={status:'not-selected'};
  if(options.launchFile){try{const d=readLaunch(options.launchFile);display={status:d.state==='exited'?'closed':d.hudStop?'stopping':'open'};}catch{display={status:'invalid-launch'};}}
  let current=false;try{current=!!selectSessionId(undefined);}catch{}
- const pluginRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');let lastResult:string|undefined;try{const result=JSON.parse(fs.readFileSync(path.join(runtimeRoot(),'autostart-status.json'),'utf8'));if(['opened','already-open','disabled','ignored','busy','failed'].includes(result.status))lastResult=result.status;}catch{}
- return {node:process.version,terminal,hooksRequired:false,nativeStatusline:'unchanged',host:{backend:'psmux',configured,origin,verification:'required-at-attach'},autostart:{enabled,legacyEnabled,trigger:'SessionStart',trust:'unknown',hookFilesPresent:['hooks/hooks.json','hooks/session-start.mjs','dist/autostart.js'].every(f=>fs.existsSync(path.join(pluginRoot,f))),lastResult},configuration:{status,path:file},session:{status:current?'Codex environment available':'Select explicitly or start from inside Codex'},display,setup,notes:setup.steps};
+ const pluginRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');let lastResult:string|undefined;try{const result=JSON.parse(fs.readFileSync(path.join(runtimeRoot(file),'autostart-status.json'),'utf8'));if(['opened','already-open','disabled','ignored','busy','failed'].includes(result.status))lastResult=result.status;}catch{}
+ return {node:process.version,terminal,terminalCheck,hooksRequired:false,nativeStatusline:'unchanged',host:{backend:'psmux',configured,origin,verification:'required-at-attach'},autostart:{enabled,legacyEnabled,trigger:'SessionStart',trust:'unknown',hookFilesPresent:['hooks/hooks.json','hooks/session-start.mjs','dist/autostart.js'].every(f=>fs.existsSync(path.join(pluginRoot,f))),lastResult},configuration:{status,path:file},session:{status:current?'Codex environment available':'Select explicitly or start from inside Codex'},display,setup,notes:setup.steps};
 }

@@ -243,12 +243,15 @@ async function start(args, demo = false) {
         console.log('HUD ' + result.status + '.');
         return;
     }
-    const report = checkRuntime();
-    if (!report.terminal)
-        throw new Error('Windows Terminal is missing; run doctor');
+    const file = configFile(args);
+    if (!args.includes('--dry-run')) {
+        const report = checkRuntime({ configFile: file });
+        if (!report.terminal)
+            throw new Error(report.terminalCheck.status === 'missing' ? 'Windows Terminal is missing; run doctor' : report.terminalCheck.status === 'timed-out' ? 'Windows Terminal lookup timed out; run doctor and retry' : 'Windows Terminal lookup failed' + (report.terminalCheck.code ? ' (' + report.terminalCheck.code + ')' : '') + '; run doctor');
+    }
     if (args.includes('--') || option(args, '--cwd'))
         throw new Error('HUD attaches an existing session; no Codex launch arguments are accepted');
-    const d = createLaunch(process.cwd(), loadConfig(configFile(args)), runtimeRoot(), configFile(args));
+    const d = createLaunch(process.cwd(), loadConfig(file), runtimeRoot(file), file);
     updateLaunch(d.file, v => { v.demo = true; v.demoDurationMs = Number(option(args, '--duration')) || 120000; v.codexHome = path.join(path.dirname(v.file), 'demo-home-' + v.id); v.sessionId = 'demo-' + v.id; });
     const descriptor = readLaunch(d.file), command = buildTerminalArgs(descriptor);
     if (args.includes('--dry-run')) {
@@ -407,14 +410,14 @@ export async function main(args = process.argv.slice(2)) {
             const id = option(rest, '--launch');
             if (id && !/^[a-f0-9-]{36}$/i.test(id))
                 throw new Error('doctor --launch <launch ID>');
-            console.log(JSON.stringify(checkRuntime({ configFile: configFile(rest), launchFile: id ? path.join(runtimeRoot(), id + '.json') : undefined }), null, 2));
+            console.log(JSON.stringify(checkRuntime({ configFile: configFile(rest), launchFile: id ? path.join(runtimeRoot(configFile(rest)), id + '.json') : undefined }), null, 2));
             return;
         }
         case 'stop': {
             const id = option(rest, '--launch');
             if (!id || !/^[a-f0-9-]{36}$/i.test(id))
                 throw new Error('stop --launch <launch ID>');
-            requestStop(path.join(runtimeRoot(), id + '.json'));
+            requestStop(path.join(runtimeRoot(configFile(rest)), id + '.json'));
             console.log('HUD stop requested; Codex keeps running');
             return;
         }

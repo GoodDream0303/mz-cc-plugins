@@ -1,10 +1,11 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import path from 'node:path';import {spawnSync} from 'node:child_process';import os from 'node:os';
+import {cleanEnvironment,copyPackagedRuntime} from './support/clean-env.mjs';
 const root=path.resolve(import.meta.dirname,'..');
 test('marketplace package runs offline without node_modules or a build step',t=>{
- const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'hud-distribution-'));t.after(()=>fs.rmSync(tmp,{recursive:true,force:true}));const installed=path.join(tmp,'codex-hud');
- fs.cpSync(root,installed,{recursive:true,filter:file=>!['node_modules','src','test','scripts'].includes(path.relative(root,file).split(path.sep)[0])});
+ const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'hud-distribution-'));t.after(()=>fs.rmSync(tmp,{recursive:true,force:true,maxRetries:5,retryDelay:50}));const installed=path.join(tmp,'codex-hud');
+ copyPackagedRuntime(root,installed);assert.equal(fs.existsSync(path.join(installed,'node_modules')),false);assert.equal(fs.existsSync(path.join(installed,'src')),false);
  const config=path.join(tmp,'config.json');fs.writeFileSync(config,JSON.stringify({startup:{enabled:false}}));
- const env={...process.env,LOCALAPPDATA:tmp,APPDATA:tmp,NODE_PATH:''};delete env.NODE_OPTIONS;
+ const env=cleanEnvironment(tmp);
  const cli=spawnSync(process.execPath,['bin/hud.mjs','doctor','--config',config],{cwd:installed,env,encoding:'utf8'});assert.equal(cli.status,0,cli.stderr);assert.equal(JSON.parse(cli.stdout).configuration.status,'valid');
  const hook=spawnSync(process.execPath,['hooks/session-start.mjs'],{cwd:installed,env,input:JSON.stringify({hook_event_name:'SessionStart',source:'compact'}),encoding:'utf8'});assert.equal(hook.status,0,hook.stderr);assert.equal(hook.stdout,'');assert.equal(hook.stderr,'');
  assert.ok(fs.statSync(path.join(installed,'dist','vendor','smol-toml','LICENSE')).isFile());
@@ -13,8 +14,8 @@ test('CLI help exposes commands on separate readable lines',()=>{
  const result=spawnSync(process.execPath,['bin/hud.mjs','help'],{cwd:root,encoding:'utf8'});assert.equal(result.status,0);assert.match(result.stdout,/\n  start /);assert.match(result.stdout,/\n  configure\n/);
 });
 test('packaged ASCII profile loader runs from a Unicode path without node_modules',{skip:process.platform!=='win32'},t=>{
- const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'hud-packed-loader-'));t.after(()=>fs.rmSync(tmp,{recursive:true,force:true}));const installed=path.join(tmp,'插件 space','codex-hud');
- fs.cpSync(root,installed,{recursive:true,filter:file=>!['node_modules','src','test','scripts'].includes(path.relative(root,file).split(path.sep)[0])});
+ const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'hud-packed-loader-'));t.after(()=>fs.rmSync(tmp,{recursive:true,force:true,maxRetries:5,retryDelay:50}));const installed=path.join(tmp,'插件 space','codex-hud');
+ copyPackagedRuntime(root,installed);
  const npm=path.join(tmp,'npm'),pkg=path.join(npm,'node_modules/@openai/codex');fs.mkdirSync(path.join(pkg,'bin'),{recursive:true});fs.writeFileSync(path.join(npm,'codex.ps1'),'# synthetic npm shim');fs.writeFileSync(path.join(pkg,'package.json'),JSON.stringify({name:'@openai/codex',bin:{codex:'bin/codex.js'}}));fs.writeFileSync(path.join(pkg,'bin/codex.js'),"console.log('SYNTHETIC-OFFICIAL-ENTRY');process.exitCode=23;");
  const profile=path.join(tmp,'profile.ps1'),cli=path.join(installed,'bin/hud.mjs'),setup=spawnSync(process.execPath,[cli,'setup','--profile',profile,'--apply'],{encoding:'utf8'});assert.equal(setup.status,0,setup.stderr);
  const runner=path.join(tmp,'run.ps1');fs.writeFileSync(runner,". '"+profile.replaceAll("'","''")+"'\ncodex --version\nexit $LASTEXITCODE\n");

@@ -1,5 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {spawnSync} from 'node:child_process';
 import {createLaunch,readLaunch,requestStop,buildTerminalArgs,selectSessionId} from '../dist/runtime.js';import {defaultConfig} from '../dist/config.js';
+import {cleanEnvironment} from './support/clean-env.mjs';
 function temp(t){const root=fs.mkdtempSync(path.join(os.tmpdir(),'hud-runtime-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));return root;}
 test('session selection uses an explicit ID or the Codex-provided current thread without guessing',()=>{
  assert.equal(selectSessionId('explicit-thread',{CODEX_THREAD_ID:'current-thread'}),'explicit-thread');
@@ -21,5 +22,5 @@ test('ordinary start refuses an unknown physical host even with a valid current 
  assert.notEqual(result.status,0);assert.match(result.stderr,/host|psmux|pane/i);
 });
 test('demo chooses its isolated home before Terminal starts',{skip:process.platform!=='win32'},t=>{
- const result=spawnSync(process.execPath,['bin/hud.mjs','demo','--dry-run','--duration','1000'],{cwd:path.resolve(import.meta.dirname,'..'),env:{...process.env,LOCALAPPDATA:temp(t)},encoding:'utf8'});assert.equal(result.status,0,result.stderr);const info=JSON.parse(result.stdout);const d=readLaunch(info.launch);assert.ok(d.codexHome.startsWith(path.dirname(d.file)));
+ const root=temp(t),result=spawnSync(process.execPath,['bin/hud.mjs','demo','--dry-run','--duration','1000'],{cwd:path.resolve(import.meta.dirname,'..'),env:cleanEnvironment(root),encoding:'utf8'});assert.equal(result.status,0,result.stderr);const info=JSON.parse(result.stdout);const d=readLaunch(info.launch);assert.ok(d.codexHome.startsWith(path.dirname(d.file)));assert.ok(d.file.startsWith(root+path.sep));
 });
