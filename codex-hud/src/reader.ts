@@ -95,16 +95,18 @@ export class SessionReader {
    }
    case 'task_started':this.snapshot.status='working';this.snapshot.activityAt=text(record.timestamp);this.snapshot.turnStartedAt=Date.parse(String(record.timestamp));this.snapshot.turnEndedAt=undefined;return;
    case 'task_complete':this.snapshot.status='idle';this.snapshot.activityAt=text(record.timestamp);this.snapshot.turnEndedAt=Date.parse(String(record.timestamp));this.snapshot.lastResponseAt=text(p.completed_at??record.timestamp);return;
-   case 'turn_aborted':this.snapshot.status='interrupted';this.snapshot.activityAt=text(record.timestamp);this.snapshot.turnEndedAt=Date.parse(String(record.timestamp));for(const t of this.snapshot.tools)if(t.status==='running'){t.status='cancelled';this.canonicalCompleted.add(t.id);}return;
+   case 'turn_aborted':this.snapshot.status='interrupted';this.snapshot.activityAt=text(record.timestamp);this.snapshot.turnEndedAt=Date.parse(String(record.timestamp));for(const t of this.snapshot.tools)if(t.status==='running'){t.status='cancelled';if(Number.isFinite(this.snapshot.turnEndedAt))t.finishedAt=this.snapshot.turnEndedAt;this.canonicalCompleted.add(t.id);}return;
    case 'context_compacted':case 'compact_boundary':this.snapshot.compactions++;return;
    case 'item_started':if(safe(p.item))this.item(p.item,record.timestamp);return;
    case 'item_completed':if(safe(p.item))this.item(p.item,record.timestamp,true);return;
   }
  }
- private tool(id:string,name:string,status:Tool['status'],canonical=false){
+ private tool(id:string,name:string,status:Tool['status'],canonical=false,timestamp?:unknown){
   const previous=this.snapshot.tools.find(t=>t.id===id);
-  if(previous){if(!this.canonicalCompleted.has(id)&&(canonical||previous.status==='running')){previous.name=name;previous.status=status;}}
+  const accepted=!previous||!this.canonicalCompleted.has(id)&&(canonical||previous.status==='running');
+  if(previous){if(accepted){previous.name=name;previous.status=status;}}
   else this.snapshot.tools.push({id,name,status});
+  const row=this.snapshot.tools.find(t=>t.id===id),at=Date.parse(String(timestamp??''));if(accepted&&row){if(row.status==='running')delete row.finishedAt;else if(row.finishedAt===undefined&&Number.isFinite(at))row.finishedAt=at;}
   if(canonical){this.canonicalTools.add(id);if(status!=='running')this.canonicalCompleted.add(id);}
   const live=this.snapshot.tools.filter(t=>t.status==='running').slice(-64),finished=this.snapshot.tools.filter(t=>t.status!=='running');
   const retained=new Set([...live,...(live.length<64?finished.slice(-(64-live.length)):[])].map(t=>t.id));this.snapshot.tools=this.snapshot.tools.filter(t=>retained.has(t.id));
@@ -122,7 +124,7 @@ export class SessionReader {
    if(p.type==='McpToolCall'){const server=text(p.server),tool=text(p.tool);if(!server||!tool)return;name='mcp__'+server+'__'+tool;if(!this.snapshot.mcpUsed.includes(server))this.snapshot.mcpUsed.push(server);}
    if(p.type==='CommandExecution'&&p.process_id!==undefined&&p.process_id!==null){const key='session:'+String(p.process_id);if(p.source!=='unified_exec_startup')id=this.processTools.get(key)??id;this.processTools.set(key,id);}
    const failed=p.status==='failed'||!!p.error||typeof p.exit_code==='number'&&p.exit_code!==0,cancelled=['cancelled','aborted','interrupted','declined'].includes(p.status),running=['in_progress','inProgress','running'].includes(p.status);
-   this.tool(id,name,cancelled?'cancelled':failed?'failed':running?'running':completed||p.status==='completed'?'done':'running',true);return;
+   this.tool(id,name,cancelled?'cancelled':failed?'failed':running?'running':completed||p.status==='completed'?'done':'running',true,timestamp);return;
   }
   if(['function_call','custom_tool_call'].includes(p.type)){
    const id=text(p.call_id??p.id);const name=text(p.name);if(!id||!name||this.snapshot.tools.some(t=>t.id===id))return;
@@ -141,7 +143,8 @@ export class SessionReader {
     const pending=metadata.cellId!==undefined?'cell:'+metadata.cellId:metadata.sessionId!==undefined?'session:'+metadata.sessionId:undefined,poll=this.pollTargets.get(tool.id),processTool=poll?this.snapshot.tools.find(t=>t.id===poll):undefined;
     if(pending&&!failed&&metadata.exitCode===undefined&&['exec','exec_command'].includes(leaf??''))this.processTools.set(pending,tool.id);
     if(!this.canonicalTools.has(tool.id))tool.status=failed?'failed':!poll&&pending&&this.processTools.get(pending)===tool.id?'running':'done';
-    if(processTool&&(metadata.exitCode!==undefined||executor&&metadata.status&&metadata.status!=='running'))this.tool(processTool.id,processTool.name,failed?'failed':'done');
+    if(tool.status!=='running'&&tool.finishedAt===undefined){const at=Date.parse(String(timestamp??''));if(Number.isFinite(at))tool.finishedAt=at;}
+    if(processTool&&(metadata.exitCode!==undefined||executor&&metadata.status&&metadata.status!=='running'))this.tool(processTool.id,processTool.name,failed?'failed':'done',false,timestamp);
     while(this.processTools.size>128)this.processTools.delete(this.processTools.keys().next().value!);
     this.pollTargets.delete(tool.id);this.agents.result(tool.id,output,failed,timestamp);
    }

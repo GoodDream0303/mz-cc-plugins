@@ -5,6 +5,11 @@ WT tabs or separate PowerShell windows. The official CLI and native statusline
 remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
 task names retain their original language.
 
+> Version 0.7.1 retains a HUD drag selection after mouse release. Ctrl+C copies
+> the selection; Escape or a new click resumes live updates. Tool activity now
+> separates current calls from recent history. Reported terminal calls expire
+> after 60 seconds; unknown completion ages remain bounded without a guessed age.
+>
 > Version 0.7.0 displays one task row per agent with structured action, actual
 > model, elapsed task time and child cumulative tokens (Σ). Active work has
 > priority; reported completions disappear after 60 seconds, with at most two
@@ -264,7 +269,10 @@ identity stop automatic resizing and leave the existing size in place.
 While a verified growth is pending, the HUD clips to its current viewport without
 showing a temporary pager. Genuine overflow at the size cap still shows paging.
 Use q to close the HUD, or `stop --launch <launch-id>` to request its exit.
-Ctrl+C does not close the HUD; terminal selection/copy shortcuts remain available.
+Drag with the left mouse button to select HUD text. Releasing retains the
+selection and freezes that visible frame while telemetry collection continues.
+Ctrl+C copies the selection; Escape or a new click resumes live display updates.
+Resizing clears the selection. Ctrl+C does not close the HUD.
 
 ## Source development
 

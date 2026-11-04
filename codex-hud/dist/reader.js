@@ -217,6 +217,8 @@ export class SessionReader {
                 for (const t of this.snapshot.tools)
                     if (t.status === 'running') {
                         t.status = 'cancelled';
+                        if (Number.isFinite(this.snapshot.turnEndedAt))
+                            t.finishedAt = this.snapshot.turnEndedAt;
                         this.canonicalCompleted.add(t.id);
                     }
                 return;
@@ -234,16 +236,24 @@ export class SessionReader {
                 return;
         }
     }
-    tool(id, name, status, canonical = false) {
+    tool(id, name, status, canonical = false, timestamp) {
         const previous = this.snapshot.tools.find(t => t.id === id);
+        const accepted = !previous || !this.canonicalCompleted.has(id) && (canonical || previous.status === 'running');
         if (previous) {
-            if (!this.canonicalCompleted.has(id) && (canonical || previous.status === 'running')) {
+            if (accepted) {
                 previous.name = name;
                 previous.status = status;
             }
         }
         else
             this.snapshot.tools.push({ id, name, status });
+        const row = this.snapshot.tools.find(t => t.id === id), at = Date.parse(String(timestamp ?? ''));
+        if (accepted && row) {
+            if (row.status === 'running')
+                delete row.finishedAt;
+            else if (row.finishedAt === undefined && Number.isFinite(at))
+                row.finishedAt = at;
+        }
         if (canonical) {
             this.canonicalTools.add(id);
             if (status !== 'running')
@@ -293,7 +303,7 @@ export class SessionReader {
                 this.processTools.set(key, id);
             }
             const failed = p.status === 'failed' || !!p.error || typeof p.exit_code === 'number' && p.exit_code !== 0, cancelled = ['cancelled', 'aborted', 'interrupted', 'declined'].includes(p.status), running = ['in_progress', 'inProgress', 'running'].includes(p.status);
-            this.tool(id, name, cancelled ? 'cancelled' : failed ? 'failed' : running ? 'running' : completed || p.status === 'completed' ? 'done' : 'running', true);
+            this.tool(id, name, cancelled ? 'cancelled' : failed ? 'failed' : running ? 'running' : completed || p.status === 'completed' ? 'done' : 'running', true, timestamp);
             return;
         }
         if (['function_call', 'custom_tool_call'].includes(p.type)) {
@@ -326,8 +336,13 @@ export class SessionReader {
                     this.processTools.set(pending, tool.id);
                 if (!this.canonicalTools.has(tool.id))
                     tool.status = failed ? 'failed' : !poll && pending && this.processTools.get(pending) === tool.id ? 'running' : 'done';
+                if (tool.status !== 'running' && tool.finishedAt === undefined) {
+                    const at = Date.parse(String(timestamp ?? ''));
+                    if (Number.isFinite(at))
+                        tool.finishedAt = at;
+                }
                 if (processTool && (metadata.exitCode !== undefined || executor && metadata.status && metadata.status !== 'running'))
-                    this.tool(processTool.id, processTool.name, failed ? 'failed' : 'done');
+                    this.tool(processTool.id, processTool.name, failed ? 'failed' : 'done', false, timestamp);
                 while (this.processTools.size > 128)
                     this.processTools.delete(this.processTools.keys().next().value);
                 this.pollTargets.delete(tool.id);

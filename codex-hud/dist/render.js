@@ -128,17 +128,24 @@ export function render(s, c, o = {}) {
     }
     if (on('showTools') && s.tools.length) {
         const grouped = new Map();
-        s.tools.forEach((t, i) => { const key = t.name + '\0' + t.status, entry = grouped.get(key); if (entry) {
+        s.tools.forEach((t, i) => { if (t.status !== 'running' && Number.isFinite(t.finishedAt) && (t.finishedAt > now || now - t.finishedAt > 60000))
+            return; const key = t.name + '\0' + t.status, entry = grouped.get(key); if (entry) {
             entry.count++;
             entry.last = i;
         }
         else
             grouped.set(key, { name: t.name, status: t.status, count: 1, last: i }); });
         const ordered = [...grouped.values()].sort((a, b) => Number(b.status === 'running') - Number(a.status === 'running') || b.last - a.last), limit = Math.trunc(get(c, 'display.toolsMaxVisible')) || ordered.length;
-        const parts = ordered.slice(0, limit).map(t => ink((t.status === 'running' ? '◐ ' : t.status === 'failed' ? '✗ ' : t.status === 'cancelled' ? '⊘ ' : '✓ ') + (get(c, 'display.toolNameMaxLength') ? truncate(t.name, get(c, 'display.toolNameMaxLength')) : sanitize(t.name)) + ' ×' + t.count, t.status === 'failed' ? 'critical' : 'label'));
+        const visible = ordered.slice(0, limit), format = (t) => ink((t.status === 'running' ? '◐ ' : t.status === 'failed' ? '✗ ' : t.status === 'cancelled' ? '⊘ ' : '✓ ') + (get(c, 'display.toolNameMaxLength') ? truncate(t.name, get(c, 'display.toolNameMaxLength')) : sanitize(t.name)) + ' ×' + t.count, t.status === 'failed' ? 'critical' : 'label');
+        const current = visible.filter(t => t.status === 'running'), recent = visible.filter(t => t.status !== 'running'), parts = [];
+        if (current.length)
+            parts.push(label('Current: ', '当前: ', '目前: ') + current.map(format).join(' | '));
+        if (recent.length)
+            parts.push(label('Recent: ', '近期: ') + recent.map(format).join(' | '));
         if (ordered.length > limit)
             parts.push('+' + (ordered.length - limit) + ' ' + label('more', '更多'));
-        groups.set('tools', parts.join(' | '));
+        if (parts.length)
+            groups.set('tools', parts.join(' | '));
     }
     if (on('showAgents') && s.agents.length) {
         const rows = agentRows(s.agents, lang, now, get(c, 'display.agentsMaxVisible')).map(row => ink(row, 'label'));

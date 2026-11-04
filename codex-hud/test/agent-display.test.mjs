@@ -29,3 +29,11 @@ test('unreported agents cannot evict known running work or be counted as running
  const agents=[{id:'run',name:'actual-work',status:'running'},...Array.from({length:4},(_,i)=>({id:'u'+i,name:'unknown-'+i,status:'unreported'}))];
  const text=output(agents).join('\n');assert.match(text,/actual-work/);assert.doesNotMatch(text,/\+\d+ running/);assert.match(text,/\+2.*status not reported/);
 });
+test('old reported tool failures expire and current work is separate from recent history',()=>{
+ const c=set(defaultConfig(),'display.showTools',true),s={...emptySnapshot('parent'),tools:[{id:'old',name:'old-failure',status:'failed',finishedAt:now-61000},{id:'fresh',name:'fresh-failure',status:'failed',finishedAt:now-1000},{id:'active',name:'exec_command',status:'running'}]};
+ const text=render(s,c,{width:240,height:30,color:false,now}).lines.join('\n');assert.doesNotMatch(text,/old-failure/);assert.match(text,/Current:.*◐ exec_command/);assert.match(text,/Recent.*✗ fresh-failure/);
+});
+test('tool history keeps unknown completion ages and expires only after the sixty-second boundary',()=>{
+ const c=set(defaultConfig(),'display.showTools',true),s={...emptySnapshot('parent'),tools:[{id:'unknown',name:'unknown-age',status:'failed'},{id:'boundary',name:'boundary-done',status:'done',finishedAt:now-60000}]};
+ const text=at=>render(s,c,{width:240,height:30,color:false,now:at}).lines.join('\n');assert.match(text(now),/boundary-done/);assert.doesNotMatch(text(now+1),/boundary-done/);assert.match(text(now+3600000),/✗ unknown-age/);
+});

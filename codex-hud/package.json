@@ -1,6 +1,6 @@
 {
   "name": "mz-codex-hud",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "private": true,
   "description": "Configurable native Windows Terminal HUD for Codex",
   "type": "module",

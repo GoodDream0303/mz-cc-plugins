@@ -123,6 +123,23 @@ if(process.argv[2]==='--fixture'){
    append({type:'SubAgentActivity',id:'agent-done',kind:'completed',agent_thread_id:'synthetic-agent',agent_path:'/root/reviewer',model:null});await visible('reviewer [done] (synthetic-agent-model)');
    assert.equal(descriptor('A').pid,viewerPid);assert.deepEqual(geometry('B'),neighbour);checks.push('same viewer updates agent lifecycle and retains the reported actual model');
   }
+  if(process.argv.includes('--selection')){
+   const current=descriptor('A'),heartbeat=current.heartbeat;
+   const mouse='\x1b[<0;1;1M\x1b[<32;12;1M\x1b[<0;12;1m';
+   command('A',['send-keys','-t',current.host.hudPane,'-H',...Buffer.from(mouse).toString('hex').match(/../g)]);
+   await wait(()=>descriptor('A').viewport?.copying,'Mouse release did not retain HUD selection');
+   const frame=command('A',['capture-pane','-p','-t',current.host.hudPane]).stdout;
+   await wait(()=>descriptor('A').heartbeat>heartbeat,'Selected HUD stopped its heartbeat');await delay(1500);
+   assert.equal(descriptor('A').viewport.copying,true);assert.equal(command('A',['capture-pane','-p','-t',current.host.hudPane]).stdout,frame);
+   command('A',['send-keys','-t',current.host.hudPane,'Escape']);await wait(()=>!descriptor('A').viewport?.copying,'Escape did not leave selection');checks.push('left drag/release retains a frozen HUD selection while heartbeat continues; Escape resumes without clipboard access');
+  }
+  if(process.argv.includes('--respawn-viewer')){
+   const current=descriptor('A'),before=geometry('B'),h=readHost(current.host.recordFile),o=h.proof.origin;
+   const values={MZ_HUD_ORIGIN:h.id,MZ_HUD_NAMESPACE:o.namespace,MZ_HUD_HOST_DIR:o.hostDir,MZ_HUD_PSMUX:o.binary,PSMUX_DATA_DIR:o.dataDir,TMUX:o.tmux,TMUX_PANE:current.host.hudPane,PSMUX_SESSION:o.session,MZ_HUD_CONFIG_FILE:current.configFile,CODEX_HOME:current.codexHome};
+   command('A',['respawn-pane','-k','-t',current.host.hudPane,...Object.entries(values).flatMap(([k,v])=>['-e',k+'='+v]),'--',process.execPath,path.join(product,'bin/hud.mjs'),'watch','--launch64',Buffer.from(current.file).toString('base64')]);
+   await wait(()=>{const d=descriptor('A');return d.state==='running'&&d.pid!==current.pid&&d.heartbeat>current.heartbeat;},'Exact HUD respawn did not acknowledge');
+   assert.equal(descriptor('A').sessionId,current.sessionId);assert.equal(descriptor('A').host.proof.owner.pid,current.host.proof.owner.pid);assert.deepEqual(geometry('B'),before);checks.push('exact viewer respawn changes only the HUD process and preserves source, binding and neighbor');
+  }
   if(process.argv.includes('--copy-safe')){
    const current=descriptor('A'),heartbeat=current.heartbeat;
    command('A',['send-keys','-t',current.host.hudPane,'C-c']);

@@ -162,3 +162,14 @@ test('running agents survive many later completed agents within the retained met
  for(let i=0;i<64;i++)content+=record('event_msg',{type:'subagent_started',agent_id:'quick-'+i,name:'quick'})+record('event_msg',{type:'agent_completed',agent_id:'quick-'+i});
  fs.writeFileSync(file,content);const s=await new SessionReader(file,'parent').read();assert.equal(s.agents.length,64);assert.equal(s.agents.find(a=>a.id==='long')?.status,'running');
 });
+test('tool cancellation has a frozen reported finish time for recent-history expiry',async t=>{
+ const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'parent'})+record('response_item',{type:'function_call',call_id:'live',name:'exec_command',arguments:'{}'})+JSON.stringify({type:'event_msg',timestamp:'2026-11-04T08:00:01Z',payload:{type:'turn_aborted'}})+'\n');
+ const reader=new SessionReader(file,'parent');assert.equal((await reader.read()).tools[0].finishedAt,Date.parse('2026-11-04T08:00:01Z'));
+ fs.appendFileSync(file,JSON.stringify({type:'event_msg',timestamp:'2026-11-04T08:01:01Z',payload:{type:'turn_aborted'}})+'\n');assert.equal((await reader.read()).tools[0].finishedAt,Date.parse('2026-11-04T08:00:01Z'));
+});
+test('an ignored canonical start cannot invent the finish time of an untimestamped failure',async t=>{
+ const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'parent'})+JSON.stringify({type:'event_msg',payload:{type:'item_completed',item:{type:'CommandExecution',id:'failed',status:'failed',exit_code:1}}})+'\n');
+ const reader=new SessionReader(file,'parent');assert.equal((await reader.read()).tools[0].finishedAt,undefined);
+ fs.appendFileSync(file,record('event_msg',{type:'item_started',item:{type:'CommandExecution',id:'failed',status:'in_progress'}}));
+ const tool=(await reader.read()).tools[0];assert.equal(tool.status,'failed');assert.equal(tool.finishedAt,undefined);
+});

@@ -1,6 +1,6 @@
 export interface Tokens {input:number;cached:number;output:number;reasoning:number;total:number}
 export interface Quota {id:string;minutes:number;usedPercent:number;resetsAt?:number}
-export interface Tool {id:string;name:string;status:'running'|'done'|'failed'|'cancelled'}
+export interface Tool {id:string;name:string;status:'running'|'done'|'failed'|'cancelled';finishedAt?:number}
 export interface Agent {id:string;name:string;status:string;model?:string;startedAt?:number;endedAt?:number;action?:string;totalTokens?:number}
 export interface Todo {step:string;status:string}
 export interface HudSnapshot {
