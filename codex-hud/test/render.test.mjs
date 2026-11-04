@@ -1,6 +1,35 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {render} from '../dist/render.js';import {displayWidth,sanitize,wrapAnsi} from '../dist/terminal-text.js';import {defaultConfig,set,importClaude,preset} from '../dist/config.js';import {emptySnapshot} from '../dist/types.js';
 function sample(){return {...emptySnapshot('abc-session'),model:'gpt-example',effort:'high',cwd:'C:/项目/固件😀',context:{used:30,window:200},totals:{input:100,cached:80,output:20,reasoning:5,total:120},latest:{input:25,cached:20,output:5,reasoning:1,total:30},quotas:[{id:'codex:primary',minutes:10080,usedPercent:15,resetsAt:2000000000}],mcpUsed:['docs'],agents:[{id:'a',name:'分析',status:'unknown'}],todos:[{step:'验证驱动',status:'in_progress'}],tools:[{id:'t',name:'secret-tool',status:'running'}]};}
+
+for(const [language,expected]of [
+ ['en',['Run command','Run script','Follow up on task','Ask user','Wait']],
+ ['zh-Hans',['执行命令','运行脚本','跟进子任务','向你提问','短暂等待']],
+ ['zh-Hant',['執行命令','執行腳本','跟進子任務','向你提問','短暫等待']],
+])test('known tool actions use friendly labels in '+language,()=>{
+ const names=['exec_command','exec','followup_task','request_user_input_async','clock.sleep'];
+ const s={...emptySnapshot('parent'),tools:names.map((name,i)=>({id:String(i),name,status:'running'}))};
+ const c=set(set(set(defaultConfig(),'display.showTools',true),'display.toolsMaxVisible',0),'language',language);
+ const text=render(s,c,{width:240,height:30,color:false}).lines.join('\n');
+ for(const name of expected)assert.ok(text.includes('◐ '+name+' ×1'),name);for(const name of names)assert.ok(!text.includes(name),name);
+});
+test('only recognized core namespaces receive action labels while unknown tools retain their names',()=>{
+ const names=['functions.exec_command','functions.exec','collaboration.followup_task','functions.request_user_input_async','clock.sleep','mcp__example__exec','other.exec','constructor'];
+ const c=set(set(defaultConfig(),'display.showTools',true),'display.toolsMaxVisible',0),s={...emptySnapshot('parent'),tools:names.map((name,i)=>({id:String(i),name,status:'done'}))};
+ const text=render(s,c,{width:240,height:30,color:false}).lines.join('\n');
+ for(const name of ['Run command','Run script','Follow up on task','Ask user','Wait','mcp__example__exec','other.exec','constructor'])assert.ok(text.includes('✓ '+name+' ×1'),name);
+});
+test('friendly labels preserve raw identities, per-status counts and caller-owned metadata',()=>{
+ const c=set(set(defaultConfig(),'display.showTools',true),'display.toolsMaxVisible',0),s={...emptySnapshot('parent'),tools:[{id:'a',name:'exec',status:'done'},{id:'b',name:'exec',status:'done'},{id:'c',name:'functions.exec',status:'done'},{id:'d',name:'exec',status:'failed'},{id:'e',name:'exec',status:'cancelled'}]},before=structuredClone(s);
+ const text=render(s,c,{width:240,height:30,color:false}).lines.join('\n');
+ for(const part of ['✓ Run script ×2','✓ Run script ×1','✗ Run script ×1','⊘ Run script ×1'])assert.ok(text.includes(part),part);assert.deepEqual(s,before);
+});
+test('tool name limits truncate the translated label by terminal cells',()=>{
+ const c=set(set(defaultConfig(),'display.showTools',true),'display.toolNameMaxLength',7),s={...emptySnapshot('parent'),tools:[{id:'a',name:'exec_command',status:'running'}]};
+ assert.match(render(s,c,{width:100,height:30,color:false}).lines.join('\n'),/◐ Run co… ×1/);
+ const chinese=set(set(c,'language','zh-Hans'),'display.toolNameMaxLength',5);s.tools[0].name='followup_task';
+ assert.match(render(s,chinese,{width:100,height:30,color:false}).lines.join('\n'),/◐ 跟进… ×1/);
+});
 test('agent lifecycle labels are localized and missing reports are explicit',()=>{
  const s={...emptySnapshot('parent'),agents:[{id:'a',name:'Task 原文',status:'running'},{id:'b',name:'review',status:'unknown'}]};
  const config=set(defaultConfig(),'display.showAgents',true);

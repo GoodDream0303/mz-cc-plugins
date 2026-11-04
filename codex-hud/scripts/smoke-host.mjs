@@ -109,9 +109,9 @@ if(process.argv[2]==='--fixture'){
    live=set(set(set(live,'display.customLine',''),'display.showTools',true),'display.showAgents',true);saveConfig(configFileA,live);
    const append=payload=>fs.appendFileSync(descriptor('A').transcriptPath,JSON.stringify({type:'event_msg',payload:{type:'item_completed',item:payload}})+'\n');
    const visible=text=>wait(()=>command('A',['capture-pane','-p','-t',descriptor('A').host.hudPane]).stdout.includes(text),'Live HUD did not render '+text);
-   append({type:'CommandExecution',id:'live-command',status:'in_progress'});await visible('◐ exec_command');
-   append({type:'CommandExecution',id:'live-command',status:'completed',exit_code:0});await visible('✓ exec_command');
-   append({type:'CommandExecution',id:'cancelled-command',status:'cancelled'});await visible('⊘ exec_command');
+   append({type:'CommandExecution',id:'live-command',status:'in_progress'});await visible('◐ Run command');
+   append({type:'CommandExecution',id:'live-command',status:'completed',exit_code:0});await visible('✓ Run command');
+   append({type:'CommandExecution',id:'cancelled-command',status:'cancelled'});await visible('⊘ Run command');
    checks.push('same running viewer updates actual tool running/completed/cancelled symbols as metadata arrives');
    append({type:'SubAgentActivity',id:'agent-start',kind:'started',agent_thread_id:'synthetic-agent',agent_path:'/root/reviewer',model:'synthetic-agent-model'});await visible('reviewer [running] (synthetic-agent-model)');
    if(process.argv.includes('--task-lines')){

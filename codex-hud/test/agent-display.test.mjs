@@ -23,7 +23,7 @@ test('agent rows stay separate even in compact layout and on narrow terminals',(
 });
 test('tool summaries group successes, failures and cancellations separately while retaining active calls',()=>{
  const c=set(set(defaultConfig(),'display.showTools',true),'display.toolsMaxVisible',0),s={...emptySnapshot('parent'),tools:[{id:'r',name:'exec_command',status:'running'},{id:'a',name:'exec_command',status:'done'},{id:'b',name:'exec_command',status:'done'},{id:'c',name:'exec_command',status:'failed'},{id:'d',name:'exec_command',status:'cancelled'}]};
- const text=render(s,c,{width:240,height:30,color:false}).lines.join('\n');assert.match(text,/◐ exec_command/);assert.match(text,/✓ exec_command ×2/);assert.match(text,/✗ exec_command ×1/);assert.match(text,/⊘ exec_command ×1/);
+ const text=render(s,c,{width:240,height:30,color:false}).lines.join('\n');assert.match(text,/◐ Run command/);assert.match(text,/✓ Run command ×2/);assert.match(text,/✗ Run command ×1/);assert.match(text,/⊘ Run command ×1/);
 });
 test('unreported agents cannot evict known running work or be counted as running',()=>{
  const agents=[{id:'run',name:'actual-work',status:'running'},...Array.from({length:4},(_,i)=>({id:'u'+i,name:'unknown-'+i,status:'unreported'}))];
@@ -31,7 +31,7 @@ test('unreported agents cannot evict known running work or be counted as running
 });
 test('old reported tool failures expire and current work is separate from recent history',()=>{
  const c=set(defaultConfig(),'display.showTools',true),s={...emptySnapshot('parent'),tools:[{id:'old',name:'old-failure',status:'failed',finishedAt:now-61000},{id:'fresh',name:'fresh-failure',status:'failed',finishedAt:now-1000},{id:'active',name:'exec_command',status:'running'}]};
- const text=render(s,c,{width:240,height:30,color:false,now}).lines.join('\n');assert.doesNotMatch(text,/old-failure/);assert.match(text,/Current:.*◐ exec_command/);assert.match(text,/Recent.*✗ fresh-failure/);
+ const text=render(s,c,{width:240,height:30,color:false,now}).lines.join('\n');assert.doesNotMatch(text,/old-failure/);assert.match(text,/Current:.*◐ Run command/);assert.match(text,/Recent.*✗ fresh-failure/);
 });
 test('tool history keeps unknown completion ages and expires only after the sixty-second boundary',()=>{
  const c=set(defaultConfig(),'display.showTools',true),s={...emptySnapshot('parent'),tools:[{id:'unknown',name:'unknown-age',status:'failed'},{id:'boundary',name:'boundary-done',status:'done',finishedAt:now-60000}]};

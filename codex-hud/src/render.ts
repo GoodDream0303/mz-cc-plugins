@@ -79,10 +79,18 @@ export function render(s:HudSnapshot,c:Config,o:RenderOptions={}):RenderResult {
   if(facts.length)groups.set('mcp',ink('MCP: '+facts.join(' | '),'label'));
  }
  if(on('showTools')&&s.tools.length){
+  const names=new Map<string,string>();
+  for(const [keys,value]of [
+   [['exec_command','functions.exec_command'],label('Run command','执行命令','執行命令')],
+   [['exec','functions.exec'],label('Run script','运行脚本','執行腳本')],
+   [['followup_task','collaboration.followup_task'],label('Follow up on task','跟进子任务','跟進子任務')],
+   [['request_user_input_async','functions.request_user_input_async'],label('Ask user','向你提问','向你提問')],
+   [['clock.sleep'],label('Wait','短暂等待','短暫等待')],
+  ] as const)for(const key of keys)names.set(key,value);
   const grouped=new Map<string,{name:string;status:string;count:number;last:number}>();
   s.tools.forEach((t,i)=>{if(t.status!=='running'&&Number.isFinite(t.finishedAt)&&(t.finishedAt!>now||now-t.finishedAt!>60000))return;const key=t.name+'\0'+t.status,entry=grouped.get(key);if(entry){entry.count++;entry.last=i;}else grouped.set(key,{name:t.name,status:t.status,count:1,last:i});});
   const ordered=[...grouped.values()].sort((a,b)=>Number(b.status==='running')-Number(a.status==='running')||b.last-a.last),limit=Math.trunc(get(c,'display.toolsMaxVisible'))||ordered.length;
-  const visible=ordered.slice(0,limit),format=(t:typeof ordered[number])=>ink((t.status==='running'?'◐ ':t.status==='failed'?'✗ ':t.status==='cancelled'?'⊘ ':'✓ ')+(get(c,'display.toolNameMaxLength')?truncate(t.name,get(c,'display.toolNameMaxLength')):sanitize(t.name))+' ×'+t.count,t.status==='failed'?'critical':'label');
+  const visible=ordered.slice(0,limit),format=(t:typeof ordered[number])=>{const name=names.get(t.name)??t.name;return ink((t.status==='running'?'◐ ':t.status==='failed'?'✗ ':t.status==='cancelled'?'⊘ ':'✓ ')+(get(c,'display.toolNameMaxLength')?truncate(name,get(c,'display.toolNameMaxLength')):sanitize(name))+' ×'+t.count,t.status==='failed'?'critical':'label');};
   const current=visible.filter(t=>t.status==='running'),recent=visible.filter(t=>t.status!=='running'),parts:string[]=[];
   if(current.length)parts.push(label('Current: ','当前: ','目前: ')+current.map(format).join(' | '));if(recent.length)parts.push(label('Recent: ','近期: ')+recent.map(format).join(' | '));
   if(ordered.length>limit)parts.push('+'+(ordered.length-limit)+' '+label('more','更多'));if(parts.length)groups.set('tools',parts.join(' | '));

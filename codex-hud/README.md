@@ -5,6 +5,11 @@ WT tabs or separate PowerShell windows. The official CLI and native statusline
 remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
 task names retain their original language.
 
+> Version 0.7.3 displays common tool actions as readable names such as Run command,
+> Run script, Follow up on task, Ask user and Wait. Labels follow the configured
+> English, Simplified Chinese or Traditional Chinese language. Unknown tools keep
+> their original names; counts still group by the original tool name and status.
+>
 > Version 0.7.2 restores native terminal selection and copy behavior. The HUD no
 > longer takes mouse ownership, freezes a selected frame or writes the clipboard.
 > Tool activity still separates current calls from recent history. Reported
