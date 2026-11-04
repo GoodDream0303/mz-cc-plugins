@@ -14,7 +14,7 @@ function fixture(t){
 test('verified child completion fills a missing parent activity event without retaining message text',async t=>{
  const f=fixture(t);fs.appendFileSync(f.child,row('response_item',{type:'message',role:'assistant',content:[{text:'SECRET BODY'}]}));
  const s=await f.reader.read();assert.equal(s.agents[0].status,'running');await f.tracker.refresh(s,f.reader);
- assert.deepEqual(s.agents,[{id:'child-one',name:'review',status:'done',model:'child-model'}]);assert.ok(!JSON.stringify(s).includes('SECRET'));
+ assert.deepEqual(s.agents,[{id:'child-one',name:'review',status:'done',model:'child-model',startedAt:Date.parse('2026-11-04T08:00:01Z'),endedAt:Date.parse('2026-11-04T08:00:02Z')}]);assert.ok(!JSON.stringify(s).includes('SECRET'));
 });
 test('another parent or ambiguous matching child logs cannot finish this agent',async t=>{
  const f=fixture(t);fs.writeFileSync(f.child,f.meta('other-parent')+row('event_msg',{type:'task_complete'},'2026-11-04T08:00:02Z'));
@@ -75,10 +75,37 @@ test('replaying the same message notification cannot advance the lifecycle start
 test('a completed parent entry can recover its missing actual model without changing state',async t=>{
  const f=fixture(t);fs.appendFileSync(f.parent,row('event_msg',{type:'item_completed',item:{type:'SubAgentActivity',id:'completed',agent_thread_id:'child-one',agent_path:'/root/review',kind:'completed',model:null}},'2026-11-04T08:00:04Z'));
  const s=await f.reader.read();assert.equal(s.agents[0].status,'done');assert.equal(s.agents[0].model,undefined);await f.tracker.refresh(s,f.reader);
- assert.deepEqual(s.agents,[{id:'child-one',name:'review',status:'done',model:'child-model'}]);
+ assert.deepEqual(s.agents,[{id:'child-one',name:'review',status:'done',model:'child-model',startedAt:Date.parse('2026-11-04T08:00:01Z'),endedAt:Date.parse('2026-11-04T08:00:02Z')}]);
 });
 test('model recovery cannot turn a closed parent entry back into running',async t=>{
  const f=fixture(t);fs.writeFileSync(f.child,f.meta()+row('turn_context',{model:'child-model'})+row('event_msg',{type:'task_started'},'2026-11-04T08:00:01Z'));
  fs.appendFileSync(f.parent,row('event_msg',{type:'collab_close_end',sender_thread_id:'parent-one',receiver_thread_id:'child-one',status:'running'},'2026-11-04T08:00:04Z'));
- const s=await f.reader.read();await f.tracker.refresh(s,f.reader);assert.deepEqual(s.agents,[{id:'child-one',name:'review',status:'closed',model:'child-model'}]);
+ const s=await f.reader.read();await f.tracker.refresh(s,f.reader);assert.deepEqual(s.agents,[{id:'child-one',name:'review',status:'closed',model:'child-model',startedAt:Date.parse('2026-11-04T08:00:01Z'),endedAt:Date.parse('2026-11-04T08:00:04Z')}]);
+});
+test('agent details use the verified child plan, timing and cumulative tokens rather than parent usage',async t=>{
+ const f=fixture(t);fs.writeFileSync(f.child,f.meta()+row('turn_context',{model:'child-model'})+row('event_msg',{type:'task_started'},'2026-11-04T08:00:01Z')+row('event_msg',{type:'token_count',info:{total_token_usage:{input_tokens:100,output_tokens:20,total_tokens:120}}})+row('response_item',{type:'function_call',call_id:'plan',name:'update_plan',arguments:JSON.stringify({plan:[{step:'读取 sysm.c',status:'in_progress'}]})}));
+ let s=await f.reader.read();s.totals={total:999999};await f.tracker.refresh(s,f.reader);const a=s.agents[0];assert.equal(a.action,'读取 sysm.c');assert.equal(a.totalTokens,120);assert.equal(a.startedAt,Date.parse('2026-11-04T08:00:01Z'));assert.equal(a.endedAt,undefined);
+ fs.appendFileSync(f.child,row('event_msg',{type:'task_complete'},'2026-11-04T08:00:04Z'));s=await f.reader.read();await f.tracker.refresh(s,f.reader);assert.equal(s.agents[0].endedAt,Date.parse('2026-11-04T08:00:04Z'));assert.equal(s.agents[0].action,undefined);
+});
+test('an old child turn cannot overwrite newer completed task timing or model',async t=>{
+ const f=fixture(t);fs.appendFileSync(f.parent,row('response_item',{type:'function_call',call_id:'new-task',name:'followup_task',arguments:JSON.stringify({target:'child-one'})},'2026-11-04T08:01:40Z')+row('event_msg',{type:'item_completed',item:{type:'SubAgentActivity',id:'new-task',agent_thread_id:'child-one',agent_path:'/root/review',kind:'interacted',model:'new-model'}},'2026-11-04T08:01:40Z')+row('event_msg',{type:'collab_waiting_end',sender_thread_id:'parent-one',statuses:{'child-one':{completed:null}}},'2026-11-04T08:01:50Z'));
+ const s=await f.reader.read();await f.tracker.refresh(s,f.reader);assert.equal(s.agents[0].startedAt,Date.parse('2026-11-04T08:01:40Z'));assert.equal(s.agents[0].endedAt,Date.parse('2026-11-04T08:01:50Z'));assert.equal(s.agents[0].model,'new-model');
+});
+test('repeated completed observations do not restart the elapsed or retention clock',async t=>{
+ const f=fixture(t),done=time=>row('event_msg',{type:'collab_waiting_end',sender_thread_id:'parent-one',statuses:{'child-one':{completed:null}}},time);
+ fs.appendFileSync(f.parent,done('2026-11-04T08:00:02Z'));await f.reader.read();assert.equal(f.reader.agentTiming('child-one').endedAt,Date.parse('2026-11-04T08:00:02Z'));
+ fs.appendFileSync(f.parent,done('2026-11-04T08:01:12Z'));await f.reader.read();assert.equal(f.reader.agentTiming('child-one').endedAt,Date.parse('2026-11-04T08:00:02Z'));
+});
+test('older child working state cannot undo a parent interruption',async t=>{
+ const f=fixture(t);fs.writeFileSync(f.child,f.meta()+row('turn_context',{model:'child-model'})+row('event_msg',{type:'task_started'},'2026-11-04T08:00:01Z'));
+ fs.appendFileSync(f.parent,row('event_msg',{type:'item_completed',item:{type:'SubAgentActivity',id:'interrupted',agent_thread_id:'child-one',agent_path:'/root/review',kind:'interrupted'}},'2026-11-04T08:00:04Z'));
+ const s=await f.reader.read();await f.tracker.refresh(s,f.reader);assert.equal(s.agents[0].status,'interrupted');assert.equal(s.agents[0].endedAt,Date.parse('2026-11-04T08:00:04Z'));
+});
+test('task start timing survives bounded call bookkeeping eviction',async t=>{
+ const f=fixture(t);for(let i=0;i<129;i++)fs.appendFileSync(f.parent,row('response_item',{type:'function_call',call_id:'msg-'+i,name:'send_message',arguments:JSON.stringify({target:'child-one'})})+row('response_item',{type:'function_call_output',call_id:'msg-'+i,output:'{}'}));
+ await f.reader.read();assert.equal(f.reader.agentTiming('child-one').startedAt,Date.parse('2026-11-04T08:00:00Z'));
+});
+test('canonical resume acknowledgement establishes the new task before its tool result',async t=>{
+ const f=fixture(t);fs.appendFileSync(f.parent,row('response_item',{type:'function_call',call_id:'resume-agent',name:'resume_agent',arguments:JSON.stringify({id:'child-one'})},'2026-11-04T08:00:05Z')+row('event_msg',{type:'collab_resume_end',call_id:'resume-agent',sender_thread_id:'parent-one',receiver_thread_id:'child-one',status:'running'},'2026-11-04T08:00:06Z'));
+ const s=await f.reader.read();await f.tracker.refresh(s,f.reader);assert.equal(s.agents[0].status,'running');assert.equal(s.agents[0].startedAt,Date.parse('2026-11-04T08:00:05Z'));assert.equal(s.agents[0].endedAt,undefined);
 });

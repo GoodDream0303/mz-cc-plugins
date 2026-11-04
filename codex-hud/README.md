@@ -5,6 +5,15 @@ WT tabs or separate PowerShell windows. The official CLI and native statusline
 remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
 task names retain their original language.
 
+> Version 0.7.0 displays one task row per agent with structured action, actual
+> model, elapsed task time and child cumulative tokens (Σ). Active work has
+> priority; reported completions disappear after 60 seconds, with at most two
+> recent terminal rows. Three agent rows are shown by default; set
+> `display.agentsMaxVisible=0` for all retained active rows. Hidden work has a +N
+> summary. Unknown end times stay bounded without inventing an age.
+> Tool counts group the retained recent calls by full name and status, keeping
+> success, failure and cancellation separate. Counts are not lifetime totals.
+>
 > Version 0.6.3 also recovers missing model metadata for completed agents from
 > their verified child logs, without changing a completed or closed state.
 >

@@ -157,3 +157,8 @@ test('a reported canonical model is preserved even when activity and spawn call 
  const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'parent'})+record('response_item',{type:'function_call',call_id:'spawn',name:'spawn_agent',arguments:JSON.stringify({task_name:'review'})})+record('event_msg',{type:'item_completed',item:{type:'SubAgentActivity',id:'activity',agent_thread_id:'child',agent_path:'/root/review',kind:'started',model:'canonical-model'}})+record('response_item',{type:'function_call_output',call_id:'spawn',output:JSON.stringify({task_name:'/root/review',model:'fallback-model'})}));
  assert.deepEqual((await new SessionReader(file,'parent').read()).agents,[{id:'child',name:'review',status:'running',model:'canonical-model'}]);
 });
+test('running agents survive many later completed agents within the retained metadata budget',async t=>{
+ const {file}=fixture(t);let content=record('session_meta',{id:'parent'})+record('event_msg',{type:'subagent_started',agent_id:'long',name:'long-running'});
+ for(let i=0;i<64;i++)content+=record('event_msg',{type:'subagent_started',agent_id:'quick-'+i,name:'quick'})+record('event_msg',{type:'agent_completed',agent_id:'quick-'+i});
+ fs.writeFileSync(file,content);const s=await new SessionReader(file,'parent').read();assert.equal(s.agents.length,64);assert.equal(s.agents.find(a=>a.id==='long')?.status,'running');
+});

@@ -1,5 +1,29 @@
 # Validation: exact per-source HUD
 
+## 0.7.0: agent task rows and tool status summaries — 2026-11-04
+
+Agents now render independently, including original task name, latest structured
+plan step/running tool, actual model, elapsed current task time and child-thread
+cumulative reported tokens (Σ). This is cumulative across that child's turns,
+not this task's incremental/billable tokens or the parent's usage. Missing
+metrics remain explicitly unavailable. Completed time freezes, running work
+has priority within the retained 64-entry metadata budget, and reported terminal
+entries age out after 60 seconds (at most two terminal rows). Unknown end times
+remain bounded without an invented age. The default row limit is three;
+display.agentsMaxVisible=0 shows all retained active entries through the pager.
+
+Tools group recent retained calls by full name and status. Running groups have
+priority and success, failure and cancellation counts remain distinct. Other
+display groups retain their layout; agent rows stay separate even in compact
+layouts. No dialogue/body extraction or additional model/service request is used.
+
+Final npm test passed 222/222 on Node 24.15.0. The related Node 20.19.0 scope
+passed 80/80. Native synthetic production-backend smoke passed 16 checks,
+including child structured action and child-only cumulative tokens. Current real
+child logs also supplied separate task duration and cumulative usage. Independent
+review's stale-turn, frozen-end, interruption, retained-active and resume timing
+findings received failing regressions before correction and focused rechecks.
+
 ## 0.6.3: completed-agent model recovery — 2026-11-04
 
 The live reinspection found completed parent entries without their historical

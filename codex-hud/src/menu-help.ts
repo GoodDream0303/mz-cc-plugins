@@ -100,7 +100,8 @@ add('display.hourCycle','时制','時制','h23','h23: 00-23; h12: 1-12 with AM/P
 add('display.customLinePosition','自定义行位置','自訂行位置','first','first: before other HUD content; last: after it.','first：在其它 HUD 内容之前显示；last：在内容之后显示。','first：在其他 HUD 內容之前顯示；last：在內容之後顯示。');
 add('display.addedDirsLayout','附加目录布局','附加目錄版面','inline','Preserved only; additional directory data is unavailable.','保留项；没有附加目录数据。','保留項；沒有附加目錄資料。');
 add('display.toolNameMaxLength','工具名称最大长度','工具名稱最大長度',20,'20: truncate longer tool names; 0: no separate name limit.','20：截短过长工具名；0：不单独限制名称长度。','20：截短過長工具名稱；0：不單獨限制名稱長度。');
-add('display.toolsMaxVisible','最多显示工具数','最多顯示工具數',4,'Show up to four recent tools when tool display is enabled.','启用工具显示后，最多显示最近 4 条工具记录。','啟用工具顯示後，最多顯示最近 4 筆工具記錄。');
+add('display.toolsMaxVisible','最多显示工具组数','最多顯示工具組數',4,'Show up to four tool/status groups; active groups first. Counts cover retained recent calls. 0 shows all.','最多显示 4 个工具与状态分组，执行中优先；次数统计保留的近期调用。0 表示全部。','最多顯示 4 個工具與狀態分組，執行中優先；次數統計保留的近期呼叫。0 表示全部。');
+add('display.agentsMaxVisible','最多显示代理数','最多顯示代理數',3,'Show three agent rows, active first; keep at most two completions for 60 seconds when end time is known. 0 shows all active rows. Hidden active work gets a +N summary.','默认显示 3 行代理，执行中优先；有完成时间时保留 60 秒，已结束最多 2 行。0 显示全部活跃代理；隐藏的活跃任务显示 +N。','預設顯示 3 列代理，執行中優先；有完成時間時保留 60 秒，已結束最多 2 列。0 顯示全部活躍代理；隱藏的活躍工作顯示 +N。');
 add('display.authUserLength','用户名称长度','使用者名稱長度',8,'Preserved only; credentials and account names are not read.','保留项；不读取认证凭据或账户名称。','保留項；不讀取認證憑證或帳戶名稱。');
 for(const [key,zh,tw,value]of [['contextWarningThreshold','上下文警告阈值','上下文警告門檻',70],['contextCriticalThreshold','上下文严重阈值','上下文嚴重門檻',85]] as const)
  add('display.'+key,zh,tw,value,value+'%: change context color at or above this used percentage.',value+'%：上下文已用达到此比例时改变颜色。',value+'%：上下文已用達到此比例時改變色彩。');

@@ -12,12 +12,20 @@ interface Call {kind:string;target?:string;canonical?:boolean;startedAt?:number}
 export class AgentTracker {
  private calls=new Map<string,Call>();private aliases=new Map<string,string>();private activityEvents=new Set<string>();
  private activityTimes=new Map<string,number>();
+ private taskEnds=new Map<string,number>();
+ private taskStarts=new Map<string,number>();
  constructor(private readonly agents:Agent[],private readonly parent:string){}
  private resolve(id:string):string{return this.aliases.get(id)??id;}
  activityAt(id:string):number|undefined{return this.activityTimes.get(this.resolve(id));}
+ timing(id:string):{startedAt?:number;endedAt?:number}{
+  const target=this.resolve(id),row=this.agents.find(a=>a.id===target);return {startedAt:this.taskStarts.get(target),endedAt:row&&!['starting','running','unreported','unknown'].includes(row.status)?this.taskEnds.get(target):undefined};
+ }
+ private start(id:string,value:unknown){const at=typeof value==='number'?value:Date.parse(String(value??''));if(Number.isFinite(at))this.taskStarts.set(id,Math.max(at,this.taskStarts.get(id)??-Infinity));}
  private touch(id:string,value:unknown){
   const at=typeof value==='number'?value:Date.parse(String(value??''));if(!Number.isFinite(at))return;
   this.activityTimes.set(id,Math.max(at,this.activityTimes.get(id)??-Infinity));
+  const row=this.agents.find(a=>a.id===id),ended=this.taskEnds.get(id),start=this.timing(id).startedAt;
+  if(row&&!['starting','running','unknown','unreported'].includes(row.status)&&(ended===undefined||start!==undefined&&start>ended))this.taskEnds.set(id,at);
   while(this.activityTimes.size>128)this.activityTimes.delete(this.activityTimes.keys().next().value!);
  }
  private model(id:string,value:any,fillOnly=false){const model=text(value),agent=this.agents.find(a=>a.id===this.resolve(id));if(agent&&model&&(!fillOnly||!agent.model))agent.model=model;}
@@ -29,8 +37,14 @@ export class AgentTracker {
   if(row){row.id=id;row.name=preferred;if(!preserve||['starting','unreported'].includes(row.status))row.status=status;}
   else this.agents.push({id,name:preferred,status});
   if(alias){for(const [key,value] of this.aliases)if(value===previous)this.aliases.set(key,id);this.aliases.set(alias,id);}
-  const previousTime=this.activityTimes.get(previous);if(previousTime!==undefined)this.touch(id,previousTime);
-  this.agents.splice(0,Math.max(0,this.agents.length-64));
+  const previousTime=this.activityTimes.get(previous);if(previousTime!==undefined)this.activityTimes.set(id,Math.max(previousTime,this.activityTimes.get(id)??-Infinity));
+  const previousEnd=this.taskEnds.get(previous);if(previousEnd!==undefined&&!this.taskEnds.has(id))this.taskEnds.set(id,previousEnd);
+  const previousStart=this.taskStarts.get(previous);if(previousStart!==undefined)this.start(id,previousStart);
+  const live=this.agents.filter(a=>['starting','running'].includes(a.status)).slice(-64),uncertain=this.agents.filter(a=>['unknown','unreported'].includes(a.status));
+  const slots=64-live.length,unknown=slots?uncertain.slice(-slots):[],historySlots=slots-unknown.length,history=this.agents.filter(a=>!['starting','running','unknown','unreported'].includes(a.status));
+  const retained=new Set([...live,...unknown,...(historySlots?history.slice(-historySlots):[])].map(a=>a.id));this.agents.splice(0,this.agents.length,...this.agents.filter(a=>retained.has(a.id)));
+  for(const key of this.taskEnds.keys())if(!retained.has(key))this.taskEnds.delete(key);
+  for(const key of this.taskStarts.keys())if(!retained.has(key))this.taskStarts.delete(key);
   while(this.aliases.size>128)this.aliases.delete(this.aliases.keys().next().value!);
  }
  call(id:string,kind:string,args:any,timestamp?:unknown){
@@ -39,9 +53,9 @@ export class AgentTracker {
   if(!['spawn_agent','wait','wait_agent','close_agent','resume_agent','interrupt_agent','followup_task','send_message'].includes(kind))return;
   const target=text(args?.agent_id??args?.id??args?.target);
   const startedAt=Date.parse(String(timestamp??''));this.calls.set(id,{kind,target,startedAt:Number.isFinite(startedAt)?startedAt:undefined});while(this.calls.size>128)this.calls.delete(this.calls.keys().next().value!);
-  if(kind==='spawn_agent'){this.update('call:'+id,text(args?.task_name??args?.agent_type),'starting');this.touch('call:'+id,timestamp);}
+  if(kind==='spawn_agent'){this.update('call:'+id,text(args?.task_name??args?.agent_type),'starting');this.start('call:'+id,timestamp);this.touch('call:'+id,timestamp);}
  }
- result(id:string,output:any,failed:boolean){
+ result(id:string,output:any,failed:boolean,timestamp?:unknown){
   const call=this.calls.get(id);if(!call)return;
   if(call.canonical){
    const target=call.target;
@@ -50,21 +64,21 @@ export class AgentTracker {
   }
   if(call.kind==='spawn_agent'){
    const pending='call:'+id,real=text(output?.agent_id??output?.thread_id??output?.task_name);
-   if(failed)this.update(this.resolve(pending),undefined,'failed');
+   if(failed){this.update(this.resolve(pending),undefined,'failed');this.touch(this.resolve(pending),timestamp);}
    else if(real){this.update(this.resolve(real),text(output?.nickname??output?.agent_nickname),output?.status===undefined?'running':agentStatus(output.status),pending,true);call.target=this.resolve(real);this.model(real,output?.model,true);this.touch(this.resolve(real),call.startedAt);}
    return;
   }
   if(failed)return;
   if(call.kind==='send_message')return;
-  if(['wait','wait_agent'].includes(call.kind)){this.statuses(output?.status??output?.statuses);return;}
+  if(['wait','wait_agent'].includes(call.kind)){this.statuses(output?.status??output?.statuses,timestamp);return;}
   if(call.target){
    const restarts=['followup_task','resume_agent'].includes(call.kind);
    if(restarts&&!this.agents.some(a=>a.id===this.resolve(call.target!)))return;
    const status=call.kind==='close_agent'?'closed':call.kind==='interrupt_agent'?'interrupted':output?.status===undefined?restarts?'starting':undefined:agentStatus(output.status);
-   if(status){this.update(this.resolve(call.target),undefined,status);this.touch(this.resolve(call.target),call.startedAt);}
+   if(status){const target=this.resolve(call.target);this.update(target,undefined,status);if(restarts)this.start(target,call.startedAt);this.touch(target,['starting','running'].includes(status)?call.startedAt:timestamp??call.startedAt);}
   }
  }
- private statuses(values:any){if(object(values))for(const [id,status]of Object.entries(values).slice(0,64))this.update(this.resolve(id),undefined,agentStatus(status));}
+ private statuses(values:any,timestamp?:unknown){if(object(values))for(const [id,status]of Object.entries(values).slice(0,64)){this.update(this.resolve(id),undefined,agentStatus(status));if(timestamp)this.touch(this.resolve(id),timestamp);}}
  event(p:any,timestamp?:unknown):boolean {
   const type=p.type;if(typeof type!=='string'||!(/^(collab_|sub_agent_activity$|subagent_|agent_started$|agent_completed$)/.test(type)))return false;
   if(p.sender_thread_id&&p.sender_thread_id!==this.parent)return true;
@@ -75,14 +89,20 @@ export class AgentTracker {
    case 'collab_agent_spawn_end':{
     if(call&&this.calls.get(call)?.canonical)return true;
     const id=text(p.new_thread_id),status=agentStatus(p.status);
-    if(id){this.update(this.resolve(id),text(p.new_agent_nickname??p.new_agent_role),status,call?'call:'+call:undefined);this.model(id,p.model);}
+    if(id){this.update(this.resolve(id),text(p.new_agent_nickname??p.new_agent_role),status,call?'call:'+call:undefined);this.model(id,p.model);const requested=call?this.calls.get(call)?.startedAt:undefined;if(requested!==undefined||['starting','running'].includes(status))this.start(this.resolve(id),requested??timestamp);}
     else if(call)this.update(this.resolve('call:'+call),undefined,status==='unreported'?'failed':status);
-    if(call)this.calls.set(call,{kind:'spawn_agent',target:id,canonical:true});break;
+    if(call)this.calls.set(call,{kind:'spawn_agent',target:id,canonical:true,startedAt:this.calls.get(call)?.startedAt??Date.parse(String(timestamp??''))});break;
    }
    case 'collab_waiting_end':
     this.statuses(p.statuses);
     if(Array.isArray(p.agent_statuses))for(const entry of p.agent_statuses.slice(0,64)){const id=text(entry?.thread_id);if(id)this.update(this.resolve(id),text(entry.agent_nickname??entry.agent_role),agentStatus(entry.status));}break;
-   case 'collab_agent_interaction_end':case 'collab_resume_end':if(receiver)this.update(this.resolve(receiver),nickname,agentStatus(p.status));break;
+   case 'collab_agent_interaction_end':case 'collab_resume_end':if(receiver){
+    const id=this.resolve(receiver),status=agentStatus(p.status),request=call?this.calls.get(call):undefined;this.update(id,nickname,status);
+    if(type==='collab_resume_end'||request&&['followup_task','resume_agent'].includes(request.kind)){
+     if(['starting','running'].includes(status))this.start(id,request?.startedAt??timestamp);
+     if(request){request.target=id;request.canonical=true;}
+    }
+   }break;
    // The close event reports status before closing, not the resulting lifecycle.
    case 'collab_close_end':if(receiver)this.update(this.resolve(receiver),nickname,agentStatus(p.status)==='not-found'?'not-found':'closed');break;
    case 'sub_agent_activity':{
@@ -96,12 +116,14 @@ export class AgentTracker {
     if(id&&status){
      this.update(id,alias?.split('/').at(-1),status,request?.kind==='spawn_agent'?'call:'+event:alias);
      if(alias)this.aliases.set(alias,id);
+     if(p.kind==='started'||p.kind==='interacted'&&restarts)this.start(id,request?.startedAt??timestamp);
      this.model(id,p.model);
      if(request){request.target=id;request.canonical=true;}
+     else if(event&&p.kind==='started')this.calls.set(event,{kind:'spawn_agent',target:id,canonical:true,startedAt:Date.parse(String(timestamp??''))});
     }break;
    }
    case 'subagent_started':case 'agent_started':case 'subagent_stopped':case 'agent_completed':{
-    const id=text(p.agent_id??p.thread_id);if(id)this.update(this.resolve(id),text(p.name??p.agent_name),['subagent_started','agent_started'].includes(type)?'running':p.success===false?'failed':'done');break;
+    const id=text(p.agent_id??p.thread_id);if(id){this.update(this.resolve(id),text(p.name??p.agent_name),['subagent_started','agent_started'].includes(type)?'running':p.success===false?'failed':'done');if(['subagent_started','agent_started'].includes(type))this.start(this.resolve(id),timestamp);}break;
    }
   }
   const affected=text(p.agent_thread_id??p.new_thread_id??p.receiver_thread_id??p.agent_id??p.thread_id);if(affected&&advanceActivity)this.touch(this.resolve(affected),activityTimestamp);

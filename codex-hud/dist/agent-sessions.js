@@ -10,7 +10,14 @@ export class AgentSessionTracker {
         this.root = root;
     }
     async refresh(snapshot, parent) {
-        const active = snapshot.agents.filter(a => (['starting', 'running', 'interrupted'].includes(a.status) || !a.model) && /^[a-zA-Z0-9_-]{3,100}$/.test(a.id));
+        for (const agent of snapshot.agents) {
+            const timing = parent.agentTiming(agent.id);
+            if (Number.isFinite(timing.startedAt))
+                agent.startedAt = timing.startedAt;
+            if (Number.isFinite(timing.endedAt))
+                agent.endedAt = timing.endedAt;
+        }
+        const active = snapshot.agents.filter(a => /^[a-zA-Z0-9_-]{3,100}$/.test(a.id));
         const retained = new Set(snapshot.agents.map(a => a.id));
         for (const id of this.readers.keys())
             if (!retained.has(id))
@@ -52,19 +59,35 @@ export class AgentSessionTracker {
             }
             if (child.sessionId !== agent.id || child.parentId !== snapshot.sessionId)
                 continue;
-            if (!['starting', 'running', 'interrupted'].includes(agent.status)) {
-                if (child.model)
-                    agent.model = child.model;
+            const pending = ['starting', 'running', 'interrupted'].includes(agent.status), at = Date.parse(child.activityAt ?? '');
+            const taskStart = parent.agentTiming(agent.id).startedAt ?? (pending ? parent.agentActivityAt(agent.id) : undefined) ?? -Infinity;
+            if (!Number.isFinite(at) || at < taskStart)
+                continue;
+            const oldInterrupted = agent.status === 'interrupted' && at < (parent.agentActivityAt(agent.id) ?? -Infinity);
+            if (child.model)
+                agent.model = child.model;
+            if (child.totals && Number.isFinite(child.totals.total))
+                agent.totalTokens = child.totals.total;
+            if (Number.isFinite(child.turnStartedAt) && (pending || !Number.isFinite(agent.endedAt) || child.turnStartedAt <= agent.endedAt)) {
+                agent.startedAt = child.turnStartedAt;
+                if (!oldInterrupted) {
+                    if (Number.isFinite(child.turnEndedAt))
+                        agent.endedAt = child.turnEndedAt;
+                    else if (pending)
+                        delete agent.endedAt;
+                }
+            }
+            if (!pending || oldInterrupted) {
+                delete agent.action;
                 continue;
             }
-            const at = Date.parse(child.activityAt ?? '');
-            if (!Number.isFinite(at) || at < (parent.agentActivityAt(agent.id) ?? -Infinity))
-                continue;
             const status = { working: 'running', idle: 'done', interrupted: 'interrupted' }[child.status];
             if (status) {
                 agent.status = status;
-                if (child.model)
-                    agent.model = child.model;
+                if (status === 'running')
+                    agent.action = child.todos.find(t => t.status === 'in_progress')?.step ?? child.tools.filter(t => t.status === 'running').at(-1)?.name;
+                else
+                    delete agent.action;
             }
         }
     }

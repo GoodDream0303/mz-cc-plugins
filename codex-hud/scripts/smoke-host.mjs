@@ -114,6 +114,12 @@ if(process.argv[2]==='--fixture'){
    append({type:'CommandExecution',id:'cancelled-command',status:'cancelled'});await visible('⊘ exec_command');
    checks.push('same running viewer updates actual tool running/completed/cancelled symbols as metadata arrives');
    append({type:'SubAgentActivity',id:'agent-start',kind:'started',agent_thread_id:'synthetic-agent',agent_path:'/root/reviewer',model:'synthetic-agent-model'});await visible('reviewer [running] (synthetic-agent-model)');
+   if(process.argv.includes('--task-lines')){
+    const sessions=path.join(codexHome,'sessions');fs.mkdirSync(sessions,{recursive:true});const child=path.join(sessions,'synthetic-agent.jsonl'),at=new Date().toISOString();
+    const row=(type,payload)=>JSON.stringify({type,payload,timestamp:at})+'\n';
+    fs.writeFileSync(child,row('session_meta',{id:'synthetic-agent',source:{subagent:{thread_spawn:{parent_thread_id:descriptor('A').sessionId}}}})+row('turn_context',{model:'synthetic-agent-model'})+row('event_msg',{type:'task_started'})+row('event_msg',{type:'token_count',info:{total_token_usage:{input_tokens:1000,output_tokens:200,total_tokens:1200}}})+row('response_item',{type:'function_call',call_id:'child-plan',name:'update_plan',arguments:JSON.stringify({plan:[{step:'Check lifecycle',status:'in_progress'}]})}));
+    await visible('Check lifecycle');await visible('Σ1.2k tokens');checks.push('verified child task line shows structured action and its own cumulative tokens');
+   }
    append({type:'SubAgentActivity',id:'agent-done',kind:'completed',agent_thread_id:'synthetic-agent',agent_path:'/root/reviewer',model:null});await visible('reviewer [done] (synthetic-agent-model)');
    assert.equal(descriptor('A').pid,viewerPid);assert.deepEqual(geometry('B'),neighbour);checks.push('same viewer updates agent lifecycle and retains the reported actual model');
   }

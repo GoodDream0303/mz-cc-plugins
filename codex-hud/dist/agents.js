@@ -12,17 +12,28 @@ export class AgentTracker {
     aliases = new Map();
     activityEvents = new Set();
     activityTimes = new Map();
+    taskEnds = new Map();
+    taskStarts = new Map();
     constructor(agents, parent) {
         this.agents = agents;
         this.parent = parent;
     }
     resolve(id) { return this.aliases.get(id) ?? id; }
     activityAt(id) { return this.activityTimes.get(this.resolve(id)); }
+    timing(id) {
+        const target = this.resolve(id), row = this.agents.find(a => a.id === target);
+        return { startedAt: this.taskStarts.get(target), endedAt: row && !['starting', 'running', 'unreported', 'unknown'].includes(row.status) ? this.taskEnds.get(target) : undefined };
+    }
+    start(id, value) { const at = typeof value === 'number' ? value : Date.parse(String(value ?? '')); if (Number.isFinite(at))
+        this.taskStarts.set(id, Math.max(at, this.taskStarts.get(id) ?? -Infinity)); }
     touch(id, value) {
         const at = typeof value === 'number' ? value : Date.parse(String(value ?? ''));
         if (!Number.isFinite(at))
             return;
         this.activityTimes.set(id, Math.max(at, this.activityTimes.get(id) ?? -Infinity));
+        const row = this.agents.find(a => a.id === id), ended = this.taskEnds.get(id), start = this.timing(id).startedAt;
+        if (row && !['starting', 'running', 'unknown', 'unreported'].includes(row.status) && (ended === undefined || start !== undefined && start > ended))
+            this.taskEnds.set(id, at);
         while (this.activityTimes.size > 128)
             this.activityTimes.delete(this.activityTimes.keys().next().value);
     }
@@ -50,8 +61,23 @@ export class AgentTracker {
         }
         const previousTime = this.activityTimes.get(previous);
         if (previousTime !== undefined)
-            this.touch(id, previousTime);
-        this.agents.splice(0, Math.max(0, this.agents.length - 64));
+            this.activityTimes.set(id, Math.max(previousTime, this.activityTimes.get(id) ?? -Infinity));
+        const previousEnd = this.taskEnds.get(previous);
+        if (previousEnd !== undefined && !this.taskEnds.has(id))
+            this.taskEnds.set(id, previousEnd);
+        const previousStart = this.taskStarts.get(previous);
+        if (previousStart !== undefined)
+            this.start(id, previousStart);
+        const live = this.agents.filter(a => ['starting', 'running'].includes(a.status)).slice(-64), uncertain = this.agents.filter(a => ['unknown', 'unreported'].includes(a.status));
+        const slots = 64 - live.length, unknown = slots ? uncertain.slice(-slots) : [], historySlots = slots - unknown.length, history = this.agents.filter(a => !['starting', 'running', 'unknown', 'unreported'].includes(a.status));
+        const retained = new Set([...live, ...unknown, ...(historySlots ? history.slice(-historySlots) : [])].map(a => a.id));
+        this.agents.splice(0, this.agents.length, ...this.agents.filter(a => retained.has(a.id)));
+        for (const key of this.taskEnds.keys())
+            if (!retained.has(key))
+                this.taskEnds.delete(key);
+        for (const key of this.taskStarts.keys())
+            if (!retained.has(key))
+                this.taskStarts.delete(key);
         while (this.aliases.size > 128)
             this.aliases.delete(this.aliases.keys().next().value);
     }
@@ -72,10 +98,11 @@ export class AgentTracker {
             this.calls.delete(this.calls.keys().next().value);
         if (kind === 'spawn_agent') {
             this.update('call:' + id, text(args?.task_name ?? args?.agent_type), 'starting');
+            this.start('call:' + id, timestamp);
             this.touch('call:' + id, timestamp);
         }
     }
-    result(id, output, failed) {
+    result(id, output, failed, timestamp) {
         const call = this.calls.get(id);
         if (!call)
             return;
@@ -87,8 +114,10 @@ export class AgentTracker {
         }
         if (call.kind === 'spawn_agent') {
             const pending = 'call:' + id, real = text(output?.agent_id ?? output?.thread_id ?? output?.task_name);
-            if (failed)
+            if (failed) {
                 this.update(this.resolve(pending), undefined, 'failed');
+                this.touch(this.resolve(pending), timestamp);
+            }
             else if (real) {
                 this.update(this.resolve(real), text(output?.nickname ?? output?.agent_nickname), output?.status === undefined ? 'running' : agentStatus(output.status), pending, true);
                 call.target = this.resolve(real);
@@ -102,7 +131,7 @@ export class AgentTracker {
         if (call.kind === 'send_message')
             return;
         if (['wait', 'wait_agent'].includes(call.kind)) {
-            this.statuses(output?.status ?? output?.statuses);
+            this.statuses(output?.status ?? output?.statuses, timestamp);
             return;
         }
         if (call.target) {
@@ -111,14 +140,20 @@ export class AgentTracker {
                 return;
             const status = call.kind === 'close_agent' ? 'closed' : call.kind === 'interrupt_agent' ? 'interrupted' : output?.status === undefined ? restarts ? 'starting' : undefined : agentStatus(output.status);
             if (status) {
-                this.update(this.resolve(call.target), undefined, status);
-                this.touch(this.resolve(call.target), call.startedAt);
+                const target = this.resolve(call.target);
+                this.update(target, undefined, status);
+                if (restarts)
+                    this.start(target, call.startedAt);
+                this.touch(target, ['starting', 'running'].includes(status) ? call.startedAt : timestamp ?? call.startedAt);
             }
         }
     }
-    statuses(values) { if (object(values))
-        for (const [id, status] of Object.entries(values).slice(0, 64))
-            this.update(this.resolve(id), undefined, agentStatus(status)); }
+    statuses(values, timestamp) { if (object(values))
+        for (const [id, status] of Object.entries(values).slice(0, 64)) {
+            this.update(this.resolve(id), undefined, agentStatus(status));
+            if (timestamp)
+                this.touch(this.resolve(id), timestamp);
+        } }
     event(p, timestamp) {
         const type = p.type;
         if (typeof type !== 'string' || !(/^(collab_|sub_agent_activity$|subagent_|agent_started$|agent_completed$)/.test(type)))
@@ -139,11 +174,14 @@ export class AgentTracker {
                 if (id) {
                     this.update(this.resolve(id), text(p.new_agent_nickname ?? p.new_agent_role), status, call ? 'call:' + call : undefined);
                     this.model(id, p.model);
+                    const requested = call ? this.calls.get(call)?.startedAt : undefined;
+                    if (requested !== undefined || ['starting', 'running'].includes(status))
+                        this.start(this.resolve(id), requested ?? timestamp);
                 }
                 else if (call)
                     this.update(this.resolve('call:' + call), undefined, status === 'unreported' ? 'failed' : status);
                 if (call)
-                    this.calls.set(call, { kind: 'spawn_agent', target: id, canonical: true });
+                    this.calls.set(call, { kind: 'spawn_agent', target: id, canonical: true, startedAt: this.calls.get(call)?.startedAt ?? Date.parse(String(timestamp ?? '')) });
                 break;
             }
             case 'collab_waiting_end':
@@ -157,8 +195,18 @@ export class AgentTracker {
                 break;
             case 'collab_agent_interaction_end':
             case 'collab_resume_end':
-                if (receiver)
-                    this.update(this.resolve(receiver), nickname, agentStatus(p.status));
+                if (receiver) {
+                    const id = this.resolve(receiver), status = agentStatus(p.status), request = call ? this.calls.get(call) : undefined;
+                    this.update(id, nickname, status);
+                    if (type === 'collab_resume_end' || request && ['followup_task', 'resume_agent'].includes(request.kind)) {
+                        if (['starting', 'running'].includes(status))
+                            this.start(id, request?.startedAt ?? timestamp);
+                        if (request) {
+                            request.target = id;
+                            request.canonical = true;
+                        }
+                    }
+                }
                 break;
             // The close event reports status before closing, not the resulting lifecycle.
             case 'collab_close_end':
@@ -187,11 +235,15 @@ export class AgentTracker {
                     this.update(id, alias?.split('/').at(-1), status, request?.kind === 'spawn_agent' ? 'call:' + event : alias);
                     if (alias)
                         this.aliases.set(alias, id);
+                    if (p.kind === 'started' || p.kind === 'interacted' && restarts)
+                        this.start(id, request?.startedAt ?? timestamp);
                     this.model(id, p.model);
                     if (request) {
                         request.target = id;
                         request.canonical = true;
                     }
+                    else if (event && p.kind === 'started')
+                        this.calls.set(event, { kind: 'spawn_agent', target: id, canonical: true, startedAt: Date.parse(String(timestamp ?? '')) });
                 }
                 break;
             }
@@ -200,8 +252,11 @@ export class AgentTracker {
             case 'subagent_stopped':
             case 'agent_completed': {
                 const id = text(p.agent_id ?? p.thread_id);
-                if (id)
+                if (id) {
                     this.update(this.resolve(id), text(p.name ?? p.agent_name), ['subagent_started', 'agent_started'].includes(type) ? 'running' : p.success === false ? 'failed' : 'done');
+                    if (['subagent_started', 'agent_started'].includes(type))
+                        this.start(this.resolve(id), timestamp);
+                }
                 break;
             }
         }

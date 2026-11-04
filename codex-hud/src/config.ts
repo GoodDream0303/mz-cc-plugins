@@ -64,7 +64,7 @@ for(const [key,value,choices] of [
  ['addedDirsLayout','inline',['inline','line']]
 ] as const) def('display.'+key,value,'display',key,{choices:[...choices]});
 for(const [key,value,max] of [
- ['toolNameMaxLength',0,200],['toolsMaxVisible',4,30],['authUserLength',8,100],
+ ['toolNameMaxLength',0,200],['toolsMaxVisible',4,30],['agentsMaxVisible',3,64],['authUserLength',8,100],
  ['contextWarningThreshold',70,100],['contextCriticalThreshold',85,100],['usageThreshold',0,100],
  ['sevenDayThreshold',0,100],['environmentThreshold',0,100]
 ] as const) def('display.'+key,value,'display',key,{min:0,max});

@@ -24,6 +24,7 @@ export class SessionReader {
  private canonicalTools=new Set<string>();private processTools=new Map<string,string>();private pollTargets=new Map<string,string>();
  constructor(public readonly file:string,public readonly sessionId:string){this.snapshot=emptySnapshot(sessionId);this.agents=new AgentTracker(this.snapshot.agents,sessionId);}
  agentActivityAt(id:string):number|undefined{return this.agents.activityAt(id);}
+ agentTiming(id:string):{startedAt?:number;endedAt?:number}{return this.agents.timing(id);}
  private reset(){this.offset=0;this.carry='';this.decoder=new StringDecoder('utf8');this.snapshot=emptySnapshot(this.sessionId);this.agents=new AgentTracker(this.snapshot.agents,this.sessionId);this.mismatch=false;this.absolute=false;this.discard=false;this.canonicalCompleted.clear();this.canonicalTools.clear();this.processTools.clear();this.pollTargets.clear();this.prefix=undefined;this.checkpoint=undefined;}
  private async unchanged(handle:FileHandle):Promise<boolean>{
   for(const point of [this.prefix,this.checkpoint])if(point&&await fingerprint(handle,point.start,point.length)!==point.digest)return false;
@@ -92,9 +93,9 @@ export class SessionReader {
      this.snapshot.quotas=quotas;if(typeof limits.plan_type==='string')this.snapshot.plan=text(limits.plan_type);
     }return;
    }
-   case 'task_started':this.snapshot.status='working';this.snapshot.activityAt=text(record.timestamp);return;
-   case 'task_complete':this.snapshot.status='idle';this.snapshot.activityAt=text(record.timestamp);this.snapshot.lastResponseAt=text(p.completed_at??record.timestamp);return;
-   case 'turn_aborted':this.snapshot.status='interrupted';this.snapshot.activityAt=text(record.timestamp);for(const t of this.snapshot.tools)if(t.status==='running'){t.status='cancelled';this.canonicalCompleted.add(t.id);}return;
+   case 'task_started':this.snapshot.status='working';this.snapshot.activityAt=text(record.timestamp);this.snapshot.turnStartedAt=Date.parse(String(record.timestamp));this.snapshot.turnEndedAt=undefined;return;
+   case 'task_complete':this.snapshot.status='idle';this.snapshot.activityAt=text(record.timestamp);this.snapshot.turnEndedAt=Date.parse(String(record.timestamp));this.snapshot.lastResponseAt=text(p.completed_at??record.timestamp);return;
+   case 'turn_aborted':this.snapshot.status='interrupted';this.snapshot.activityAt=text(record.timestamp);this.snapshot.turnEndedAt=Date.parse(String(record.timestamp));for(const t of this.snapshot.tools)if(t.status==='running'){t.status='cancelled';this.canonicalCompleted.add(t.id);}return;
    case 'context_compacted':case 'compact_boundary':this.snapshot.compactions++;return;
    case 'item_started':if(safe(p.item))this.item(p.item,record.timestamp);return;
    case 'item_completed':if(safe(p.item))this.item(p.item,record.timestamp,true);return;
@@ -142,7 +143,7 @@ export class SessionReader {
     if(!this.canonicalTools.has(tool.id))tool.status=failed?'failed':!poll&&pending&&this.processTools.get(pending)===tool.id?'running':'done';
     if(processTool&&(metadata.exitCode!==undefined||executor&&metadata.status&&metadata.status!=='running'))this.tool(processTool.id,processTool.name,failed?'failed':'done');
     while(this.processTools.size>128)this.processTools.delete(this.processTools.keys().next().value!);
-    this.pollTargets.delete(tool.id);this.agents.result(tool.id,output,failed);
+    this.pollTargets.delete(tool.id);this.agents.result(tool.id,output,failed,timestamp);
    }
   }
   if(p.type==='compaction')this.snapshot.compactions++;

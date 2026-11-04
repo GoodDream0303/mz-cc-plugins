@@ -1,10 +1,10 @@
 export interface Tokens {input:number;cached:number;output:number;reasoning:number;total:number}
 export interface Quota {id:string;minutes:number;usedPercent:number;resetsAt?:number}
 export interface Tool {id:string;name:string;status:'running'|'done'|'failed'|'cancelled'}
-export interface Agent {id:string;name:string;status:string;model?:string}
+export interface Agent {id:string;name:string;status:string;model?:string;startedAt?:number;endedAt?:number;action?:string;totalTokens?:number}
 export interface Todo {step:string;status:string}
 export interface HudSnapshot {
- sessionId:string;parentId?:string;activityAt?:string;cwd?:string;startedAt?:string;model?:string;effort?:string;version?:string;provider?:string;plan?:string;
+ sessionId:string;parentId?:string;activityAt?:string;turnStartedAt?:number;turnEndedAt?:number;cwd?:string;startedAt?:string;model?:string;effort?:string;version?:string;provider?:string;plan?:string;
  context?:{used:number;window:number};totals?:Tokens;latest?:Tokens;quotas:Quota[];
  tools:Tool[];agents:Agent[];todos:Todo[];mcpUsed:string[];compactions:number;lastResponseAt?:string;
  errors:string[];status:string;sessionName?:string;

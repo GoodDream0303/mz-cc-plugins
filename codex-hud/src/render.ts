@@ -1,6 +1,7 @@
 import {get,unsupported,type Config} from './config.js';
 import {colorize,displayWidth,sanitize,truncate,wrapAnsi,wrapFields} from './terminal-text.js';
 import type {HudSnapshot,Quota} from './types.js';
+import {agentRows} from './agent-display.js';
 export interface RenderResult {lines:string[];totalLines:number;pages:number}
 export interface RenderOptions {width?:number;height?:number;page?:number;color?:boolean;now?:number;showPager?:boolean}
 function num(n:number):string{return n>=1000000?(n/1000000).toFixed(1)+'M':n>=1000?(n/1000).toFixed(1)+'k':String(Math.round(n));}
@@ -14,7 +15,7 @@ export function render(s:HudSnapshot,c:Config,o:RenderOptions={}):RenderResult {
  const unknown=label('unknown','未知');const on=(k:string)=>!!get(c,'display.'+k);
  const ink=(text:string,key:string)=>colorize(text,get(c,'colors.'+key),!!o.color&&!process.env.NO_COLOR);
  const bar=(p:number)=>{const n=Math.round(Math.max(0,Math.min(100,p))/10);return sanitize(get(c,'colors.barFilled')).repeat(n)+sanitize(get(c,'colors.barEmpty')).repeat(10-n);};
- const groups=new Map<string,string>();const fields=new Map<string,string[]>();
+ const groups=new Map<string,string>();const fields=new Map<string,string[]>(),separate=new Map<string,string[]>();
  const model=sanitize(get(c,'display.modelOverride')||s.model||unknown);
  const formattedModel=get(c,'display.modelFormat')==='full'?model:model.replace(/\s*\([^)]*context[^)]*\)/gi,'');
  let effort='';if(on('showEffortLevel')&&s.effort){const symbol=({low:'◔',medium:'◑',high:'◕',xhigh:'●'} as Record<string,string>)[s.effort]??'◑';const format=get(c,'display.effortFormat');effort=' '+(format==='symbol'?symbol:format==='text'?sanitize(s.effort):symbol+' '+sanitize(s.effort));}
@@ -78,13 +79,15 @@ export function render(s:HudSnapshot,c:Config,o:RenderOptions={}):RenderResult {
   if(facts.length)groups.set('mcp',ink('MCP: '+facts.join(' | '),'label'));
  }
  if(on('showTools')&&s.tools.length){
-  const limit=Math.trunc(get(c,'display.toolsMaxVisible'))||s.tools.length,running=s.tools.filter(t=>t.status==='running').slice(-limit),finished=s.tools.filter(t=>t.status!=='running');
-  const visible=[...running,...(running.length<limit?finished.slice(-(limit-running.length)):[])];
-  groups.set('tools',visible.map(t=>ink((t.status==='running'?'◐ ':t.status==='failed'?'✗ ':t.status==='cancelled'?'⊘ ':'✓ ')+(get(c,'display.toolNameMaxLength')?truncate(t.name,get(c,'display.toolNameMaxLength')):sanitize(t.name)),t.status==='failed'?'critical':'label')).join(' | '));
+  const grouped=new Map<string,{name:string;status:string;count:number;last:number}>();
+  s.tools.forEach((t,i)=>{const key=t.name+'\0'+t.status,entry=grouped.get(key);if(entry){entry.count++;entry.last=i;}else grouped.set(key,{name:t.name,status:t.status,count:1,last:i});});
+  const ordered=[...grouped.values()].sort((a,b)=>Number(b.status==='running')-Number(a.status==='running')||b.last-a.last),limit=Math.trunc(get(c,'display.toolsMaxVisible'))||ordered.length;
+  const parts=ordered.slice(0,limit).map(t=>ink((t.status==='running'?'◐ ':t.status==='failed'?'✗ ':t.status==='cancelled'?'⊘ ':'✓ ')+(get(c,'display.toolNameMaxLength')?truncate(t.name,get(c,'display.toolNameMaxLength')):sanitize(t.name))+' ×'+t.count,t.status==='failed'?'critical':'label'));
+  if(ordered.length>limit)parts.push('+'+(ordered.length-limit)+' '+label('more','更多'));groups.set('tools',parts.join(' | '));
  }
  if(on('showAgents')&&s.agents.length){
-  const statuses:Record<string,string>={starting:label('starting','启动中','啟動中'),running:label('running','运行中','執行中'),interrupted:label('interrupted','已中断','已中斷'),done:label('done','已完成'),failed:label('failed','失败','失敗'),closed:label('closed','已关闭','已關閉'),'not-found':label('not found','未找到')};
-  groups.set('agents',ink(label('Agents: ','子代理: ')+s.agents.map(a=>sanitize(a.name)+' ['+(statuses[a.status]??label('status not reported','状态未报告','狀態未回報'))+'] ('+sanitize(a.model??label('model not reported','模型未报告','模型未回報'))+')').join(' | '),'label'));
+  const rows=agentRows(s.agents,lang,now,get(c,'display.agentsMaxVisible')).map(row=>ink(row,'label'));
+  if(rows.length){groups.set('agents',rows[0]);separate.set('agents',rows);}
  }
  if(on('showTodos')&&s.todos.length){
   const pending=s.todos.filter(t=>t.status!=='completed'),done=s.todos.length-pending.length;
@@ -96,20 +99,20 @@ export function render(s:HudSnapshot,c:Config,o:RenderOptions={}):RenderResult {
  if(on('showCompactions'))sessionTime.push(label('Compactions: ','压缩: ','壓縮: ')+s.compactions);
  if(sessionTime.length)groups.set('sessionTime',ink(sessionTime.join(' | '),'label'));
  for(const [flag,reason]of Object.entries(unsupported))if(on(flag))groups.set('unsupported-'+flag,ink((en?flag:reason)+': '+label('unavailable','不可用'),'label'));
- const elementOrder=[...new Set([...(get(c,'elementOrder') as string[]),...groups.keys()])];const blocks:{keys:string[];text:string;fields:string[]}[]=[];const used=new Set<string>();
+ const elementOrder=[...new Set([...(get(c,'elementOrder') as string[]),...groups.keys()])];const blocks:{keys:string[];text:string;fields:string[];rows?:string[]}[]=[];const used=new Set<string>();
  for(const key of elementOrder){
   if(used.has(key)||!groups.has(key))continue;
-  const merge=(get(c,'display.mergeGroups') as string[][]).find(g=>g.includes(key));
-  const keys=(merge??[key]).filter(k=>groups.has(k)&&!used.has(k));keys.forEach(k=>used.add(k));
+  const merge=separate.has(key)?undefined:(get(c,'display.mergeGroups') as string[][]).find(g=>g.includes(key));
+  const keys=(merge??[key]).filter(k=>groups.has(k)&&!used.has(k)&&(!separate.has(k)||k===key));keys.forEach(k=>used.add(k));
   let text=keys.map(k=>groups.get(k)).join(' | ');
   const right=(get(c,'display.rightAlign') as string[]).filter(k=>keys.includes(k));
   if(right.length&&keys.length>1){const leftText=keys.filter(k=>!right.includes(k)).map(k=>groups.get(k)).join(' | ');const rightText=right.map(k=>groups.get(k)).join(' | ');const space=width-displayWidth(leftText)-displayWidth(rightText);if(space>=2)text=leftText+' '.repeat(space)+rightText;}
-  blocks.push({keys,text,fields:right.length?[text]:keys.flatMap(k=>fields.get(k)??[groups.get(k)!])});
+  blocks.push({keys,text,fields:right.length?[text]:keys.flatMap(k=>fields.get(k)??[groups.get(k)!]),rows:separate.get(key)});
  }
  let logical:string[][]=[];
  if(custom&&get(c,'display.customLinePosition')==='first')logical.push([ink(custom,'custom')]);
- if(get(c,'lineLayout')==='compact')logical.push(blocks.flatMap(b=>b.fields));
- else blocks.forEach((b,i)=>{if(i&&get(c,'showSeparators'))logical.push([ink('─'.repeat(Math.min(width,60)),'label')]);logical.push(b.fields);});
+ if(get(c,'lineLayout')==='compact'){let packed:string[]=[];for(const b of blocks){if(b.rows){if(packed.length)logical.push(packed);packed=[];logical.push(...b.rows.map(row=>[row]));}else packed.push(...b.fields);}if(packed.length)logical.push(packed);}
+ else blocks.forEach((b,i)=>{if(i&&get(c,'showSeparators'))logical.push([ink('─'.repeat(Math.min(width,60)),'label')]);if(b.rows)logical.push(...b.rows.map(row=>[row]));else logical.push(b.fields);});
  if(custom&&get(c,'display.customLinePosition')==='last')logical.push([ink(custom,'custom')]);
  const errors=[...s.errors,...(s.environment?.errors??[])];
  const warnings=errors.flatMap(error=>wrapAnsi(ink('! '+sanitize(error),'critical'),width));

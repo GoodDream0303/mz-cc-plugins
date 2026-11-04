@@ -53,6 +53,7 @@ export class SessionReader {
         this.agents = new AgentTracker(this.snapshot.agents, sessionId);
     }
     agentActivityAt(id) { return this.agents.activityAt(id); }
+    agentTiming(id) { return this.agents.timing(id); }
     reset() { this.offset = 0; this.carry = ''; this.decoder = new StringDecoder('utf8'); this.snapshot = emptySnapshot(this.sessionId); this.agents = new AgentTracker(this.snapshot.agents, this.sessionId); this.mismatch = false; this.absolute = false; this.discard = false; this.canonicalCompleted.clear(); this.canonicalTools.clear(); this.processTools.clear(); this.pollTargets.clear(); this.prefix = undefined; this.checkpoint = undefined; }
     async unchanged(handle) {
         for (const point of [this.prefix, this.checkpoint])
@@ -200,15 +201,19 @@ export class SessionReader {
             case 'task_started':
                 this.snapshot.status = 'working';
                 this.snapshot.activityAt = text(record.timestamp);
+                this.snapshot.turnStartedAt = Date.parse(String(record.timestamp));
+                this.snapshot.turnEndedAt = undefined;
                 return;
             case 'task_complete':
                 this.snapshot.status = 'idle';
                 this.snapshot.activityAt = text(record.timestamp);
+                this.snapshot.turnEndedAt = Date.parse(String(record.timestamp));
                 this.snapshot.lastResponseAt = text(p.completed_at ?? record.timestamp);
                 return;
             case 'turn_aborted':
                 this.snapshot.status = 'interrupted';
                 this.snapshot.activityAt = text(record.timestamp);
+                this.snapshot.turnEndedAt = Date.parse(String(record.timestamp));
                 for (const t of this.snapshot.tools)
                     if (t.status === 'running') {
                         t.status = 'cancelled';
@@ -326,7 +331,7 @@ export class SessionReader {
                 while (this.processTools.size > 128)
                     this.processTools.delete(this.processTools.keys().next().value);
                 this.pollTargets.delete(tool.id);
-                this.agents.result(tool.id, output, failed);
+                this.agents.result(tool.id, output, failed, timestamp);
             }
         }
         if (p.type === 'compaction')
