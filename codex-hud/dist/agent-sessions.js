@@ -10,7 +10,7 @@ export class AgentSessionTracker {
         this.root = root;
     }
     async refresh(snapshot, parent) {
-        const active = snapshot.agents.filter(a => ['starting', 'running', 'interrupted'].includes(a.status) && /^[a-zA-Z0-9_-]{3,100}$/.test(a.id));
+        const active = snapshot.agents.filter(a => (['starting', 'running', 'interrupted'].includes(a.status) || !a.model) && /^[a-zA-Z0-9_-]{3,100}$/.test(a.id));
         const retained = new Set(snapshot.agents.map(a => a.id));
         for (const id of this.readers.keys())
             if (!retained.has(id))
@@ -52,6 +52,11 @@ export class AgentSessionTracker {
             }
             if (child.sessionId !== agent.id || child.parentId !== snapshot.sessionId)
                 continue;
+            if (!['starting', 'running', 'interrupted'].includes(agent.status)) {
+                if (child.model)
+                    agent.model = child.model;
+                continue;
+            }
             const at = Date.parse(child.activityAt ?? '');
             if (!Number.isFinite(at) || at < (parent.agentActivityAt(agent.id) ?? -Infinity))
                 continue;

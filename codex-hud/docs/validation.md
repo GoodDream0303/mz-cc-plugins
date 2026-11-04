@@ -1,5 +1,14 @@
 # Validation: exact per-source HUD
 
+## 0.6.3: completed-agent model recovery — 2026-11-04
+
+The live reinspection found completed parent entries without their historical
+model metadata, although exact matching child logs reported the actual model.
+The child probe now also fills such missing models for terminal entries, while
+preserving their completed/closed/failed state. It still checks exact child ID
+and recorded parent; active-state timing checks are unchanged. Two regressions
+failed before the correction. Final `npm test` passed 209/209 on Node 24.15.0.
+
 ## 0.6.2: copy-safe input, transient pager and child lifecycle — 2026-11-04
 
 Ctrl+C previously exited the viewer; the native regression reproduced that

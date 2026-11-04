@@ -72,3 +72,13 @@ test('replaying the same message notification cannot advance the lifecycle start
  let s=await f.reader.read();await f.tracker.refresh(s,f.reader);assert.equal(s.agents[0].status,'done');
  fs.appendFileSync(f.parent,interaction);s=await f.reader.read();await f.tracker.refresh(s,f.reader);assert.equal(s.agents[0].status,'done');
 });
+test('a completed parent entry can recover its missing actual model without changing state',async t=>{
+ const f=fixture(t);fs.appendFileSync(f.parent,row('event_msg',{type:'item_completed',item:{type:'SubAgentActivity',id:'completed',agent_thread_id:'child-one',agent_path:'/root/review',kind:'completed',model:null}},'2026-11-04T08:00:04Z'));
+ const s=await f.reader.read();assert.equal(s.agents[0].status,'done');assert.equal(s.agents[0].model,undefined);await f.tracker.refresh(s,f.reader);
+ assert.deepEqual(s.agents,[{id:'child-one',name:'review',status:'done',model:'child-model'}]);
+});
+test('model recovery cannot turn a closed parent entry back into running',async t=>{
+ const f=fixture(t);fs.writeFileSync(f.child,f.meta()+row('turn_context',{model:'child-model'})+row('event_msg',{type:'task_started'},'2026-11-04T08:00:01Z'));
+ fs.appendFileSync(f.parent,row('event_msg',{type:'collab_close_end',sender_thread_id:'parent-one',receiver_thread_id:'child-one',status:'running'},'2026-11-04T08:00:04Z'));
+ const s=await f.reader.read();await f.tracker.refresh(s,f.reader);assert.deepEqual(s.agents,[{id:'child-one',name:'review',status:'closed',model:'child-model'}]);
+});

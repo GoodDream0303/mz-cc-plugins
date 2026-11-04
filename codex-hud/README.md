@@ -5,6 +5,9 @@ WT tabs or separate PowerShell windows. The official CLI and native statusline
 remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
 task names retain their original language.
 
+> Version 0.6.3 also recovers missing model metadata for completed agents from
+> their verified child logs, without changing a completed or closed state.
+>
 > Version 0.6.2 keeps Ctrl+C from closing the HUD, suppresses the pager during
 > pending automatic growth, and fills missing parent agent completion events
 > from exact child-session lifecycle metadata after checking parent and timing.
