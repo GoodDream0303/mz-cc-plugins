@@ -1,6 +1,7 @@
 import { get, unsupported } from './config.js';
 import { colorize, displayWidth, sanitize, truncate, wrapAnsi, wrapFields } from './terminal-text.js';
 import { agentRows } from './agent-display.js';
+import { mcpConnectionRows, mcpCallRows, mcpIdentity, toolTime } from './mcp-display.js';
 function num(n) { return n >= 1000000 ? (n / 1000000).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(Math.round(n)); }
 function percent(n) { return Number.isInteger(n) ? String(n) : n.toFixed(1); }
 function windowLabel(minutes) { return minutes % 1440 === 0 ? minutes / 1440 + 'd' : minutes % 60 === 0 ? minutes / 60 + 'h' : minutes + 'm'; }
@@ -18,6 +19,7 @@ export function render(s, c, o = {}) {
     const bar = (p) => { const n = Math.round(Math.max(0, Math.min(100, p)) / 10); return sanitize(get(c, 'colors.barFilled')).repeat(n) + sanitize(get(c, 'colors.barEmpty')).repeat(10 - n); };
     const groups = new Map();
     const fields = new Map(), separate = new Map();
+    let persistentMcp = false;
     const model = sanitize(get(c, 'display.modelOverride') || s.model || unknown);
     const formattedModel = get(c, 'display.modelFormat') === 'full' ? model : model.replace(/\s*\([^)]*context[^)]*\)/gi, '');
     let effort = '';
@@ -114,17 +116,11 @@ export function render(s, c, o = {}) {
         }
     }
     if (on('showMcp')) {
-        const configured = s.environment?.mcp.filter(m => m.enabled).map(m => m.name) ?? [];
-        const disabled = s.environment?.mcp.filter(m => !m.enabled).length ?? 0;
-        const facts = [];
-        if (configured.length)
-            facts.push(label('configured ', '配置 ') + configured.map(sanitize).join(','));
-        if (disabled)
-            facts.push(label('disabled ', '禁用 ') + disabled);
-        if (s.mcpUsed.length)
-            facts.push(label('called ', '已调用 ', '已調用 ') + s.mcpUsed.map(sanitize).join(','));
-        if (facts.length)
-            groups.set('mcp', ink('MCP: ' + facts.join(' | '), 'label'));
+        const presentation = mcpConnectionRows(s, lang);
+        persistentMcp = presentation.persistent;
+        const connections = presentation.rows.map((text, index) => ({ text: ink(text, 'inactive'), pinPriority: index === 0 ? 0 : 1 }));
+        groups.set('mcp', connections[0].text);
+        separate.set('mcp', connections);
     }
     if (on('showTools') && s.tools.length) {
         const names = new Map();
@@ -137,16 +133,17 @@ export function render(s, c, o = {}) {
         ])
             for (const key of keys)
                 names.set(key, value);
+        const actions = { read: label('Read file', '读取文件', '讀取檔案'), search: label('Search', '搜索', '搜尋'), list: label('List files', '列出文件', '列出檔案'), patch: label('Apply patch', '应用补丁', '套用修補'), nodeTest: label('Node tests', 'Node 测试', 'Node 測試'), npmTest: label('npm tests', 'npm 测试', 'npm 測試'), pythonTest: label('Python tests', 'Python 测试', 'Python 測試'), build: label('Build', '构建', '建置'), git: 'Git', node: 'Node', python: 'Python', powershell: 'PowerShell', shell: 'Shell' };
         const grouped = new Map();
-        s.tools.forEach((t, i) => { if (t.status !== 'running' && Number.isFinite(t.finishedAt) && (t.finishedAt > now || now - t.finishedAt > 60000))
-            return; const key = t.name + '\0' + t.status, entry = grouped.get(key); if (entry) {
+        s.tools.forEach((t, i) => { if (mcpIdentity(t) || t.status !== 'running' && Number.isFinite(t.finishedAt) && (t.finishedAt > now || now - t.finishedAt > 60000))
+            return; const key = t.action ? 'call\0' + t.id : 'name\0' + t.name + '\0' + t.status, entry = grouped.get(key); if (entry) {
             entry.count++;
             entry.last = i;
         }
         else
-            grouped.set(key, { name: t.name, status: t.status, count: 1, last: i }); });
+            grouped.set(key, { name: t.name, status: t.status, count: 1, last: i, tool: t }); });
         const ordered = [...grouped.values()].sort((a, b) => Number(b.status === 'running') - Number(a.status === 'running') || b.last - a.last), limit = Math.trunc(get(c, 'display.toolsMaxVisible')) || ordered.length;
-        const visible = ordered.slice(0, limit), format = (t) => { const name = names.get(t.name) ?? t.name; return ink((t.status === 'running' ? '◐ ' : t.status === 'failed' ? '✗ ' : t.status === 'cancelled' ? '⊘ ' : '✓ ') + (get(c, 'display.toolNameMaxLength') ? truncate(name, get(c, 'display.toolNameMaxLength')) : sanitize(name)) + ' ×' + t.count, t.status === 'running' ? 'active' : t.status === 'failed' ? 'critical' : 'inactive'); };
+        const visible = ordered.slice(0, limit), format = (t) => { const action = t.tool.action, rich = action && Object.hasOwn(actions, action.kind), name = rich ? actions[action.kind] + (action.target ? ' · ' + sanitize(action.target) : '') : names.get(t.name) ?? t.name, elapsed = rich ? toolTime(t.tool, now) : ''; return ink((t.status === 'running' ? '◐ ' : t.status === 'failed' ? '✗ ' : t.status === 'cancelled' ? '⊘ ' : '✓ ') + (get(c, 'display.toolNameMaxLength') ? truncate(name, get(c, 'display.toolNameMaxLength')) : sanitize(name)) + (rich ? (elapsed ? ' · ' + elapsed : '') : ' ×' + t.count), t.status === 'running' ? 'active' : t.status === 'failed' ? 'critical' : 'inactive'); };
         const current = visible.filter(t => t.status === 'running'), recent = visible.filter(t => t.status !== 'running'), parts = [];
         if (current.length)
             parts.push(ink(label('Current: ', '当前: ', '目前: '), 'active') + current.map(format).join(' | '));
@@ -157,6 +154,13 @@ export function render(s, c, o = {}) {
         if (parts.length) {
             groups.set('tools', parts[0]);
             separate.set('tools', parts.map(text => ({ text })));
+        }
+    }
+    if (on('showTools')) {
+        const rows = mcpCallRows(s.tools, lang, now, get(c, 'display.toolsMaxVisible')).map(row => ({ ...row, text: ink(row.text, 'active') }));
+        if (rows.length) {
+            groups.set('mcpCalls', rows[0].text);
+            separate.set('mcpCalls', rows);
         }
     }
     if (on('showAgents') && s.agents.length) {
@@ -183,7 +187,10 @@ export function render(s, c, o = {}) {
     for (const [flag, reason] of Object.entries(unsupported))
         if (on(flag))
             groups.set('unsupported-' + flag, ink((en ? flag : reason) + ': ' + label('unavailable', '不可用'), 'label'));
-    const elementOrder = [...new Set([...get(c, 'elementOrder'), ...groups.keys()])];
+    const requestedOrder = [...get(c, 'elementOrder')];
+    if (!requestedOrder.includes('mcpCalls') && requestedOrder.includes('tools'))
+        requestedOrder.splice(requestedOrder.indexOf('tools') + 1, 0, 'mcpCalls');
+    const elementOrder = [...new Set([...requestedOrder, ...groups.keys()])];
     const blocks = [];
     const used = new Set();
     for (const key of elementOrder) {
@@ -213,7 +220,7 @@ export function render(s, c, o = {}) {
                 if (packed.length)
                     logical.push({ fields: packed });
                 packed = [];
-                logical.push(...b.rows.map(row => ({ fields: [row.text], indent: row.indent })));
+                logical.push(...b.rows.map(row => ({ fields: [row.text], indent: row.indent, persistent: persistentMcp && b.keys.includes('mcp'), pinPriority: row.pinPriority })));
             }
             else
                 packed.push(...b.fields);
@@ -224,15 +231,15 @@ export function render(s, c, o = {}) {
     else
         blocks.forEach((b, i) => { if (i && get(c, 'showSeparators'))
             logical.push({ fields: [ink('─'.repeat(Math.min(width, 60)), 'label')] }); if (b.rows)
-            logical.push(...b.rows.map(row => ({ fields: [row.text], indent: row.indent })));
+            logical.push(...b.rows.map(row => ({ fields: [row.text], indent: row.indent, persistent: persistentMcp && b.keys.includes('mcp'), pinPriority: row.pinPriority })));
         else
             logical.push({ fields: b.fields }); });
     if (custom && get(c, 'display.customLinePosition') === 'last')
         logical.push({ fields: [ink(custom, 'custom')] });
     const errors = [...s.errors, ...(s.environment?.errors ?? [])];
     const warnings = errors.flatMap(error => wrapAnsi(ink('! ' + sanitize(error), 'critical'), width));
-    const body = logical.flatMap(line => { const indent = Math.min(line.indent ?? 0, width - 1); return wrapFields(line.fields, width - indent).map(text => ' '.repeat(indent) + text); });
-    const all = [...warnings, ...body];
+    const bodyRows = logical.flatMap(line => { const indent = Math.min(line.indent ?? 0, width - 1); return wrapFields(line.fields, width - indent).map(text => ({ text: ' '.repeat(indent) + text, persistent: line.persistent, priority: line.pinPriority ?? 0 })); });
+    const body = bodyRows.map(row => row.text), all = [...warnings, ...body];
     if (!all.length)
         all.push(ink(label('No visible fields', '未启用显示项'), 'label'));
     if (all.length <= height)
@@ -240,8 +247,13 @@ export function render(s, c, o = {}) {
     if (height === 1 && warnings.length)
         return { lines: [warnings[0]], totalLines: all.length, pages: 1 };
     const pinned = warnings.length ? [warnings[0]] : [];
-    const pageable = warnings.length ? [...warnings.slice(1), ...body] : all;
-    const showPager = o.showPager !== false && height >= pinned.length + 2, capacity = Math.max(1, height - pinned.length - (showPager ? 1 : 0));
+    const showPager = o.showPager !== false && height >= pinned.length + 2;
+    const pinLimit = Math.max(0, height - pinned.length - 1 - (showPager ? 1 : 0));
+    const connectionRows = bodyRows.map((row, index) => ({ ...row, index })).filter(row => row.persistent);
+    const chosen = new Set(connectionRows.sort((a, b) => b.priority - a.priority || a.index - b.index).slice(0, pinLimit).map(row => row.index));
+    pinned.push(...bodyRows.filter((_, index) => chosen.has(index)).map(row => row.text));
+    const pageable = [...warnings.slice(warnings.length ? 1 : 0), ...bodyRows.filter((_, index) => !chosen.has(index)).map(row => row.text)];
+    const capacity = Math.max(1, height - pinned.length - (showPager ? 1 : 0));
     const pages = Math.max(1, Math.ceil(pageable.length / capacity)), page = Math.min(pages - 1, Math.max(0, o.page ?? 0));
     const lines = [...pinned, ...pageable.slice(page * capacity, (page + 1) * capacity)];
     if (showPager && pages > 1)

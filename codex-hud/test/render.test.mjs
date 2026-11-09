@@ -17,7 +17,48 @@ test('only recognized core namespaces receive action labels while unknown tools 
  const names=['functions.exec_command','functions.exec','collaboration.followup_task','functions.request_user_input_async','clock.sleep','mcp__example__exec','other.exec','constructor'];
  const c=set(set(defaultConfig(),'display.showTools',true),'display.toolsMaxVisible',0),s={...emptySnapshot('parent'),tools:names.map((name,i)=>({id:String(i),name,status:'done'}))};
  const text=render(s,c,{width:240,height:30,color:false}).lines.join('\n');
- for(const name of ['Run command','Run script','Follow up on task','Ask user','Wait','mcp__example__exec','other.exec','constructor'])assert.ok(text.includes('✓ '+name+' ×1'),name);
+ for(const name of ['Run command','Run script','Follow up on task','Ask user','Wait','other.exec','constructor'])assert.ok(text.includes('✓ '+name+' ×1'),name);assert.ok(!text.includes('mcp__example__exec'));
+});
+
+test('MCP connections persist without active calls and active invocations are separate from ordinary tools',()=>{
+ const config=set(set(set(defaultConfig(),'display.showTools',true),'display.showMcp',true),'display.showContextBar',false);
+ const s={...emptySnapshot('parent'),environment:{mcp:[{name:'docs',enabled:true}],errors:[]},tools:[{id:'cmd',name:'exec_command',action:{kind:'nodeTest'},startedAt:1000,status:'running'},{id:'mcp',name:'mcp__docs__query',mcp:{server:'docs',tool:'query'},startedAt:2000,status:'running'}]};
+ let text=render(s,config,{width:120,height:30,color:false,now:4400}).lines.join('\n');assert.match(text,/MCP connections:/);assert.match(text,/docs.*Unknown/);assert.match(text,/Node tests.*3\.4s/);assert.match(text,/MCP calls:.*docs \/ query.*2\.4s/);assert.doesNotMatch(text,/mcp__docs|query ×/);
+ s.tools[1].status='done';s.tools[1].finishedAt=4300;text=render(s,config,{width:120,height:30,color:false,now:4400}).lines.join('\n');assert.match(text,/docs.*Unknown/);assert.doesNotMatch(text,/MCP calls:|query|Recent:/);
+});
+
+test('rich ordinary actions distinguish targets and timestamps without altering unknown legacy names',()=>{
+ const config=set(set(set(defaultConfig(),'display.showTools',true),'display.showContextBar',false),'display.toolsMaxVisible',0);
+ const s={...emptySnapshot('parent'),tools:[{id:'a',name:'exec_command',action:{kind:'read',target:'render.ts'},status:'running',startedAt:1000},{id:'b',name:'exec_command',action:{kind:'read',target:'reader.ts'},status:'running',startedAt:2000},{id:'c',name:'exec',status:'done'}]};
+ const text=render(s,config,{width:160,height:30,color:false,now:3000}).lines.join('\n');assert.match(text,/Read file · render.ts.*2s/);assert.match(text,/Read file · reader.ts.*1s/);assert.match(text,/Run script ×1/);
+});
+
+test('nonofficial MCP connection names stay visible on every activity page alongside critical warnings',()=>{
+ const config=set(set(set(set(defaultConfig(),'display.showMcp',true),'display.showTools',true),'display.showContextBar',false),'display.toolsMaxVisible',0);
+ const s={...emptySnapshot('parent'),errors:['critical warning'],environment:{mcp:[{name:'docs',enabled:true}],errors:[]},tools:Array.from({length:12},(_,i)=>({id:String(i),name:'task_'+i,status:'running'}))};
+ const first=render(s,config,{width:80,height:5,color:false});assert.ok(first.pages>1);
+ const pages=Array.from({length:first.pages},(_,page)=>render(s,config,{width:80,height:5,color:false,page}).lines.join('\n'));
+ for(const page of pages){assert.match(page,/critical warning/);assert.match(page,/docs.*Unknown/);assert.ok(page.split('\n').length<=5);}
+ const text=pages.join('\n');for(let i=0;i<12;i++)assert.ok(text.includes('task_'+i),'task_'+i);
+});
+
+test('narrow short MCP layouts preserve overflow content and critical warning priority',()=>{
+ const config=set(set(set(defaultConfig(),'display.showMcp',true),'display.showTools',true),'display.showContextBar',false);
+ const s={...emptySnapshot('parent'),errors:['critical warning'],mcpUsed:['one','two','three'],tools:[{id:'a',name:'mcp__one__query',status:'running',startedAt:1000}]};
+ for(const height of [1,2,3,4,7]){
+  const first=render(s,config,{width:32,height,color:false,now:2000});const pages=Array.from({length:first.pages},(_,page)=>render(s,config,{width:32,height,color:false,now:2000,page}));
+  for(const page of pages){assert.match(page.lines[0],/critical warning/);assert.ok(page.lines.length<=height);assert.ok(page.lines.every(line=>displayWidth(line)<=28));}
+  if(height>1){const text=pages.flatMap(p=>p.lines).join('\n');for(const name of ['one','two','three','query'])assert.ok(text.includes(name),height+': '+name);}
+ }
+});
+
+test('connection and active-call areas localize and preserve foreground-only coloring and no-color output',()=>{
+ const base=set(set(set(defaultConfig(),'display.showMcp',true),'display.showTools',true),'display.showContextBar',false);
+ const s={...emptySnapshot('parent'),mcpUsed:['docs'],tools:[{id:'a',name:'mcp__docs__query',status:'running',startedAt:1000}]};
+ const previous=process.env.NO_COLOR;delete process.env.NO_COLOR;try{for(const [lang,connection,call]of [['en','MCP connections:','MCP calls:'],['zh-Hans','MCP连接:','MCP调用:'],['zh-Hant','MCP連線:','MCP呼叫:']]){
+  const c=set(base,'language',lang),plain=render(s,c,{width:120,height:20,color:false,now:2000}).lines.join('\n');assert.ok(plain.includes(connection));assert.ok(plain.includes(call));assert.ok(!plain.includes('\u001b'));
+  const colored=render(s,c,{width:120,height:20,color:true,now:2000}).lines.join('\n');assert.match(colored,/\x1b\[38;2;242;242;242m/);assert.doesNotMatch(colored,/\x1b\[(?:1|7|4[0-9]|48)[;m]/);
+ }process.env.NO_COLOR='1';assert.ok(!render(s,base,{width:120,height:20,color:true,now:2000}).lines.join('\n').includes('\u001b'));}finally{if(previous===undefined)delete process.env.NO_COLOR;else process.env.NO_COLOR=previous;}
 });
 test('friendly labels preserve raw identities, per-status counts and caller-owned metadata',()=>{
  const c=set(set(defaultConfig(),'display.showTools',true),'display.toolsMaxVisible',0),s={...emptySnapshot('parent'),tools:[{id:'a',name:'exec',status:'done'},{id:'b',name:'exec',status:'done'},{id:'c',name:'functions.exec',status:'done'},{id:'d',name:'exec',status:'failed'},{id:'e',name:'exec',status:'cancelled'}]},before=structuredClone(s);

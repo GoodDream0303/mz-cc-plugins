@@ -4,6 +4,7 @@ import {createHash} from 'node:crypto';
 import {emptySnapshot,type HudSnapshot,type Tokens,type Tool} from './types.js';
 import {AgentTracker} from './agents.js';
 import {toolOutput} from './tool-output.js';
+import {toolDetails,commandDetails} from './tool-details.js';
 const MAX_LINE=2*1024*1024;
 const safe=(v:unknown):v is Record<string,any>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 function count(v:unknown):number{return typeof v==='number'&&Number.isFinite(v)&&v>=0?v:0;}
@@ -22,10 +23,11 @@ export class SessionReader {
  private snapshot:HudSnapshot;private agents:AgentTracker;private mismatch=false;private absolute=false;private discard=false;private canonicalCompleted=new Set<string>();
  private prefix?:Checkpoint;private checkpoint?:Checkpoint;
  private canonicalTools=new Set<string>();private processTools=new Map<string,string>();private pollTargets=new Map<string,string>();
+ private confirmedMcpServers=new Set<string>();
  constructor(public readonly file:string,public readonly sessionId:string){this.snapshot=emptySnapshot(sessionId);this.agents=new AgentTracker(this.snapshot.agents,sessionId);}
  agentActivityAt(id:string):number|undefined{return this.agents.activityAt(id);}
  agentTiming(id:string):{startedAt?:number;endedAt?:number}{return this.agents.timing(id);}
- private reset(){this.offset=0;this.carry='';this.decoder=new StringDecoder('utf8');this.snapshot=emptySnapshot(this.sessionId);this.agents=new AgentTracker(this.snapshot.agents,this.sessionId);this.mismatch=false;this.absolute=false;this.discard=false;this.canonicalCompleted.clear();this.canonicalTools.clear();this.processTools.clear();this.pollTargets.clear();this.prefix=undefined;this.checkpoint=undefined;}
+ private reset(){this.offset=0;this.carry='';this.decoder=new StringDecoder('utf8');this.snapshot=emptySnapshot(this.sessionId);this.agents=new AgentTracker(this.snapshot.agents,this.sessionId);this.mismatch=false;this.absolute=false;this.discard=false;this.canonicalCompleted.clear();this.canonicalTools.clear();this.processTools.clear();this.pollTargets.clear();this.confirmedMcpServers.clear();this.prefix=undefined;this.checkpoint=undefined;}
  private async unchanged(handle:FileHandle):Promise<boolean>{
   for(const point of [this.prefix,this.checkpoint])if(point&&await fingerprint(handle,point.start,point.length)!==point.digest)return false;
   return true;
@@ -97,8 +99,8 @@ export class SessionReader {
    case 'task_complete':this.snapshot.status='idle';this.snapshot.activityAt=text(record.timestamp);this.snapshot.turnEndedAt=Date.parse(String(record.timestamp));this.snapshot.lastResponseAt=text(p.completed_at??record.timestamp);return;
    case 'turn_aborted':this.snapshot.status='interrupted';this.snapshot.activityAt=text(record.timestamp);this.snapshot.turnEndedAt=Date.parse(String(record.timestamp));for(const t of this.snapshot.tools)if(t.status==='running'){t.status='cancelled';if(Number.isFinite(this.snapshot.turnEndedAt))t.finishedAt=this.snapshot.turnEndedAt;this.canonicalCompleted.add(t.id);}return;
    case 'context_compacted':case 'compact_boundary':this.snapshot.compactions++;return;
-   case 'item_started':if(safe(p.item))this.item(p.item,record.timestamp);return;
-   case 'item_completed':if(safe(p.item))this.item(p.item,record.timestamp,true);return;
+   case 'item_started':if(safe(p.item))this.item(p.item,record.timestamp,false,p.started_at_ms,p.completed_at_ms);return;
+   case 'item_completed':if(safe(p.item))this.item(p.item,record.timestamp,true,p.started_at_ms,p.completed_at_ms);return;
   }
  }
  private tool(id:string,name:string,status:Tool['status'],canonical=false,timestamp?:unknown){
@@ -106,7 +108,7 @@ export class SessionReader {
   const accepted=!previous||!this.canonicalCompleted.has(id)&&(canonical||previous.status==='running');
   if(previous){if(accepted){previous.name=name;previous.status=status;}}
   else this.snapshot.tools.push({id,name,status});
-  const row=this.snapshot.tools.find(t=>t.id===id),at=Date.parse(String(timestamp??''));if(accepted&&row){if(row.status==='running')delete row.finishedAt;else if(row.finishedAt===undefined&&Number.isFinite(at))row.finishedAt=at;}
+  const row=this.snapshot.tools.find(t=>t.id===id),at=Date.parse(String(timestamp??''));if(accepted&&row){if(row.status==='running'){delete row.finishedAt;if(row.startedAt===undefined&&Number.isFinite(at))row.startedAt=at;}else if(row.finishedAt===undefined&&Number.isFinite(at))row.finishedAt=at;}
   if(canonical){this.canonicalTools.add(id);if(status!=='running')this.canonicalCompleted.add(id);}
   const live=this.snapshot.tools.filter(t=>t.status==='running').slice(-64),finished=this.snapshot.tools.filter(t=>t.status!=='running');
   const retained=new Set([...live,...(live.length<64?finished.slice(-(64-live.length)):[])].map(t=>t.id));this.snapshot.tools=this.snapshot.tools.filter(t=>retained.has(t.id));
@@ -114,24 +116,38 @@ export class SessionReader {
   for(const [key,value]of this.processTools)if(!retained.has(value))this.processTools.delete(key);
   while(this.processTools.size>128)this.processTools.delete(this.processTools.keys().next().value!);
   while(this.pollTargets.size>128)this.pollTargets.delete(this.pollTargets.keys().next().value!);
+  return accepted?row:undefined;
  }
- private item(p:any,timestamp:unknown,completed=false){
+ private annotate(row:Tool|undefined,details:Pick<Tool,'mcp'|'action'>,start?:unknown,duration?:unknown,end?:unknown):void {
+  if(!row)return;Object.assign(row,details);
+  if(row.mcp&&!this.snapshot.mcpUsed.includes(row.mcp.server)){this.snapshot.mcpUsed.push(row.mcp.server);if(this.snapshot.mcpUsed.length>64)this.confirmedMcpServers.delete(this.snapshot.mcpUsed.shift()!);}
+  if(typeof start==='number'&&Number.isFinite(start)&&start>=0)row.startedAt=start;
+  if(row.status!=='running'&&typeof end==='number'&&Number.isFinite(end)&&end>=0)row.finishedAt=end;
+  if(typeof duration==='number'&&Number.isFinite(duration)&&duration>=0)row.durationMs=duration;
+  else if(row.status!=='running'&&row.startedAt!==undefined&&row.finishedAt!==undefined&&row.finishedAt>=row.startedAt)row.durationMs=row.finishedAt-row.startedAt;
+ }
+ private item(p:any,timestamp:unknown,completed=false,startedAt?:unknown,completedAt?:unknown){
   if(!safe(p))return;
   if(p.type==='SubAgentActivity'){this.agents.event({...p,type:'sub_agent_activity'},timestamp);return;}
   if(p.type==='McpToolCall'||p.type==='CommandExecution'||p.type==='Extension'){
    let id=text(p.id??p.call_id);if(!id)return;
    let name=p.type==='Extension'?text(p.kind):'exec_command';if(!name)return;
-   if(p.type==='McpToolCall'){const server=text(p.server),tool=text(p.tool);if(!server||!tool)return;name='mcp__'+server+'__'+tool;if(!this.snapshot.mcpUsed.includes(server))this.snapshot.mcpUsed.push(server);}
+   let mcp:Tool['mcp'];if(p.type==='McpToolCall'){const server=text(p.server),tool=text(p.tool);if(!server||!tool)return;mcp={server,tool};name='mcp__'+server+'__'+tool;}
    if(p.type==='CommandExecution'&&p.process_id!==undefined&&p.process_id!==null){const key='session:'+String(p.process_id);if(p.source!=='unified_exec_startup')id=this.processTools.get(key)??id;this.processTools.set(key,id);}
    const failed=p.status==='failed'||!!p.error||typeof p.exit_code==='number'&&p.exit_code!==0,cancelled=['cancelled','aborted','interrupted','declined'].includes(p.status),running=['in_progress','inProgress','running'].includes(p.status);
-   this.tool(id,name,cancelled?'cancelled':failed?'failed':running?'running':completed||p.status==='completed'?'done':'running',true,timestamp);return;
+   const row=this.tool(id,name,cancelled?'cancelled':failed?'failed':running?'running':completed||p.status==='completed'?'done':'running',true,timestamp);
+   const action=p.type==='CommandExecution'?commandDetails(p.command,p.command_actions??p.commandActions):undefined;
+   const previous=row?.mcp?.server;
+   this.annotate(row,{...(mcp?{mcp}:toolDetails(name)),...(action?{action}:{})},startedAt??p.started_at_ms,p.duration_ms??p.durationMs,completedAt??p.completed_at_ms);
+   if(row&&mcp){this.confirmedMcpServers.add(mcp.server);if(previous&&previous!==mcp.server&&!this.confirmedMcpServers.has(previous)&&!this.snapshot.tools.some(t=>t.mcp?.server===previous))this.snapshot.mcpUsed=this.snapshot.mcpUsed.filter(name=>name!==previous);}
+   return;
   }
   if(['function_call','custom_tool_call'].includes(p.type)){
    const id=text(p.call_id??p.id);const name=text(p.name);if(!id||!name||this.snapshot.tools.some(t=>t.id===id))return;
-   this.tool(id,name,'running');
-   const m=name.match(/^mcp__([^_].*?)__/);if(m&&!this.snapshot.mcpUsed.includes(m[1]))this.snapshot.mcpUsed.push(m[1]);
+   const row=this.tool(id,name,'running',false,timestamp);
    const leaf=name.split('.').at(-1);
    const args=parse(p.arguments??p.input);
+   this.annotate(row,toolDetails(name,args??p.input));
    if(leaf==='update_plan'&&Array.isArray(args?.plan))this.snapshot.todos=args.plan.filter(safe).filter((x:any)=>typeof x.step==='string'&&['pending','in_progress','completed'].includes(x.status)).slice(0,200).map((x:any)=>({step:x.step.slice(0,200),status:x.status}));
    if(['write_stdin','wait'].includes(leaf??'')){const key=args?.cell_id!==undefined?'cell:'+String(args.cell_id):'session:'+String(args?.session_id),target=this.processTools.get(key);if(target)this.pollTargets.set(id,target);}
    this.agents.call(id,leaf??'',args,timestamp);
@@ -144,6 +160,7 @@ export class SessionReader {
     if(pending&&!failed&&metadata.exitCode===undefined&&['exec','exec_command'].includes(leaf??''))this.processTools.set(pending,tool.id);
     if(!this.canonicalTools.has(tool.id))tool.status=failed?'failed':!poll&&pending&&this.processTools.get(pending)===tool.id?'running':'done';
     if(tool.status!=='running'&&tool.finishedAt===undefined){const at=Date.parse(String(timestamp??''));if(Number.isFinite(at))tool.finishedAt=at;}
+    this.annotate(tool,{});
     if(processTool&&(metadata.exitCode!==undefined||executor&&metadata.status&&metadata.status!=='running'))this.tool(processTool.id,processTool.name,failed?'failed':'done',false,timestamp);
     while(this.processTools.size>128)this.processTools.delete(this.processTools.keys().next().value!);
     this.pollTargets.delete(tool.id);this.agents.result(tool.id,output,failed,timestamp);

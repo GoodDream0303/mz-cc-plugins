@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { emptySnapshot } from './types.js';
 import { AgentTracker } from './agents.js';
 import { toolOutput } from './tool-output.js';
+import { toolDetails, commandDetails } from './tool-details.js';
 const MAX_LINE = 2 * 1024 * 1024;
 const safe = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 function count(v) { return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0; }
@@ -46,6 +47,7 @@ export class SessionReader {
     canonicalTools = new Set();
     processTools = new Map();
     pollTargets = new Map();
+    confirmedMcpServers = new Set();
     constructor(file, sessionId) {
         this.file = file;
         this.sessionId = sessionId;
@@ -54,7 +56,7 @@ export class SessionReader {
     }
     agentActivityAt(id) { return this.agents.activityAt(id); }
     agentTiming(id) { return this.agents.timing(id); }
-    reset() { this.offset = 0; this.carry = ''; this.decoder = new StringDecoder('utf8'); this.snapshot = emptySnapshot(this.sessionId); this.agents = new AgentTracker(this.snapshot.agents, this.sessionId); this.mismatch = false; this.absolute = false; this.discard = false; this.canonicalCompleted.clear(); this.canonicalTools.clear(); this.processTools.clear(); this.pollTargets.clear(); this.prefix = undefined; this.checkpoint = undefined; }
+    reset() { this.offset = 0; this.carry = ''; this.decoder = new StringDecoder('utf8'); this.snapshot = emptySnapshot(this.sessionId); this.agents = new AgentTracker(this.snapshot.agents, this.sessionId); this.mismatch = false; this.absolute = false; this.discard = false; this.canonicalCompleted.clear(); this.canonicalTools.clear(); this.processTools.clear(); this.pollTargets.clear(); this.confirmedMcpServers.clear(); this.prefix = undefined; this.checkpoint = undefined; }
     async unchanged(handle) {
         for (const point of [this.prefix, this.checkpoint])
             if (point && await fingerprint(handle, point.start, point.length) !== point.digest)
@@ -228,11 +230,11 @@ export class SessionReader {
                 return;
             case 'item_started':
                 if (safe(p.item))
-                    this.item(p.item, record.timestamp);
+                    this.item(p.item, record.timestamp, false, p.started_at_ms, p.completed_at_ms);
                 return;
             case 'item_completed':
                 if (safe(p.item))
-                    this.item(p.item, record.timestamp, true);
+                    this.item(p.item, record.timestamp, true, p.started_at_ms, p.completed_at_ms);
                 return;
         }
     }
@@ -249,8 +251,11 @@ export class SessionReader {
             this.snapshot.tools.push({ id, name, status });
         const row = this.snapshot.tools.find(t => t.id === id), at = Date.parse(String(timestamp ?? ''));
         if (accepted && row) {
-            if (row.status === 'running')
+            if (row.status === 'running') {
                 delete row.finishedAt;
+                if (row.startedAt === undefined && Number.isFinite(at))
+                    row.startedAt = at;
+            }
             else if (row.finishedAt === undefined && Number.isFinite(at))
                 row.finishedAt = at;
         }
@@ -273,8 +278,27 @@ export class SessionReader {
             this.processTools.delete(this.processTools.keys().next().value);
         while (this.pollTargets.size > 128)
             this.pollTargets.delete(this.pollTargets.keys().next().value);
+        return accepted ? row : undefined;
     }
-    item(p, timestamp, completed = false) {
+    annotate(row, details, start, duration, end) {
+        if (!row)
+            return;
+        Object.assign(row, details);
+        if (row.mcp && !this.snapshot.mcpUsed.includes(row.mcp.server)) {
+            this.snapshot.mcpUsed.push(row.mcp.server);
+            if (this.snapshot.mcpUsed.length > 64)
+                this.confirmedMcpServers.delete(this.snapshot.mcpUsed.shift());
+        }
+        if (typeof start === 'number' && Number.isFinite(start) && start >= 0)
+            row.startedAt = start;
+        if (row.status !== 'running' && typeof end === 'number' && Number.isFinite(end) && end >= 0)
+            row.finishedAt = end;
+        if (typeof duration === 'number' && Number.isFinite(duration) && duration >= 0)
+            row.durationMs = duration;
+        else if (row.status !== 'running' && row.startedAt !== undefined && row.finishedAt !== undefined && row.finishedAt >= row.startedAt)
+            row.durationMs = row.finishedAt - row.startedAt;
+    }
+    item(p, timestamp, completed = false, startedAt, completedAt) {
         if (!safe(p))
             return;
         if (p.type === 'SubAgentActivity') {
@@ -288,13 +312,13 @@ export class SessionReader {
             let name = p.type === 'Extension' ? text(p.kind) : 'exec_command';
             if (!name)
                 return;
+            let mcp;
             if (p.type === 'McpToolCall') {
                 const server = text(p.server), tool = text(p.tool);
                 if (!server || !tool)
                     return;
+                mcp = { server, tool };
                 name = 'mcp__' + server + '__' + tool;
-                if (!this.snapshot.mcpUsed.includes(server))
-                    this.snapshot.mcpUsed.push(server);
             }
             if (p.type === 'CommandExecution' && p.process_id !== undefined && p.process_id !== null) {
                 const key = 'session:' + String(p.process_id);
@@ -303,7 +327,15 @@ export class SessionReader {
                 this.processTools.set(key, id);
             }
             const failed = p.status === 'failed' || !!p.error || typeof p.exit_code === 'number' && p.exit_code !== 0, cancelled = ['cancelled', 'aborted', 'interrupted', 'declined'].includes(p.status), running = ['in_progress', 'inProgress', 'running'].includes(p.status);
-            this.tool(id, name, cancelled ? 'cancelled' : failed ? 'failed' : running ? 'running' : completed || p.status === 'completed' ? 'done' : 'running', true, timestamp);
+            const row = this.tool(id, name, cancelled ? 'cancelled' : failed ? 'failed' : running ? 'running' : completed || p.status === 'completed' ? 'done' : 'running', true, timestamp);
+            const action = p.type === 'CommandExecution' ? commandDetails(p.command, p.command_actions ?? p.commandActions) : undefined;
+            const previous = row?.mcp?.server;
+            this.annotate(row, { ...(mcp ? { mcp } : toolDetails(name)), ...(action ? { action } : {}) }, startedAt ?? p.started_at_ms, p.duration_ms ?? p.durationMs, completedAt ?? p.completed_at_ms);
+            if (row && mcp) {
+                this.confirmedMcpServers.add(mcp.server);
+                if (previous && previous !== mcp.server && !this.confirmedMcpServers.has(previous) && !this.snapshot.tools.some(t => t.mcp?.server === previous))
+                    this.snapshot.mcpUsed = this.snapshot.mcpUsed.filter(name => name !== previous);
+            }
             return;
         }
         if (['function_call', 'custom_tool_call'].includes(p.type)) {
@@ -311,12 +343,10 @@ export class SessionReader {
             const name = text(p.name);
             if (!id || !name || this.snapshot.tools.some(t => t.id === id))
                 return;
-            this.tool(id, name, 'running');
-            const m = name.match(/^mcp__([^_].*?)__/);
-            if (m && !this.snapshot.mcpUsed.includes(m[1]))
-                this.snapshot.mcpUsed.push(m[1]);
+            const row = this.tool(id, name, 'running', false, timestamp);
             const leaf = name.split('.').at(-1);
             const args = parse(p.arguments ?? p.input);
+            this.annotate(row, toolDetails(name, args ?? p.input));
             if (leaf === 'update_plan' && Array.isArray(args?.plan))
                 this.snapshot.todos = args.plan.filter(safe).filter((x) => typeof x.step === 'string' && ['pending', 'in_progress', 'completed'].includes(x.status)).slice(0, 200).map((x) => ({ step: x.step.slice(0, 200), status: x.status }));
             if (['write_stdin', 'wait'].includes(leaf ?? '')) {
@@ -341,6 +371,7 @@ export class SessionReader {
                     if (Number.isFinite(at))
                         tool.finishedAt = at;
                 }
+                this.annotate(tool, {});
                 if (processTool && (metadata.exitCode !== undefined || executor && metadata.status && metadata.status !== 'running'))
                     this.tool(processTool.id, processTool.name, failed ? 'failed' : 'done', false, timestamp);
                 while (this.processTools.size > 128)

@@ -5,6 +5,22 @@ WT tabs or separate PowerShell windows. The official CLI and native statusline
 remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
 task names retain their original language.
 
+Version 0.7.7 separates MCP connections from active calls. With MCP
+display enabled, nonofficial server names remain visible while idle; the official
+`codex_apps` and `codex_tui` servers are summarized without inventory details.
+Configuration and past calls identify names, not live connectivity: this scoped
+interface update reports Unknown rather than inferring Connected. Explicitly
+disabled settings are labeled as configuration facts. The current standalone
+CLI exposes no accessible control socket for live state integration.
+
+With tool activity enabled, active MCP calls show individual server/tool names
+and elapsed time when recorded. The call area disappears when no MCP calls are
+active, and MCP calls do not duplicate ordinary Current/Recent counts. Ordinary
+commands use safe categories and file basenames where available; raw command
+arguments, scripts, results and progress messages are not displayed or retained.
+During pagination, nonofficial connection information stays visible where space
+permits, with critical warnings taking priority in very short panes.
+
 > Version 0.7.6 reduces periodic process-query overhead, rechecks stable automatic
 > height at most once per five seconds, and reads session metadata in small chunks.
 > Content or terminal geometry changes trigger fresh height checks; every resize
