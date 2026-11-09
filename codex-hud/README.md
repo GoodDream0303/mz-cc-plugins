@@ -5,6 +5,11 @@ WT tabs or separate PowerShell windows. The official CLI and native statusline
 remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
 task names retain their original language.
 
+> Version 0.7.5 emphasizes current tools and starting/running agents with bright
+> foreground text, while recent tools and inactive agents use gray. The Agents
+> heading has its own line and all agent rows share the same indentation.
+> Backgrounds and font weight remain unchanged.
+>
 > Version 0.7.4 separates a missing Windows Terminal from a timed-out or failed
 > lookup. Demo dry-run only prepares isolated launch metadata and needs no
 > Terminal lookup; actual demos still check Terminal. Explicit configurations
