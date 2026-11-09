@@ -68,7 +68,7 @@ for (const [key, value, max] of [
     def('display.' + key, value, 'display', key, { min: 0, max });
 for (const key of ['modelOverride', 'providerName', 'customLine', 'advisorOverride', 'externalUsagePath', 'externalUsageWritePath'])
     def('display.' + key, '', 'display', key, { reason: key.startsWith('externalUsage') ? 'Preserved only; external path I/O is disabled' : key === 'advisorOverride' ? unavailable.showAdvisor : undefined });
-for (const [key, value] of Object.entries({ context: 'green', usage: 'brightBlue', warning: 'yellow', usageWarning: 'brightMagenta', critical: 'red', model: 'cyan', project: 'yellow', git: 'magenta', gitBranch: 'cyan', label: 'dim', custom: 208 }))
+for (const [key, value] of Object.entries({ context: 'green', usage: 'brightBlue', warning: 'yellow', usageWarning: 'brightMagenta', critical: 'red', model: 'cyan', project: 'yellow', git: 'magenta', gitBranch: 'cyan', label: 'dim', active: '#f2f2f2', inactive: '#9a9a9a', custom: 208 }))
     def('colors.' + key, value, 'colors', key, { kind: 'color' });
 def('colors.barFilled', '█', 'colors', '进度条填充');
 def('colors.barEmpty', '░', 'colors', '进度条空白');

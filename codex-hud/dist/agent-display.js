@@ -15,13 +15,11 @@ export function agentRows(agents, language, now, maximum) {
         const n = a.totalTokens, compact = n === undefined ? '' : n >= 1000000 ? (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M' : n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : String(n);
         const tokens = Number.isFinite(n) && n >= 0 ? 'Σ' + compact + ' tokens' : label('tokens not reported', 'token 未报告', 'token 未回報');
         const icon = active(a) ? '◐' : unknown(a) ? '?' : a.status === 'failed' ? '✗' : '✓';
-        return icon + ' ' + sanitize(a.name) + ' [' + (statuses[a.status] ?? label('status not reported', '状态未报告', '狀態未回報')) + ']' + (a.action ? ' ' + sanitize(a.action) : '') + ' (' + sanitize(a.model ?? label('model not reported', '模型未报告', '模型未回報')) + ') | ' + elapsed + ' | ' + tokens;
+        return { status: a.status, text: icon + ' ' + sanitize(a.name) + ' [' + (statuses[a.status] ?? label('status not reported', '状态未报告', '狀態未回報')) + ']' + (a.action ? ' ' + sanitize(a.action) : '') + ' (' + sanitize(a.model ?? label('model not reported', '模型未报告', '模型未回報')) + ') | ' + elapsed + ' | ' + tokens };
     });
     if (running.length > working.length)
-        rows.push('+' + (running.length - working.length) + ' ' + label('running', '运行中', '執行中'));
+        rows.push({ status: 'running', text: '+' + (running.length - working.length) + ' ' + label('running', '运行中', '執行中') });
     if (uncertain.length > unreported.length)
-        rows.push('+' + (uncertain.length - unreported.length) + ' ' + label('status not reported', '状态未报告', '狀態未回報'));
-    if (rows.length)
-        rows[0] = label('Agents: ', '子代理: ') + rows[0];
+        rows.push({ status: 'unreported', text: '+' + (uncertain.length - unreported.length) + ' ' + label('status not reported', '状态未报告', '狀態未回報') });
     return rows;
 }

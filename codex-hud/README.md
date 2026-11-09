@@ -316,6 +316,11 @@ Quota labels use actual window durations. MCP reports configured/called/unknown
 facts. Unavailable cost, speed, cache expiry and Skills data is never invented.
 Agent entries correlate spawn calls with actual thread IDs or task paths and
 follow reported start, run, interrupt, complete, fail, close and resume events.
+The Agents heading occupies its own line; entries and wrapped continuations share
+the same indentation. Starting/running agents and current tools use bright text,
+while inactive agents and recent tools use gray text. Customize these foregrounds
+with `colors.active` and `colors.inactive`; tool failures retain the critical color.
+Backgrounds and font weight stay unchanged, and color-disabled output stays plain.
 Completed spawn/wait tools alone do not mean an agent finished. Missing lifecycle
 metadata is shown as `status not reported`; prompt and result bodies are discarded.
 Each agent also shows its reported actual model. The requested or parent model

@@ -4,6 +4,7 @@ import type {HudSnapshot,Quota} from './types.js';
 import {agentRows} from './agent-display.js';
 export interface RenderResult {lines:string[];totalLines:number;pages:number}
 export interface RenderOptions {width?:number;height?:number;page?:number;color?:boolean;now?:number;showPager?:boolean}
+interface DisplayRow {text:string;indent?:number}
 function num(n:number):string{return n>=1000000?(n/1000000).toFixed(1)+'M':n>=1000?(n/1000).toFixed(1)+'k':String(Math.round(n));}
 function percent(n:number):string{return Number.isInteger(n)?String(n):n.toFixed(1);}
 function windowLabel(minutes:number):string{return minutes%1440===0?minutes/1440+'d':minutes%60===0?minutes/60+'h':minutes+'m';}
@@ -15,7 +16,7 @@ export function render(s:HudSnapshot,c:Config,o:RenderOptions={}):RenderResult {
  const unknown=label('unknown','未知');const on=(k:string)=>!!get(c,'display.'+k);
  const ink=(text:string,key:string)=>colorize(text,get(c,'colors.'+key),!!o.color&&!process.env.NO_COLOR);
  const bar=(p:number)=>{const n=Math.round(Math.max(0,Math.min(100,p))/10);return sanitize(get(c,'colors.barFilled')).repeat(n)+sanitize(get(c,'colors.barEmpty')).repeat(10-n);};
- const groups=new Map<string,string>();const fields=new Map<string,string[]>(),separate=new Map<string,string[]>();
+ const groups=new Map<string,string>();const fields=new Map<string,string[]>(),separate=new Map<string,DisplayRow[]>();
  const model=sanitize(get(c,'display.modelOverride')||s.model||unknown);
  const formattedModel=get(c,'display.modelFormat')==='full'?model:model.replace(/\s*\([^)]*context[^)]*\)/gi,'');
  let effort='';if(on('showEffortLevel')&&s.effort){const symbol=({low:'◔',medium:'◑',high:'◕',xhigh:'●'} as Record<string,string>)[s.effort]??'◑';const format=get(c,'display.effortFormat');effort=' '+(format==='symbol'?symbol:format==='text'?sanitize(s.effort):symbol+' '+sanitize(s.effort));}
@@ -90,14 +91,14 @@ export function render(s:HudSnapshot,c:Config,o:RenderOptions={}):RenderResult {
   const grouped=new Map<string,{name:string;status:string;count:number;last:number}>();
   s.tools.forEach((t,i)=>{if(t.status!=='running'&&Number.isFinite(t.finishedAt)&&(t.finishedAt!>now||now-t.finishedAt!>60000))return;const key=t.name+'\0'+t.status,entry=grouped.get(key);if(entry){entry.count++;entry.last=i;}else grouped.set(key,{name:t.name,status:t.status,count:1,last:i});});
   const ordered=[...grouped.values()].sort((a,b)=>Number(b.status==='running')-Number(a.status==='running')||b.last-a.last),limit=Math.trunc(get(c,'display.toolsMaxVisible'))||ordered.length;
-  const visible=ordered.slice(0,limit),format=(t:typeof ordered[number])=>{const name=names.get(t.name)??t.name;return ink((t.status==='running'?'◐ ':t.status==='failed'?'✗ ':t.status==='cancelled'?'⊘ ':'✓ ')+(get(c,'display.toolNameMaxLength')?truncate(name,get(c,'display.toolNameMaxLength')):sanitize(name))+' ×'+t.count,t.status==='failed'?'critical':'label');};
+  const visible=ordered.slice(0,limit),format=(t:typeof ordered[number])=>{const name=names.get(t.name)??t.name;return ink((t.status==='running'?'◐ ':t.status==='failed'?'✗ ':t.status==='cancelled'?'⊘ ':'✓ ')+(get(c,'display.toolNameMaxLength')?truncate(name,get(c,'display.toolNameMaxLength')):sanitize(name))+' ×'+t.count,t.status==='running'?'active':t.status==='failed'?'critical':'inactive');};
   const current=visible.filter(t=>t.status==='running'),recent=visible.filter(t=>t.status!=='running'),parts:string[]=[];
-  if(current.length)parts.push(label('Current: ','当前: ','目前: ')+current.map(format).join(' | '));if(recent.length)parts.push(label('Recent: ','近期: ')+recent.map(format).join(' | '));
-  if(ordered.length>limit)parts.push('+'+(ordered.length-limit)+' '+label('more','更多'));if(parts.length)groups.set('tools',parts.join(' | '));
+  if(current.length)parts.push(ink(label('Current: ','当前: ','目前: '),'active')+current.map(format).join(' | '));if(recent.length)parts.push(ink(label('Recent: ','近期: '),'inactive')+recent.map(format).join(' | '));
+  if(ordered.length>limit)parts.push(ink('+'+(ordered.length-limit)+' '+label('more','更多'),'inactive'));if(parts.length){groups.set('tools',parts[0]);separate.set('tools',parts.map(text=>({text})));}
  }
  if(on('showAgents')&&s.agents.length){
-  const rows=agentRows(s.agents,lang,now,get(c,'display.agentsMaxVisible')).map(row=>ink(row,'label'));
-  if(rows.length){groups.set('agents',rows[0]);separate.set('agents',rows);}
+  const rows=agentRows(s.agents,lang,now,get(c,'display.agentsMaxVisible')).map(row=>({text:ink(row.text,['starting','running'].includes(row.status)?'active':'inactive'),indent:2}));
+  if(rows.length){const heading=ink(label('Agents:','子代理:'),'label');groups.set('agents',heading);separate.set('agents',[{text:heading},...rows]);}
  }
  if(on('showTodos')&&s.todos.length){
   const pending=s.todos.filter(t=>t.status!=='completed'),done=s.todos.length-pending.length;
@@ -109,7 +110,7 @@ export function render(s:HudSnapshot,c:Config,o:RenderOptions={}):RenderResult {
  if(on('showCompactions'))sessionTime.push(label('Compactions: ','压缩: ','壓縮: ')+s.compactions);
  if(sessionTime.length)groups.set('sessionTime',ink(sessionTime.join(' | '),'label'));
  for(const [flag,reason]of Object.entries(unsupported))if(on(flag))groups.set('unsupported-'+flag,ink((en?flag:reason)+': '+label('unavailable','不可用'),'label'));
- const elementOrder=[...new Set([...(get(c,'elementOrder') as string[]),...groups.keys()])];const blocks:{keys:string[];text:string;fields:string[];rows?:string[]}[]=[];const used=new Set<string>();
+ const elementOrder=[...new Set([...(get(c,'elementOrder') as string[]),...groups.keys()])];const blocks:{keys:string[];text:string;fields:string[];rows?:DisplayRow[]}[]=[];const used=new Set<string>();
  for(const key of elementOrder){
   if(used.has(key)||!groups.has(key))continue;
   const merge=separate.has(key)?undefined:(get(c,'display.mergeGroups') as string[][]).find(g=>g.includes(key));
@@ -119,14 +120,14 @@ export function render(s:HudSnapshot,c:Config,o:RenderOptions={}):RenderResult {
   if(right.length&&keys.length>1){const leftText=keys.filter(k=>!right.includes(k)).map(k=>groups.get(k)).join(' | ');const rightText=right.map(k=>groups.get(k)).join(' | ');const space=width-displayWidth(leftText)-displayWidth(rightText);if(space>=2)text=leftText+' '.repeat(space)+rightText;}
   blocks.push({keys,text,fields:right.length?[text]:keys.flatMap(k=>fields.get(k)??[groups.get(k)!]),rows:separate.get(key)});
  }
- let logical:string[][]=[];
- if(custom&&get(c,'display.customLinePosition')==='first')logical.push([ink(custom,'custom')]);
- if(get(c,'lineLayout')==='compact'){let packed:string[]=[];for(const b of blocks){if(b.rows){if(packed.length)logical.push(packed);packed=[];logical.push(...b.rows.map(row=>[row]));}else packed.push(...b.fields);}if(packed.length)logical.push(packed);}
- else blocks.forEach((b,i)=>{if(i&&get(c,'showSeparators'))logical.push([ink('─'.repeat(Math.min(width,60)),'label')]);if(b.rows)logical.push(...b.rows.map(row=>[row]));else logical.push(b.fields);});
- if(custom&&get(c,'display.customLinePosition')==='last')logical.push([ink(custom,'custom')]);
+ let logical:{fields:string[];indent?:number}[]=[];
+ if(custom&&get(c,'display.customLinePosition')==='first')logical.push({fields:[ink(custom,'custom')]});
+ if(get(c,'lineLayout')==='compact'){let packed:string[]=[];for(const b of blocks){if(b.rows){if(packed.length)logical.push({fields:packed});packed=[];logical.push(...b.rows.map(row=>({fields:[row.text],indent:row.indent})));}else packed.push(...b.fields);}if(packed.length)logical.push({fields:packed});}
+ else blocks.forEach((b,i)=>{if(i&&get(c,'showSeparators'))logical.push({fields:[ink('─'.repeat(Math.min(width,60)),'label')]});if(b.rows)logical.push(...b.rows.map(row=>({fields:[row.text],indent:row.indent})));else logical.push({fields:b.fields});});
+ if(custom&&get(c,'display.customLinePosition')==='last')logical.push({fields:[ink(custom,'custom')]});
  const errors=[...s.errors,...(s.environment?.errors??[])];
  const warnings=errors.flatMap(error=>wrapAnsi(ink('! '+sanitize(error),'critical'),width));
- const body=logical.flatMap(line=>wrapFields(line,width));const all=[...warnings,...body];if(!all.length)all.push(ink(label('No visible fields','未启用显示项'),'label'));
+ const body=logical.flatMap(line=>{const indent=Math.min(line.indent??0,width-1);return wrapFields(line.fields,width-indent).map(text=>' '.repeat(indent)+text);});const all=[...warnings,...body];if(!all.length)all.push(ink(label('No visible fields','未启用显示项'),'label'));
  if(all.length<=height)return {lines:all,totalLines:all.length,pages:1};
  if(height===1&&warnings.length)return {lines:[warnings[0]],totalLines:all.length,pages:1};
  const pinned=warnings.length?[warnings[0]]:[];

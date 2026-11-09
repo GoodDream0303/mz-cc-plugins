@@ -146,22 +146,25 @@ export function render(s, c, o = {}) {
         else
             grouped.set(key, { name: t.name, status: t.status, count: 1, last: i }); });
         const ordered = [...grouped.values()].sort((a, b) => Number(b.status === 'running') - Number(a.status === 'running') || b.last - a.last), limit = Math.trunc(get(c, 'display.toolsMaxVisible')) || ordered.length;
-        const visible = ordered.slice(0, limit), format = (t) => { const name = names.get(t.name) ?? t.name; return ink((t.status === 'running' ? '◐ ' : t.status === 'failed' ? '✗ ' : t.status === 'cancelled' ? '⊘ ' : '✓ ') + (get(c, 'display.toolNameMaxLength') ? truncate(name, get(c, 'display.toolNameMaxLength')) : sanitize(name)) + ' ×' + t.count, t.status === 'failed' ? 'critical' : 'label'); };
+        const visible = ordered.slice(0, limit), format = (t) => { const name = names.get(t.name) ?? t.name; return ink((t.status === 'running' ? '◐ ' : t.status === 'failed' ? '✗ ' : t.status === 'cancelled' ? '⊘ ' : '✓ ') + (get(c, 'display.toolNameMaxLength') ? truncate(name, get(c, 'display.toolNameMaxLength')) : sanitize(name)) + ' ×' + t.count, t.status === 'running' ? 'active' : t.status === 'failed' ? 'critical' : 'inactive'); };
         const current = visible.filter(t => t.status === 'running'), recent = visible.filter(t => t.status !== 'running'), parts = [];
         if (current.length)
-            parts.push(label('Current: ', '当前: ', '目前: ') + current.map(format).join(' | '));
+            parts.push(ink(label('Current: ', '当前: ', '目前: '), 'active') + current.map(format).join(' | '));
         if (recent.length)
-            parts.push(label('Recent: ', '近期: ') + recent.map(format).join(' | '));
+            parts.push(ink(label('Recent: ', '近期: '), 'inactive') + recent.map(format).join(' | '));
         if (ordered.length > limit)
-            parts.push('+' + (ordered.length - limit) + ' ' + label('more', '更多'));
-        if (parts.length)
-            groups.set('tools', parts.join(' | '));
+            parts.push(ink('+' + (ordered.length - limit) + ' ' + label('more', '更多'), 'inactive'));
+        if (parts.length) {
+            groups.set('tools', parts[0]);
+            separate.set('tools', parts.map(text => ({ text })));
+        }
     }
     if (on('showAgents') && s.agents.length) {
-        const rows = agentRows(s.agents, lang, now, get(c, 'display.agentsMaxVisible')).map(row => ink(row, 'label'));
+        const rows = agentRows(s.agents, lang, now, get(c, 'display.agentsMaxVisible')).map(row => ({ text: ink(row.text, ['starting', 'running'].includes(row.status) ? 'active' : 'inactive'), indent: 2 }));
         if (rows.length) {
-            groups.set('agents', rows[0]);
-            separate.set('agents', rows);
+            const heading = ink(label('Agents:', '子代理:'), 'label');
+            groups.set('agents', heading);
+            separate.set('agents', [{ text: heading }, ...rows]);
         }
     }
     if (on('showTodos') && s.todos.length) {
@@ -202,33 +205,33 @@ export function render(s, c, o = {}) {
     }
     let logical = [];
     if (custom && get(c, 'display.customLinePosition') === 'first')
-        logical.push([ink(custom, 'custom')]);
+        logical.push({ fields: [ink(custom, 'custom')] });
     if (get(c, 'lineLayout') === 'compact') {
         let packed = [];
         for (const b of blocks) {
             if (b.rows) {
                 if (packed.length)
-                    logical.push(packed);
+                    logical.push({ fields: packed });
                 packed = [];
-                logical.push(...b.rows.map(row => [row]));
+                logical.push(...b.rows.map(row => ({ fields: [row.text], indent: row.indent })));
             }
             else
                 packed.push(...b.fields);
         }
         if (packed.length)
-            logical.push(packed);
+            logical.push({ fields: packed });
     }
     else
         blocks.forEach((b, i) => { if (i && get(c, 'showSeparators'))
-            logical.push([ink('─'.repeat(Math.min(width, 60)), 'label')]); if (b.rows)
-            logical.push(...b.rows.map(row => [row]));
+            logical.push({ fields: [ink('─'.repeat(Math.min(width, 60)), 'label')] }); if (b.rows)
+            logical.push(...b.rows.map(row => ({ fields: [row.text], indent: row.indent })));
         else
-            logical.push(b.fields); });
+            logical.push({ fields: b.fields }); });
     if (custom && get(c, 'display.customLinePosition') === 'last')
-        logical.push([ink(custom, 'custom')]);
+        logical.push({ fields: [ink(custom, 'custom')] });
     const errors = [...s.errors, ...(s.environment?.errors ?? [])];
     const warnings = errors.flatMap(error => wrapAnsi(ink('! ' + sanitize(error), 'critical'), width));
-    const body = logical.flatMap(line => wrapFields(line, width));
+    const body = logical.flatMap(line => { const indent = Math.min(line.indent ?? 0, width - 1); return wrapFields(line.fields, width - indent).map(text => ' '.repeat(indent) + text); });
     const all = [...warnings, ...body];
     if (!all.length)
         all.push(ink(label('No visible fields', '未启用显示项'), 'label'));
