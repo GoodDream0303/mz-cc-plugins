@@ -15,7 +15,7 @@ import { sanitize } from './terminal-text.js';
 import { emptySnapshot } from './types.js';
 import { buildTerminalArgs, checkRuntime, createLaunch, readLaunch, requestStop, runtimeRoot, selectSessionId, updateLaunch } from './runtime.js';
 import { loadCurrentHost, ensureHostDisplay, bindHostSession, acknowledgeViewer, readHost } from './host-session.js';
-import { readProcessFacts } from './psmux.js';
+import { readProcessIdentities } from './psmux.js';
 import { decodeInvocation, launchHostedCodex, runHostOwner, runHostFrontend } from './host-launch.js';
 import { profileChange, applyProfileChange, stableEntryPlan, applyStableEntry } from './profile-setup.js';
 import { fileURLToPath } from 'node:url';
@@ -99,7 +99,7 @@ async function watch(args, once = false) {
                     if (readHost(descriptor.host.recordFile).state === 'closed')
                         break;
                     if (Date.now() >= nextOwnerCheck) {
-                        const expected = descriptor.host.proof.owner, actual = readProcessFacts([expected.pid]).find(p => p.pid === expected.pid);
+                        const expected = descriptor.host.proof.owner, actual = readProcessIdentities([expected.pid]).find(p => p.pid === expected.pid);
                         nextOwnerCheck = Date.now() + 5000;
                         if (!actual || actual.startedAt !== expected.startedAt)
                             break;
@@ -155,7 +155,7 @@ async function watch(args, once = false) {
             let rows = once ? 1000 : process.stdout.rows || 12, result = render(snapshot, config, { width, height: rows, page, color });
             if (!once && process.stdout.isTTY && descriptor?.host) {
                 try {
-                    const fitted = dynamicHeight.fit(descriptor, config, result.totalLines);
+                    const fitted = dynamicHeight.fit(descriptor, config, result.totalLines, Date.now(), { columns: width, rows });
                     if (fitted !== undefined)
                         rows = fitted;
                     result = render(snapshot, config, { width, height: rows, page, color, showPager: !dynamicHeight.awaitingGrowth });

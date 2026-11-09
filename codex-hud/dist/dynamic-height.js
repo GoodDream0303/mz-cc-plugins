@@ -1,20 +1,22 @@
 import { get } from './config.js';
 import { readHost } from './host-session.js';
-import { PsmuxClient, readProcessFacts, samePath, verifyHost } from './psmux.js';
+import { PsmuxClient, readProcessIdentities, samePath, verifyHost } from './psmux.js';
 /** Resize only this viewer's registered two-pane stack; fixed sizing is untouched. */
 export class DynamicHeightController {
     dependencies;
     candidate;
     since = 0;
     growing = false;
+    stable;
     get awaitingGrowth() { return this.growing; }
     constructor(dependencies = {}) {
         this.dependencies = dependencies;
     }
-    fit(d, config, contentRows, now = Date.now()) {
+    fit(d, config, contentRows, now = Date.now(), geometry) {
         this.growing = false;
         if (!get(config, 'terminal.dynamicHeight') || !d.host || d.demo) {
             this.candidate = undefined;
+            this.stable = undefined;
             return;
         }
         if (!Number.isInteger(contentRows) || contentRows < 1)
@@ -28,6 +30,10 @@ export class DynamicHeightController {
                 throw new Error('Host display registration has changed');
         };
         registered();
+        const key = JSON.stringify([d.file, host.proof, viewer, host.hudPane, contentRows, get(config, 'terminal.paneSize'), get(config, 'terminal.refreshMs'), geometry]);
+        if (this.candidate === undefined && this.stable?.key === key && now >= this.stable.at && now - this.stable.at < 5000)
+            return;
+        this.stable = undefined;
         const client = new PsmuxClient(host.proof.origin, this.dependencies), panes = client.panes().filter(p => p.window === host.proof.window);
         const owner = panes.find(p => p.pane === host.proof.origin.pane), hud = panes.find(p => p.pane === host.hudPane);
         if (panes.length !== 2 || !owner || !hud || owner.pid !== host.proof.owner.pid || hud.pid !== pid || owner.pane === hud.pane)
@@ -40,6 +46,7 @@ export class DynamicHeightController {
         const target = Math.max(1, Math.min(contentRows, cap));
         if (target === hud.height) {
             this.candidate = undefined;
+            this.stable = { key, at: now };
             return;
         }
         this.growing = target > hud.height;
@@ -51,7 +58,7 @@ export class DynamicHeightController {
         const refresh = get(config, 'terminal.refreshMs'), debounce = target < hud.height ? Math.max(2000, refresh) : refresh;
         if (now - this.since < debounce)
             return;
-        const values = (this.dependencies.processes ?? readProcessFacts)([host.proof.owner.pid, host.proof.server.pid, viewer.pid], pid), actual = values.find(p => p.pid === pid);
+        const values = (this.dependencies.processes ?? readProcessIdentities)([host.proof.owner.pid, host.proof.server.pid, viewer.pid], pid), actual = values.find(p => p.pid === pid);
         if (!actual || actual.startedAt !== viewer.startedAt || actual.parentPid !== viewer.parentPid || actual.name !== viewer.name)
             throw new Error('HUD viewer process incarnation changed');
         verifyHost(host.proof, 'viewer', { ...this.dependencies, processes: () => values });

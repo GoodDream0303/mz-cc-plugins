@@ -5,6 +5,14 @@ WT tabs or separate PowerShell windows. The official CLI and native statusline
 remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
 task names retain their original language.
 
+> Version 0.7.6 reduces periodic process-query overhead, rechecks stable automatic
+> height at most once per five seconds, and reads session metadata in small chunks.
+> Content or terminal geometry changes trigger fresh height checks; every resize
+> still requires the original process and pane proof. Packaged backend digests
+> are reused only while file identity, size, change and modification times, and
+> the checksum pin remain unchanged. Running viewers keep their existing code
+> until the updated package is installed and opened.
+>
 > Version 0.7.5 emphasizes current tools and starting/running agents with bright
 > foreground text, while recent tools and inactive agents use gray. The Agents
 > heading has its own line and all agent rows share the same indentation.

@@ -31,10 +31,19 @@ export async function listSessions(root = path.join(codexHome(), 'sessions')) {
         let handle;
         try {
             handle = await fs.open(file, 'r');
-            const buffer = Buffer.alloc(256 * 1024);
-            const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-            const first = buffer.subarray(0, bytesRead).toString('utf8').split('\n', 1)[0];
-            const meta = JSON.parse(first);
+            const buffer = Buffer.alloc(4096), chunks = [];
+            let offset = 0;
+            while (offset < 256 * 1024) {
+                const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, 256 * 1024 - offset), offset);
+                if (!bytesRead)
+                    break;
+                const bytes = buffer.subarray(0, bytesRead), end = bytes.indexOf(10);
+                chunks.push(Buffer.from(end < 0 ? bytes : bytes.subarray(0, end)));
+                offset += bytesRead;
+                if (end >= 0)
+                    break;
+            }
+            const meta = JSON.parse(Buffer.concat(chunks).toString('utf8'));
             const p = meta.payload;
             if (meta.type !== 'session_meta' || typeof p?.id !== 'string')
                 continue;

@@ -52,6 +52,24 @@ test('same pane number from another server cannot satisfy owner proof',()=>{
  assert.throws(()=>api.proveOwner(origin,deps({pid:999,processes:()=>[owner,server]})),/owner|process/i);
 });
 test('an existing process with unreadable birth time is unknown rather than dead',{skip:process.platform!=='win32'},()=>{
- const helper=path.resolve(import.meta.dirname,'../bin/process-facts.ps1').replaceAll("'","''"),script=`function Get-CimInstance { [pscustomobject]@{ProcessId=123;ParentProcessId=1;Name='node.exe';CreationDate=$null} }; & '${helper}' -RootPid 123 -Ids '123'`;
- const result=spawnSync('powershell.exe',['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],{encoding:'utf8',timeout:10000});assert.notEqual(result.status,0,'a live process with unknown identity must not disappear from the snapshot');
+ const helper=path.resolve(import.meta.dirname,'../bin/process-facts.ps1').replaceAll("'","''"),script=`function New-Object { $entry=[pscustomobject]@{ProcessId=123;ParentProcessId=1;Name='node.exe';CreationDate=$null}; $entry | Add-Member ScriptMethod Dispose {}; $snapshot=[System.Collections.ArrayList]@($entry); Add-Member -InputObject $snapshot ScriptMethod Dispose {}; $searcher=[pscustomobject]@{Snapshot=$snapshot}; $searcher | Add-Member ScriptMethod Get { ,$this.Snapshot }; $searcher | Add-Member ScriptMethod Dispose {}; return $searcher }; & '${helper}' -RootPid 123 -Ids '123' -IdentitiesOnly`;
+ const result=spawnSync('powershell.exe',['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],{encoding:'utf8',timeout:10000});assert.notEqual(result.status,0,'a live process with unknown identity must not disappear from the snapshot');assert.match(result.stderr,/unknown creation time/);
+});
+
+test('explicit identity collection preserves creation times without CIM initialization or inferred ancestry',{skip:process.platform!=='win32'},()=>{
+ const helper=path.resolve(import.meta.dirname,'../bin/process-facts.ps1').replaceAll("'","''");
+ const script=`$expected=Get-CimInstance -Query "SELECT CreationDate FROM Win32_Process WHERE ProcessId=$PID"; function Get-CimInstance { throw 'CIM cmdlet initialization is not available' }; $raw=& '${helper}' -RootPid $PID -Ids '${process.pid}' -IdentitiesOnly; [pscustomobject]@{root=$PID;expected=$expected.CreationDate.ToUniversalTime().ToString('O');raw=$raw} | ConvertTo-Json -Compress`;
+ const result=spawnSync('powershell.exe',['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],{encoding:'utf8',timeout:15000});
+ assert.equal(result.status,0,result.stderr);const {root,expected,raw}=JSON.parse(result.stdout.replace(/^\uFEFF/,'')),facts=JSON.parse(raw);
+ const self=facts.find(p=>p.pid===root),parent=facts.find(p=>p.pid===process.pid);
+ assert.equal(self.parentPid,process.pid);assert.equal(self.name.toLowerCase(),'powershell.exe');assert.equal(self.startedAt,expected);
+ assert.equal(parent.name.toLowerCase(),'node.exe');assert.equal(new Set(facts.map(p=>p.pid)).size,facts.length);
+ assert.equal(facts.length,2,'explicit identity lookup does not return or imply an ancestor proof');
+});
+
+test('periodic identity queries keep the actual caller and only explicitly requested processes',{skip:process.platform!=='win32'},()=>{
+ assert.equal(typeof api.readProcessIdentities,'function');
+ const facts=api.readProcessIdentities([process.pid]);assert.equal(facts.length,1);assert.equal(facts[0].pid,process.pid);assert.equal(facts[0].name.toLowerCase(),'node.exe');
+ const ancestry=api.readProcessFacts([process.pid]);assert.ok(ancestry.some(p=>p.pid===facts[0].parentPid));
+ assert.deepEqual(ancestry.find(p=>p.pid===process.pid),facts[0]);
 });

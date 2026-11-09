@@ -15,7 +15,7 @@ import {sanitize} from './terminal-text.js';
 import {emptySnapshot,type HudSnapshot} from './types.js';
 import {buildTerminalArgs,checkRuntime,createLaunch,readLaunch,requestStop,runtimeRoot,selectSessionId,updateLaunch,type LaunchDescriptor} from './runtime.js';
 import {loadCurrentHost,ensureHostDisplay,bindHostSession,acknowledgeViewer,readHost} from './host-session.js';
-import {readProcessFacts} from './psmux.js';
+import {readProcessIdentities} from './psmux.js';
 import {decodeInvocation,launchHostedCodex,runHostOwner,runHostFrontend} from './host-launch.js';
 import {profileChange,applyProfileChange,stableEntryPlan,applyStableEntry} from './profile-setup.js';
 import {fileURLToPath} from 'node:url';
@@ -59,7 +59,7 @@ async function watch(args:string[],once=false):Promise<void>{
     if(descriptor.host){
      if(readHost(descriptor.host.recordFile).state==='closed')break;
      if(Date.now()>=nextOwnerCheck){
-      const expected=descriptor.host.proof.owner,actual=readProcessFacts([expected.pid]).find(p=>p.pid===expected.pid);nextOwnerCheck=Date.now()+5000;
+      const expected=descriptor.host.proof.owner,actual=readProcessIdentities([expected.pid]).find(p=>p.pid===expected.pid);nextOwnerCheck=Date.now()+5000;
       if(!actual||actual.startedAt!==expected.startedAt)break;
      }
     }
@@ -81,7 +81,7 @@ async function watch(args:string[],once=false):Promise<void>{
    const width=Number(option(args,'--width'))||process.stdout.columns||100,color=!args.includes('--no-color')&&!!process.stdout.isTTY;
    let rows=once?1000:process.stdout.rows||12,result=render(snapshot,config,{width,height:rows,page,color});
    if(!once&&process.stdout.isTTY&&descriptor?.host){
-    try{const fitted=dynamicHeight.fit(descriptor,config,result.totalLines);if(fitted!==undefined)rows=fitted;result=render(snapshot,config,{width,height:rows,page,color,showPager:!dynamicHeight.awaitingGrowth});}
+    try{const fitted=dynamicHeight.fit(descriptor,config,result.totalLines,Date.now(),{columns:width,rows});if(fitted!==undefined)rows=fitted;result=render(snapshot,config,{width,height:rows,page,color,showPager:!dynamicHeight.awaitingGrowth});}
     catch{snapshot.errors.push('Automatic height unavailable; keeping the current pane size');result=render(snapshot,config,{width,height:rows,page,color});}
    }
    if(descriptor&&!descriptor.demo)updateLaunch(ownedFile!,d=>{d.heartbeat=Date.now();d.viewport={columns:process.stdout.columns??100,rows,contentRows:result.totalLines,pages:result.pages};});

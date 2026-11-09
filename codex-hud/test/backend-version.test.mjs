@@ -32,3 +32,29 @@ test('packaged backend is selected by default only when its binary exists and ma
  assert.equal(api.packagedBackendPath(root),binary);fs.appendFileSync(binary,' changed');assert.equal(api.packagedBackendPath(root),'');
  fs.unlinkSync(binary);assert.equal(api.packagedBackendPath(root),'');
 });
+
+test('unchanged packaged selections reuse the verified digest while metadata changes require revalidation',t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'hud-backend-cache-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ const binary=path.join(root,'psmux.exe'),pinFile=path.join(root,'psmux-compact.json'),body='binary fixture';fs.writeFileSync(binary,body);
+ const fixedTime=new Date(1700000000000);fs.utimesSync(binary,fixedTime,fixedTime);
+ const pin={format:1,version:'3.4.0-hud-compact-v1',upstreamCommit:upstream,sha256:createHash('sha256').update(body).digest('hex')};fs.writeFileSync(pinFile,JSON.stringify(pin));
+ const original=fs.readFileSync;let binaryReads=0;t.mock.method(fs,'readFileSync',function(file,...args){if(path.resolve(String(file))===binary)binaryReads++;return original.call(this,file,...args);});
+ assert.equal(api.packagedBackendPath(root),binary);assert.equal(api.packagedBackendPath(root),binary);
+ assert.equal(binaryReads,1,'an unchanged packaged binary is hashed only once');
+ fs.writeFileSync(binary,'broken fixture');fs.utimesSync(binary,fixedTime,fixedTime);
+ assert.equal(api.packagedBackendPath(root),'','same length and restored mtime do not hide a rewrite');assert.equal(binaryReads,2);
+ fs.writeFileSync(binary,body);assert.equal(api.packagedBackendPath(root),binary);
+ fs.writeFileSync(pinFile,JSON.stringify({...pin,upstreamCommit:'wrong'}));assert.equal(api.packagedBackendPath(root),'');
+ fs.writeFileSync(pinFile,JSON.stringify(pin));assert.equal(api.packagedBackendPath(root),binary);
+ const replacement=path.join(root,'replacement.exe');fs.writeFileSync(replacement,'broken fixture');fs.utimesSync(replacement,fixedTime,fixedTime);fs.renameSync(replacement,binary);
+ assert.equal(api.packagedBackendPath(root),'','replacement artifacts cannot inherit a cached proof');
+ fs.unlinkSync(binary);assert.equal(api.packagedBackendPath(root),'');
+});
+
+test('a backend changed during hashing cannot publish a successful cached verification',t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'hud-backend-read-race-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ const binary=path.join(root,'psmux.exe'),body='binary fixture';fs.writeFileSync(binary,body);
+ fs.writeFileSync(path.join(root,'psmux-compact.json'),JSON.stringify({format:1,version:'3.4.0-hud-compact-v1',upstreamCommit:upstream,sha256:createHash('sha256').update(body).digest('hex')}));
+ const original=fs.readFileSync;t.mock.method(fs,'readFileSync',function(file,...args){const result=original.call(this,file,...args);if(path.resolve(String(file))===binary)fs.writeFileSync(binary,'broken fixture');return result;});
+ assert.equal(api.packagedBackendPath(root),'');assert.equal(api.packagedBackendPath(root),'');
+});

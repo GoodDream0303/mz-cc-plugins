@@ -5,10 +5,10 @@ import {hostFixture} from './support/host-fixture.mjs';
 const api=await import('../dist/dynamic-height.js').catch(()=>({}));
 async function fixture(t){
  const f=hostFixture(t),opened=await ensureHostDisplay(f.record,defaultConfig(),{role:'hook',dependencies:f.dependencies}),d=readLaunch(opened.launchFile),viewer=f.state.viewers[0];
- const state={rows:6,total:30,width:120,resizes:[],extra:false,wrongServer:false};
+ const state={rows:6,total:30,width:120,resizes:[],extra:false,wrongServer:false,queries:0};
  const pane=(id,pid,rows)=>['codex','@1',id,pid,state.width,rows,state.wrongServer?102:101].join('\t');
  const deps={...f.dependencies,pid:viewer.pid,run:args=>{
-  if(args[2]==='list-panes')return [pane('%1',201,state.total-state.rows),pane(viewer.pane,viewer.pid,state.rows),...(state.extra?[pane('%99',999,3)]:[])].join('\n');
+  if(args[2]==='list-panes'){state.queries++;return [pane('%1',201,state.total-state.rows),pane(viewer.pane,viewer.pid,state.rows),...(state.extra?[pane('%99',999,3)]:[])].join('\n');}
   if(args[2]==='display-message')return args[args.indexOf('-t')+1]==='%1'?pane('%1',201,state.total-state.rows):pane(viewer.pane,viewer.pid,state.rows);
   if(args[2]==='resize-pane'){assert.deepEqual(args.slice(0,6),['-L','mzhud-test','resize-pane','-t',viewer.pane,'-y']);state.rows=Number(args[6]);state.resizes.push(state.rows);return '';}
   throw Error('unexpected backend command');
@@ -71,4 +71,35 @@ test('a stale viewer or replacement host display cannot resize another pane',asy
  stale.fit(d,config,3,0);assert.throws(()=>stale.fit(d,config,3,2000),/viewer|incarnation|identity/i);
  const fs=await import('node:fs');const record=JSON.parse(fs.readFileSync(d.host.recordFile,'utf8'));record.launchFile=root+'/runtime/00112233-4455-4677-8899-aabbccddeeff.json';fs.writeFileSync(d.host.recordFile,JSON.stringify(record));
  const replaced=new api.DynamicHeightController(deps);assert.throws(()=>replaced.fit(d,config,3,3000),/display|registration|host/i);assert.deepEqual(state.resizes,[]);
+});
+
+test('stable height avoids repeated backend queries but periodically rechecks manual resizing',async t=>{
+ const {controller,d,config,state}=await fixture(t);
+ controller.fit(d,config,6,0,{columns:120,rows:6});
+ for(const now of [1000,2000,4999])controller.fit(d,config,6,now,{columns:120,rows:6});
+ assert.equal(state.queries,1);assert.deepEqual(state.resizes,[]);
+ state.rows=4;controller.fit(d,config,6,5000,{columns:120,rows:6});
+ assert.equal(state.queries,2);assert.equal(controller.awaitingGrowth,true);
+ assert.equal(controller.fit(d,config,6,6000,{columns:120,rows:6}),6);
+ assert.deepEqual(state.resizes,[6]);
+});
+
+test('content, terminal geometry and ratio changes invalidate a stable height observation',async t=>{
+ for(const change of ['content','columns','rows','ratio']){
+  const {controller,d,config,state}=await fixture(t),geometry={columns:120,rows:6};
+  controller.fit(d,config,6,0,geometry);
+  const nextGeometry={...geometry};if(change==='columns')nextGeometry.columns=80;if(change==='rows')nextGeometry.rows=5;
+  controller.fit(d,change==='ratio'?set(config,'terminal.paneSize',0.3):config,change==='content'?5:6,1000,nextGeometry);
+  assert.equal(state.queries,2,change);
+ }
+});
+
+test('cached stable geometry never hides replacement registration or authorizes a resize',async t=>{
+ const {controller,d,config,state}=await fixture(t);
+ controller.fit(d,config,6,0);state.extra=true;
+ assert.throws(()=>controller.fit(d,config,3,1000),/scope|panes|source/i);assert.deepEqual(state.resizes,[]);
+ state.extra=false;controller.fit(d,config,6,2000);
+ const fs=await import('node:fs'),record=JSON.parse(fs.readFileSync(d.host.recordFile,'utf8'));
+ record.launchFile=record.launchFile.replace(/[^/\\]+\.json$/,'00112233-4455-4677-8899-aabbccddeeff.json');fs.writeFileSync(d.host.recordFile,JSON.stringify(record));
+ assert.throws(()=>controller.fit(d,config,6,2100),/registration|display|host/i);assert.deepEqual(state.resizes,[]);
 });

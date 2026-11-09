@@ -26,12 +26,19 @@ export function readHostOrigin(env = process.env) {
     return origin;
 }
 export function readProcessFacts(pids, rootPid = process.pid) {
+    return queryProcessFacts(pids, rootPid, false);
+}
+/** Explicit identities only; never use this result to establish hook ancestry. */
+export function readProcessIdentities(pids) {
+    return queryProcessFacts(pids, process.pid, true);
+}
+function queryProcessFacts(pids, rootPid, identitiesOnly) {
     if (process.platform !== 'win32')
         throw new Error('Native Windows process identity is required');
     if (![rootPid, ...pids].every(positive))
         throw new Error('Invalid process identity');
     const helper = fileURLToPath(new URL('../bin/process-facts.ps1', import.meta.url));
-    const raw = execFileSync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-File', helper, '-RootPid', String(rootPid), '-Ids', pids.join(',')], { encoding: 'utf8', windowsHide: true, timeout: 6000, maxBuffer: 65536, stdio: ['ignore', 'pipe', 'pipe'] });
+    const raw = execFileSync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-File', helper, '-RootPid', String(rootPid), '-Ids', pids.join(','), ...(identitiesOnly ? ['-IdentitiesOnly'] : [])], { encoding: 'utf8', windowsHide: true, timeout: 6000, maxBuffer: 65536, stdio: ['ignore', 'pipe', 'pipe'] });
     const value = JSON.parse(raw.replace(/^\uFEFF/, ''));
     if (!Array.isArray(value) || value.length > 128 || !value.every(validFact))
         throw new Error('Process identity snapshot is invalid');

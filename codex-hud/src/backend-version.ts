@@ -7,6 +7,11 @@ import os from 'node:os';
 export const upstreamBackendCommit='20aa1d7254ee93f64dafa059ef89341d9767470a';
 export interface CompactBackendPin {format:1;version:'3.4.0-hud-compact-v1';upstreamCommit:string;sha256:string}
 const backendDirectory=fileURLToPath(new URL('../backend/',import.meta.url));
+const verifiedPackages=new Map<string,{stamp:string;pin:string}>();
+function artifactStamp(binary:string):string {
+ const stat=fs.statSync(binary,{bigint:true});if(!stat.isFile())throw new Error('Backend is not a file');
+ return [stat.dev,stat.ino,stat.size,stat.mtimeNs,stat.ctimeNs,stat.birthtimeNs].join(':');
+}
 function packagedPin(directory=backendDirectory):CompactBackendPin|undefined {
  try{return JSON.parse(fs.readFileSync(path.join(directory,'psmux-compact.json'),'utf8'));}catch{return;}
 }
@@ -24,8 +29,17 @@ export function verifyBackend(binary:string,output:string,pin?:CompactBackendPin
  }catch{/* Unverified replacements and missing binaries are rejected. */}
 }
 export function packagedBackendPath(directory=backendDirectory):string {
- const pin=packagedPin(directory),binary=path.join(directory,'psmux.exe');
- return pin&&verifyBackend(binary,'psmux '+pin.version+' (20aa1d7)',pin)?.kind==='compact'?binary:'';
+ const pin=packagedPin(directory),binary=path.join(directory,'psmux.exe'),key=path.resolve(binary);
+ try{
+  if(!pin)throw new Error('Backend pin is missing');
+  const stamp=artifactStamp(binary),signature=JSON.stringify(pin),old=verifiedPackages.get(key);
+  if(old?.stamp===stamp&&old.pin===signature)return binary;
+  verifiedPackages.delete(key);
+  if(verifyBackend(binary,'psmux '+pin.version+' (20aa1d7)',pin)?.kind!=='compact'||artifactStamp(binary)!==stamp)return '';
+  verifiedPackages.set(key,{stamp,pin:signature});
+  if(verifiedPackages.size>32)verifiedPackages.delete(verifiedPackages.keys().next().value!);
+  return binary;
+ }catch{verifiedPackages.delete(key);return '';}
 }
 export function effectiveBackendPath(binary:string,home=process.env.CODEX_HOME??path.join(os.homedir(),'.codex')):string {
  const relative=path.relative(path.join(home,'plugins','cache'),binary).split(path.sep);
