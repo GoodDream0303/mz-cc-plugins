@@ -5,6 +5,11 @@ WT tabs or separate PowerShell windows. The official CLI and native statusline
 remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
 task names retain their original language.
 
+Version 0.7.8 refines tool labels: only agent operations display a task target.
+Ordinary tools show their action and recorded duration without file names,
+directories or other object summaries. Git subcommands remain part of the action
+label. MCP connection and call presentation is unchanged by this refinement.
+
 Version 0.7.7 separates MCP connections from active calls. With MCP
 display enabled, nonofficial server names remain visible while idle; the official
 `codex_apps` and `codex_tui` servers are summarized without inventory details.

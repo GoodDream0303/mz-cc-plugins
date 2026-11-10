@@ -1,6 +1,6 @@
 export interface Tokens {input:number;cached:number;output:number;reasoning:number;total:number}
 export interface Quota {id:string;minutes:number;usedPercent:number;resetsAt?:number}
-export interface ToolAction {kind:'read'|'search'|'list'|'patch'|'nodeTest'|'npmTest'|'pythonTest'|'build'|'git'|'node'|'python'|'powershell'|'shell';target?:string}
+export interface ToolAction {kind:'read'|'search'|'list'|'patch'|'nodeTest'|'npmTest'|'pythonTest'|'build'|'git'|'node'|'python'|'powershell'|'shell'|'agentSpawn'|'agentFollowup'|'agentMessage'|'agentInterrupt'|'agentResume'|'agentClose'|'agentWait';target?:string}
 export interface Tool {id:string;name:string;status:'running'|'done'|'failed'|'cancelled';startedAt?:number;finishedAt?:number;durationMs?:number;mcp?:{server:string;tool:string};action?:ToolAction}
 export interface Agent {id:string;name:string;status:string;model?:string;startedAt?:number;endedAt?:number;action?:string;totalTokens?:number}
 export interface Todo {step:string;status:string}

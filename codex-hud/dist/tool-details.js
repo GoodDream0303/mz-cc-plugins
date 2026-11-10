@@ -1,3 +1,6 @@
+import { sanitize } from './terminal-text.js';
+const agentOperations = new Map([['spawn_agent', 'agentSpawn'], ['followup_task', 'agentFollowup'], ['send_message', 'agentMessage'], ['interrupt_agent', 'agentInterrupt'], ['resume_agent', 'agentResume'], ['close_agent', 'agentClose'], ['wait_agent', 'agentWait']]);
+export function isAgentAction(action) { return !!action && action.kind.startsWith('agent'); }
 function basename(value) {
     if (typeof value !== 'string')
         return;
@@ -52,6 +55,12 @@ export function toolDetails(name, args) {
     const mcp = /^(?:functions\.)?mcp__(.+?)__(.+)$/.exec(name);
     if (mcp)
         return { mcp: { server: mcp[1].slice(0, 200), tool: mcp[2].slice(0, 200) } };
+    const operation = agentOperations.get(name.replace(/^collaboration\./, ''));
+    if (operation) {
+        const value = operation === 'agentSpawn' ? args?.task_name ?? args?.agent_type : args?.target ?? args?.agent_id ?? args?.id;
+        const target = typeof value === 'string' ? sanitize(value).slice(0, 200) : '';
+        return { action: { kind: operation, ...(target ? { target } : {}) } };
+    }
     if (['exec_command', 'functions.exec_command'].includes(name)) {
         const action = commandDetails(args?.cmd);
         return action ? { action } : {};

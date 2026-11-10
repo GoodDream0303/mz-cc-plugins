@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 import {emptySnapshot,type HudSnapshot,type Tokens,type Tool} from './types.js';
 import {AgentTracker} from './agents.js';
 import {toolOutput} from './tool-output.js';
-import {toolDetails,commandDetails} from './tool-details.js';
+import {toolDetails,commandDetails,isAgentAction} from './tool-details.js';
 const MAX_LINE=2*1024*1024;
 const safe=(v:unknown):v is Record<string,any>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 function count(v:unknown):number{return typeof v==='number'&&Number.isFinite(v)&&v>=0?v:0;}
@@ -119,7 +119,9 @@ export class SessionReader {
   return accepted?row:undefined;
  }
  private annotate(row:Tool|undefined,details:Pick<Tool,'mcp'|'action'>,start?:unknown,duration?:unknown,end?:unknown):void {
-  if(!row)return;Object.assign(row,details);
+  if(!row)return;
+  if(isAgentAction(details.action)&&details.action!.kind===row.action?.kind&&details.action!.target===undefined&&row.action.target)details={...details,action:{...details.action!,target:row.action.target}};
+  Object.assign(row,details);
   if(row.mcp&&!this.snapshot.mcpUsed.includes(row.mcp.server)){this.snapshot.mcpUsed.push(row.mcp.server);if(this.snapshot.mcpUsed.length>64)this.confirmedMcpServers.delete(this.snapshot.mcpUsed.shift()!);}
   if(typeof start==='number'&&Number.isFinite(start)&&start>=0)row.startedAt=start;
   if(row.status!=='running'&&typeof end==='number'&&Number.isFinite(end)&&end>=0)row.finishedAt=end;
@@ -143,10 +145,11 @@ export class SessionReader {
    return;
   }
   if(['function_call','custom_tool_call'].includes(p.type)){
-   const id=text(p.call_id??p.id);const name=text(p.name);if(!id||!name||this.snapshot.tools.some(t=>t.id===id))return;
+   const id=text(p.call_id??p.id);const name=text(p.name);if(!id||!name)return;
+   const args=parse(p.arguments??p.input),existing=this.snapshot.tools.find(t=>t.id===id);
+   if(existing){const details=toolDetails(name,args??p.input);if(isAgentAction(details.action)&&toolDetails(existing.name).action?.kind===details.action!.kind)existing.action=details.action;return;}
    const row=this.tool(id,name,'running',false,timestamp);
    const leaf=name.split('.').at(-1);
-   const args=parse(p.arguments??p.input);
    this.annotate(row,toolDetails(name,args??p.input));
    if(leaf==='update_plan'&&Array.isArray(args?.plan))this.snapshot.todos=args.plan.filter(safe).filter((x:any)=>typeof x.step==='string'&&['pending','in_progress','completed'].includes(x.status)).slice(0,200).map((x:any)=>({step:x.step.slice(0,200),status:x.status}));
    if(['write_stdin','wait'].includes(leaf??'')){const key=args?.cell_id!==undefined?'cell:'+String(args.cell_id):'session:'+String(args?.session_id),target=this.processTools.get(key);if(target)this.pollTargets.set(id,target);}

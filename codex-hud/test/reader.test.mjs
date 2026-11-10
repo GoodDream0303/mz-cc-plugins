@@ -2,6 +2,14 @@ import test from 'node:test';import assert from 'node:assert/strict';import fs f
 import {SessionReader} from '../dist/reader.js';import {listSessions,findSession} from '../dist/sessions.js';
 const record=(type,payload)=>JSON.stringify({type,payload,timestamp:'2026-11-02T08:00:00Z'})+'\n';
 function fixture(t){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'hud-reader-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));return {dir,file:path.join(dir,'rollout-abc.jsonl')};}
+test('late agent arguments enrich an existing operation without restarting its completed lifecycle',async t=>{
+ const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'abc'})+record('event_msg',{type:'item_completed',started_at_ms:1000,completed_at_ms:2500,item:{type:'Extension',id:'spawn-1',kind:'spawn_agent',status:'completed',duration_ms:900}})+record('response_item',{type:'function_call',call_id:'spawn-1',name:'spawn_agent',arguments:JSON.stringify({task_name:'hud_live_check',message:'SECRET PROMPT'})}));
+ const s=await new SessionReader(file,'abc').read();assert.equal(s.tools.length,1);assert.equal(s.tools[0].status,'done');assert.deepEqual(s.tools[0].action,{kind:'agentSpawn',target:'hud_live_check'});assert.equal(s.tools[0].startedAt,1000);assert.equal(s.tools[0].finishedAt,2500);assert.equal(s.tools[0].durationMs,900);assert.ok(!JSON.stringify(s).includes('SECRET'));assert.equal(s.agents.length,0);
+});
+test('canonical completion preserves an agent task target previously obtained from its actual arguments',async t=>{
+ const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'abc'})+record('response_item',{type:'function_call',call_id:'spawn-1',name:'spawn_agent',arguments:JSON.stringify({task_name:'hud_live_check',message:'SECRET PROMPT'})})+record('event_msg',{type:'item_completed',started_at_ms:1000,completed_at_ms:2500,item:{type:'Extension',id:'spawn-1',kind:'spawn_agent',status:'completed',duration_ms:900}}));
+ const s=await new SessionReader(file,'abc').read();assert.equal(s.tools.length,1);assert.equal(s.tools[0].status,'done');assert.deepEqual(s.tools[0].action,{kind:'agentSpawn',target:'hud_live_check'});assert.equal(s.tools[0].durationMs,900);assert.ok(!JSON.stringify(s).includes('SECRET'));
+});
 test('MCP invocation identity and timing survive canonical updates and completion without payload retention',async t=>{
  const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'abc'})+record('response_item',{type:'function_call',call_id:'mcp-1',name:'mcp__docs__query',arguments:'{"token":"SECRET"}'})+record('event_msg',{type:'item_started',started_at_ms:1000,item:{type:'McpToolCall',id:'mcp-1',server:'docs',tool:'query',status:'in_progress',arguments:{token:'SECRET'}}}));
  const reader=new SessionReader(file,'abc'),before=await reader.read();assert.deepEqual(before.tools[0].mcp,{server:'docs',tool:'query'});assert.equal(before.tools[0].startedAt,1000);

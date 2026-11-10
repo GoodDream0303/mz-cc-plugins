@@ -1,4 +1,8 @@
 import type {Tool,ToolAction} from './types.js';
+import {sanitize} from './terminal-text.js';
+
+const agentOperations=new Map<string,ToolAction['kind']>([['spawn_agent','agentSpawn'],['followup_task','agentFollowup'],['send_message','agentMessage'],['interrupt_agent','agentInterrupt'],['resume_agent','agentResume'],['close_agent','agentClose'],['wait_agent','agentWait']]);
+export function isAgentAction(action:Tool['action']):boolean{return !!action&&action.kind.startsWith('agent');}
 
 function basename(value:unknown):string|undefined {
  if(typeof value!=='string')return;
@@ -38,6 +42,12 @@ export function commandDetails(command:unknown,actions?:unknown):ToolAction|unde
 export function toolDetails(name:string,args?:any):Pick<Tool,'mcp'|'action'> {
  const mcp=/^(?:functions\.)?mcp__(.+?)__(.+)$/.exec(name);
  if(mcp)return {mcp:{server:mcp[1].slice(0,200),tool:mcp[2].slice(0,200)}};
+ const operation=agentOperations.get(name.replace(/^collaboration\./,''));
+ if(operation){
+  const value=operation==='agentSpawn'?args?.task_name??args?.agent_type:args?.target??args?.agent_id??args?.id;
+  const target=typeof value==='string'?sanitize(value).slice(0,200):'';
+  return {action:{kind:operation,...(target?{target}:{})}};
+ }
  if(['exec_command','functions.exec_command'].includes(name)){
   const action=commandDetails(args?.cmd);return action?{action}:{};
  }

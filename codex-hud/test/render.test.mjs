@@ -27,10 +27,16 @@ test('MCP connections persist without active calls and active invocations are se
  s.tools[1].status='done';s.tools[1].finishedAt=4300;text=render(s,config,{width:120,height:30,color:false,now:4400}).lines.join('\n');assert.match(text,/docs.*Unknown/);assert.doesNotMatch(text,/MCP calls:|query|Recent:/);
 });
 
-test('rich ordinary actions distinguish targets and timestamps without altering unknown legacy names',()=>{
+test('ordinary actions retain timing but do not expose file or directory targets',()=>{
  const config=set(set(set(defaultConfig(),'display.showTools',true),'display.showContextBar',false),'display.toolsMaxVisible',0);
  const s={...emptySnapshot('parent'),tools:[{id:'a',name:'exec_command',action:{kind:'read',target:'render.ts'},status:'running',startedAt:1000},{id:'b',name:'exec_command',action:{kind:'read',target:'reader.ts'},status:'running',startedAt:2000},{id:'c',name:'exec',status:'done'}]};
- const text=render(s,config,{width:160,height:30,color:false,now:3000}).lines.join('\n');assert.match(text,/Read file · render.ts.*2s/);assert.match(text,/Read file · reader.ts.*1s/);assert.match(text,/Run script ×1/);
+ const text=render(s,config,{width:160,height:30,color:false,now:3000}).lines.join('\n');assert.match(text,/Read file · 2s/);assert.match(text,/Read file · 1s/);assert.match(text,/Run script ×1/);assert.doesNotMatch(text,/render\.ts|reader\.ts/);
+});
+
+test('only agent operations show task targets while Git subcommands remain visible action verbs',()=>{
+ const config=set(set(set(defaultConfig(),'display.showTools',true),'display.showContextBar',false),'display.toolsMaxVisible',0);
+ const s={...emptySnapshot('parent'),agents:[{id:'child-id',name:'检查发布包',status:'running'}],tools:[{id:'a',name:'spawn_agent',action:{kind:'agentSpawn',target:'hud_live_check'},startedAt:1000,status:'done',durationMs:1500},{id:'b',name:'followup_task',action:{kind:'agentFollowup',target:'child-id'},startedAt:1000,status:'running'},{id:'c',name:'exec_command',action:{kind:'git',target:'status'},status:'done',durationMs:500},{id:'d',name:'apply_patch',action:{kind:'patch',target:'private.ts'},status:'done',durationMs:100}]};
+ const text=render(s,config,{width:200,height:30,color:false,now:3000}).lines.join('\n');assert.match(text,/Start agent · hud_live_check.*1\.5s/);assert.match(text,/Follow up on task · 检查发布包.*2s/);assert.match(text,/Git status.*500ms/);assert.doesNotMatch(text,/child-id|private\.ts|Git · status/);
 });
 
 test('nonofficial MCP connection names stay visible on every activity page alongside critical warnings',()=>{

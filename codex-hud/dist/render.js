@@ -2,6 +2,7 @@ import { get, unsupported } from './config.js';
 import { colorize, displayWidth, sanitize, truncate, wrapAnsi, wrapFields } from './terminal-text.js';
 import { agentRows } from './agent-display.js';
 import { mcpConnectionRows, mcpCallRows, mcpIdentity, toolTime } from './mcp-display.js';
+import { isAgentAction } from './tool-details.js';
 function num(n) { return n >= 1000000 ? (n / 1000000).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(Math.round(n)); }
 function percent(n) { return Number.isInteger(n) ? String(n) : n.toFixed(1); }
 function windowLabel(minutes) { return minutes % 1440 === 0 ? minutes / 1440 + 'd' : minutes % 60 === 0 ? minutes / 60 + 'h' : minutes + 'm'; }
@@ -133,7 +134,11 @@ export function render(s, c, o = {}) {
         ])
             for (const key of keys)
                 names.set(key, value);
-        const actions = { read: label('Read file', '读取文件', '讀取檔案'), search: label('Search', '搜索', '搜尋'), list: label('List files', '列出文件', '列出檔案'), patch: label('Apply patch', '应用补丁', '套用修補'), nodeTest: label('Node tests', 'Node 测试', 'Node 測試'), npmTest: label('npm tests', 'npm 测试', 'npm 測試'), pythonTest: label('Python tests', 'Python 测试', 'Python 測試'), build: label('Build', '构建', '建置'), git: 'Git', node: 'Node', python: 'Python', powershell: 'PowerShell', shell: 'Shell' };
+        const actions = { read: label('Read file', '读取文件', '讀取檔案'), search: label('Search', '搜索', '搜尋'), list: label('List files', '列出文件', '列出檔案'), patch: label('Apply patch', '应用补丁', '套用修補'), nodeTest: label('Node tests', 'Node 测试', 'Node 測試'), npmTest: label('npm tests', 'npm 测试', 'npm 測試'), pythonTest: label('Python tests', 'Python 测试', 'Python 測試'), build: label('Build', '构建', '建置'), git: 'Git', node: 'Node', python: 'Python', powershell: 'PowerShell', shell: 'Shell', agentSpawn: label('Start agent', '启动代理', '啟動代理'), agentFollowup: label('Follow up on task', '跟进子任务', '跟進子任務'), agentMessage: label('Message agent', '发送代理消息', '傳送代理訊息'), agentInterrupt: label('Interrupt agent', '中断代理', '中斷代理'), agentResume: label('Resume agent', '恢复代理', '恢復代理'), agentClose: label('Close agent', '关闭代理', '關閉代理'), agentWait: label('Wait for agents', '等待代理') };
+        for (const [name, kind] of [['spawn_agent', 'agentSpawn'], ['send_message', 'agentMessage'], ['interrupt_agent', 'agentInterrupt'], ['resume_agent', 'agentResume'], ['close_agent', 'agentClose'], ['wait_agent', 'agentWait']]) {
+            names.set(name, actions[kind]);
+            names.set('collaboration.' + name, actions[kind]);
+        }
         const grouped = new Map();
         s.tools.forEach((t, i) => { if (mcpIdentity(t) || t.status !== 'running' && Number.isFinite(t.finishedAt) && (t.finishedAt > now || now - t.finishedAt > 60000))
             return; const key = t.action ? 'call\0' + t.id : 'name\0' + t.name + '\0' + t.status, entry = grouped.get(key); if (entry) {
@@ -143,7 +148,12 @@ export function render(s, c, o = {}) {
         else
             grouped.set(key, { name: t.name, status: t.status, count: 1, last: i, tool: t }); });
         const ordered = [...grouped.values()].sort((a, b) => Number(b.status === 'running') - Number(a.status === 'running') || b.last - a.last), limit = Math.trunc(get(c, 'display.toolsMaxVisible')) || ordered.length;
-        const visible = ordered.slice(0, limit), format = (t) => { const action = t.tool.action, rich = action && Object.hasOwn(actions, action.kind), name = rich ? actions[action.kind] + (action.target ? ' · ' + sanitize(action.target) : '') : names.get(t.name) ?? t.name, elapsed = rich ? toolTime(t.tool, now) : ''; return ink((t.status === 'running' ? '◐ ' : t.status === 'failed' ? '✗ ' : t.status === 'cancelled' ? '⊘ ' : '✓ ') + (get(c, 'display.toolNameMaxLength') ? truncate(name, get(c, 'display.toolNameMaxLength')) : sanitize(name)) + (rich ? (elapsed ? ' · ' + elapsed : '') : ' ×' + t.count), t.status === 'running' ? 'active' : t.status === 'failed' ? 'critical' : 'inactive'); };
+        const visible = ordered.slice(0, limit), format = (t) => {
+            const action = t.tool.action, rich = action && Object.hasOwn(actions, action.kind);
+            const target = rich && isAgentAction(action) && action.target ? (s.agents.find(a => a.id === action.target)?.name ?? action.target).replace(/^\/root\//, '') : undefined;
+            const name = rich ? actions[action.kind] + (action.kind === 'git' && action.target ? ' ' + sanitize(action.target) : '') + (target ? ' · ' + sanitize(target) : '') : names.get(t.name) ?? t.name, elapsed = rich ? toolTime(t.tool, now) : '';
+            return ink((t.status === 'running' ? '◐ ' : t.status === 'failed' ? '✗ ' : t.status === 'cancelled' ? '⊘ ' : '✓ ') + (get(c, 'display.toolNameMaxLength') ? truncate(name, get(c, 'display.toolNameMaxLength')) : sanitize(name)) + (rich ? (elapsed ? ' · ' + elapsed : '') : ' ×' + t.count), t.status === 'running' ? 'active' : t.status === 'failed' ? 'critical' : 'inactive');
+        };
         const current = visible.filter(t => t.status === 'running'), recent = visible.filter(t => t.status !== 'running'), parts = [];
         if (current.length)
             parts.push(ink(label('Current: ', '当前: ', '目前: '), 'active') + current.map(format).join(' | '));

@@ -36,3 +36,15 @@ test('unsafe or credential-shaped file labels are not retained as action summari
 test('a truncated patch cannot claim one target when later file headers are not inspected',()=>{
  assert.deepEqual(api.toolDetails('apply_patch','*** Begin Patch\n*** Update File: one.ts\n'+'x'.repeat(9000)+'\n*** Update File: two.ts\n*** End Patch'),{action:{kind:'patch'}});
 });
+test('agent action summaries retain only the declared task target and never prompts or message bodies',()=>{
+ for(const [name,args,want]of [
+  ['spawn_agent',{task_name:'hud_live_check',message:'SECRET PROMPT'},{action:{kind:'agentSpawn',target:'hud_live_check'}}],
+  ['collaboration.followup_task',{target:'/root/hud_live_check',message:'SECRET MESSAGE'},{action:{kind:'agentFollowup',target:'/root/hud_live_check'}}],
+  ['interrupt_agent',{target:'child-id'},{action:{kind:'agentInterrupt',target:'child-id'}}],
+  ['resume_agent',{id:'child-id'},{action:{kind:'agentResume',target:'child-id'}}],
+  ['close_agent',{id:'child-id'},{action:{kind:'agentClose',target:'child-id'}}],
+  ['send_message',{target:'child-id',message:'SECRET MESSAGE'},{action:{kind:'agentMessage',target:'child-id'}}],
+  ['wait_agent',{timeout_ms:1000},{action:{kind:'agentWait'}}],
+ ]){const result=api.toolDetails(name,args);assert.deepEqual(result,want);assert.ok(!JSON.stringify(result).includes('SECRET'));}
+ assert.deepEqual(api.toolDetails('other.spawn_agent',{task_name:'no-alias'}),{});
+});
