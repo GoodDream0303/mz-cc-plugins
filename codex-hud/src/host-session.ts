@@ -4,7 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {setTimeout as delay} from 'node:timers/promises';
 import {configPath,get,type Config} from './config.js';
 import {createLaunch,readLaunch,updateLaunch,requestStop,type LaunchDescriptor} from './runtime.js';
-import {PsmuxClient,readHostOrigin,readProcessFacts,verifyHost,hostIdPattern,samePath,type HostProof,type HostDependencies,type ProcessFact} from './psmux.js';
+import {PsmuxClient,readHostOrigin,readProcessFacts,verifyHost,verifyLocalAppServer,hostProcessIds,hostIdPattern,samePath,type HostProof,type HostDependencies,type ProcessFact,type LocalAppServerProof} from './psmux.js';
 import {acquireStartupLock} from './startup-lock.js';
 import {planInitialPaneSize} from './pane-size.js';
 import {emptySnapshot} from './types.js';
@@ -44,10 +44,15 @@ export function loadCurrentHost(role:'hook'|'owner'='hook',dependencies:HostDepe
  const record=currentOriginRecord(env);verifyHost(record.proof,role,dependencies);return record;
 }
 export function registerCurrentFrontend():void {
- const record=currentOriginRecord(),values=readProcessFacts([record.proof.owner.pid,record.proof.server.pid,process.pid]),own=values.find(p=>p.pid===process.pid);
+ const record=currentOriginRecord(),values=readProcessFacts(hostProcessIds(record.proof,[process.pid])),own=values.find(p=>p.pid===process.pid);
  verifyHost(record.proof,'frontend',{processes:()=>values});
  if(!own||record.proof.frontend&&record.proof.frontend.pid!==process.pid)throw new Error('A different official frontend already owns this host');
  record.proof.frontend=fact(own);atomic(record.file,record);
+}
+export function registerLocalAppServer(proof:LocalAppServerProof):void {
+ const record=loadCurrentHost('owner');if(record.proof.appServer||record.proof.frontend)throw new Error('This host already registered its runtime');
+ const values=readProcessFacts(hostProcessIds(record.proof,[proof.process.pid]));verifyLocalAppServer(proof,record.proof.owner,values);
+ record.proof.appServer={endpoint:proof.endpoint,process:fact(proof.process)};atomic(record.file,record);
 }
 function ownedDisplay(record:HostRecord,d:LaunchDescriptor):void {
  if(!d.host||!samePath(d.host.recordFile,record.file)||d.host.proof.origin.originId!==record.id||d.host.proof.owner.pid!==record.proof.owner.pid||d.host.proof.owner.startedAt!==record.proof.owner.startedAt||d.host.proof.server.startedAt!==record.proof.server.startedAt)throw new Error('Display does not belong to this exact host');
@@ -60,7 +65,7 @@ export async function ensureHostDisplay(input:HostRecord,config:Config,options:H
  try{
   const record=readHost(input.file);if(record.state!=='running')throw new Error('Source host has closed');
   const existing=record.launchFile?readLaunch(record.launchFile):undefined;if(existing)ownedDisplay(record,existing);
-  const initial=(dependencies.processes??readProcessFacts)([record.proof.owner.pid,record.proof.server.pid,...(existing?.host?.hudProcess?[existing.host.hudProcess.pid]:[])],dependencies.pid??process.pid);
+  const initial=(dependencies.processes??readProcessFacts)(hostProcessIds(record.proof,existing?.host?.hudProcess?[existing.host.hudProcess.pid]:[]),dependencies.pid??process.pid);
   const initialDependencies={...dependencies,processes:()=>initial};
   verifyHost(record.proof,options.role??'owner',initialDependencies);const client=new PsmuxClient(record.proof.origin,dependencies);
   if(record.launchFile){
@@ -92,7 +97,7 @@ export async function ensureHostDisplay(input:HostRecord,config:Config,options:H
    do{
     const current=readLaunch(display.file);
     if(current.state==='running'&&current.host?.hudProcess&&current.host.hudPane===hudPane){
-     const hud=client.pane(hudPane),processes=(dependencies.processes??readProcessFacts)([current.host.hudProcess.pid,record.proof.owner.pid,record.proof.server.pid],dependencies.pid??process.pid),actual=processes.find(p=>p.pid===current.host!.hudProcess!.pid);
+     const hud=client.pane(hudPane),processes=(dependencies.processes??readProcessFacts)(hostProcessIds(record.proof,[current.host.hudProcess.pid]),dependencies.pid??process.pid),actual=processes.find(p=>p.pid===current.host!.hudProcess!.pid);
      if(hud.pid!==current.pid||hud.window!==record.proof.window||actual?.startedAt!==current.host.hudProcess.startedAt)throw new Error('HUD did not prove its process/pane incarnation');
      verifyHost(record.proof,options.role??'owner',{...dependencies,processes:()=>processes});applyBinding(current.file,options.binding);return {status:'opened',launchFile:current.file};
     }
@@ -110,7 +115,7 @@ export function acknowledgeViewer(file:string):void {
  const d=readLaunch(file);if(!d.host)throw new Error('Viewer has no exact host binding');
  const record=readHost(d.host.recordFile);ownedDisplay(record,d);if(record.state!=='running'||!record.launchFile||!samePath(record.launchFile,file))throw new Error('Viewer intent is no longer current');
  const origin=readHostOrigin();for(const key of ['originId','namespace','tmux','session'] as const)if(origin[key]!==record.proof.origin[key])throw new Error('Viewer inherited a different host origin');
- const processes=readProcessFacts([process.pid,record.proof.owner.pid,record.proof.server.pid]);
+ const processes=readProcessFacts(hostProcessIds(record.proof,[process.pid]));
  verifyHost(record.proof,'viewer',{processes:()=>processes});const physical=new PsmuxClient(record.proof.origin).pane(origin.pane),own=processes.find(p=>p.pid===process.pid);
  if(origin.pane===record.proof.origin.pane||physical.pid!==process.pid||physical.window!==record.proof.window||!own)throw new Error('Viewer process does not own its HUD pane');
  updateLaunch(file,value=>{value.pid=process.pid;value.state='running';value.heartbeat=Date.now();value.host!.hudPane=origin.pane;value.host!.hudProcess=own;value.host!.phase='running';});

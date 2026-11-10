@@ -1,13 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import {randomUUID} from 'node:crypto';
+import {randomUUID,randomBytes} from 'node:crypto';
 import {spawn,execFileSync} from 'node:child_process';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {loadConfig,get,configPath,startupEnabled} from './config.js';
 import {readHostOrigin,proveOwner} from './psmux.js';
-import {registerHost,ensureHostDisplay,readHost,closeHost,registerCurrentFrontend} from './host-session.js';
+import {registerHost,ensureHostDisplay,readHost,closeHost,registerCurrentFrontend,registerLocalAppServer} from './host-session.js';
 import {verifyBackend,effectiveBackendPath} from './backend-version.js';
 import {resolveOfficial} from './entry-resolver.js';
+import {startLocalAppServer,remoteInvocation,appServerTokenEnvironment} from './local-app-server.js';
 export {resolveOfficial} from './entry-resolver.js';
 
 export interface CodexInvocation {command:string;args:string[]}
@@ -64,6 +65,7 @@ function prepareHost(invocation:CodexInvocation,options:{configFile?:string;runt
  fs.mkdirSync(dataDir,{recursive:true,mode:0o700});fs.mkdirSync(hostDir,{recursive:true,mode:0o700});
  const hostConfig=path.join(dataDir,'host.conf');fs.writeFileSync(hostConfig,'set -g status off\nset -g warm off\nset -g exit-empty on\n',{flag:'wx',mode:0o600});
  const env={...process.env};for(const key of Object.keys(env))if(/^TMUX|^PSMUX_/i.test(key))delete env[key];
+ delete env[appServerTokenEnvironment];if(get(config,'host.runtime')==='localAppServer')env[appServerTokenEnvironment]=randomBytes(32).toString('base64url');
  Object.assign(env,{MZ_HUD_ORIGIN:id,MZ_HUD_NAMESPACE:namespace,MZ_HUD_HOST_DIR:hostDir,MZ_HUD_PSMUX:binary,MZ_HUD_CONFIG_FILE:path.resolve(file),PSMUX_DATA_DIR:dataDir,PSMUX_CONFIG_FILE:hostConfig,PSMUX_NO_WARM:'1'});
  const entry=fileURLToPath(new URL('../bin/hud.mjs',import.meta.url)),encoded=Buffer.from(JSON.stringify(invocation)).toString('base64');
  return {binary,args:['-L',namespace,'-f',hostConfig,'new-session','-s','codex','-c',process.cwd(),'--',process.execPath,entry,'host-owner','--invocation64',encoded,'--config',path.resolve(file)],env,registered:path.join(hostDir,id+'.json')};
@@ -85,14 +87,19 @@ export async function launchHostedCodex(invocation:CodexInvocation,options:{conf
 }
 export async function runHostOwner(invocation:CodexInvocation,configFile=configPath()):Promise<number> {
  const origin=readHostOrigin(),proof=proveOwner(origin),record=registerHost(proof,origin.hostDir),config=loadConfig(configFile);
- let exitCode=1;
+ let exitCode=1,local:Awaited<ReturnType<typeof startLocalAppServer>>|undefined,frontend=invocation;
  try{
+  if(get(config,'host.runtime')==='localAppServer'){
+   try{local=await startLocalAppServer(invocation,process.env[appServerTokenEnvironment]??'');}
+   catch(error){process.stderr.write('Codex HUD: local App Server unavailable; using ordinary CLI. '+(error as Error).message+'\n');}
+   if(local){registerLocalAppServer(local.proof);frontend=remoteInvocation(invocation,local.proof.endpoint);}
+  }
   if(startupEnabled(config)){
    // A retry still verifies the exact slot: only an acknowledged viewer or a
    // successfully queried, definitively absent reported pane can be reused.
    for(let attempt=0;attempt<2;attempt++)try{await ensureHostDisplay(readHost(record.file),config,{configFile});break;}catch{if(attempt===1)process.stderr.write('Codex HUD is not ready; inspect this host with hud doctor.\n');}
   }
-  const command=resolveOfficial(invocation.command),entry=fileURLToPath(new URL('../bin/hud.mjs',import.meta.url)),encoded=Buffer.from(JSON.stringify(invocation)).toString('base64');
+  const command=resolveOfficial(frontend.command),entry=fileURLToPath(new URL('../bin/hud.mjs',import.meta.url)),encoded=Buffer.from(JSON.stringify(frontend)).toString('base64');
   exitCode=await foreground(command.prefix.length?command.file:process.execPath,[entry,'host-frontend','--invocation64',encoded],{...process.env,MZ_HUD_CONFIG_FILE:path.resolve(configFile)});return exitCode;
- }finally{closeHost(readHost(record.file),exitCode);}
+ }finally{try{await local?.stop();}finally{closeHost(readHost(record.file),exitCode);}}
 }

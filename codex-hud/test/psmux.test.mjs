@@ -35,6 +35,20 @@ test('a daemon below another still-live frontend cannot prove the second fronten
 test('a sibling Codex process cannot replace the explicitly registered frontend',()=>{
  const sibling={...frontend,pid:601};assert.throws(()=>api.verifyHost({origin,owner,server,window:'@1',frontend},'hook',deps({processes:()=>[{...hook,parentPid:601},frontend,sibling,owner,server]})),/frontend|origin|ancestor/i);
 });
+
+test('a registered local App Server proves its own hook chain without pretending to be the sibling TUI',()=>{
+ const app={pid:501,parentPid:201,name:'codex.exe',startedAt:'2026-11-03T01:00:02.100Z'},remote={...hook,parentPid:501},proof={origin,owner,server,window:'@1',frontend,appServer:{endpoint:'ws://127.0.0.1:12345/',process:app}};
+ assert.deepEqual(api.verifyHost(proof,'hook',deps({processes:()=>[remote,app,frontend,owner,server]})),proof);
+ for(const changed of [{...app,parentPid:999},{...app,startedAt:'2026-11-03T01:00:02.200Z'},{...app,name:'other.exe'}])assert.throws(()=>api.verifyHost(proof,'hook',deps({processes:()=>[remote,changed,frontend,owner,server]})),/server|incarnation|origin|process/i);
+ assert.throws(()=>api.verifyHost(proof,'hook',deps()),/server|origin|process/i);
+ assert.throws(()=>api.verifyHost({...proof,appServer:{...proof.appServer,endpoint:'ws://example.com:12345'}},'hook',deps({processes:()=>[remote,app,frontend,owner,server]})),/endpoint|loopback|server/i);
+});
+
+test('local-server mode still rejects foreign hooks and loss of its actual frontend',()=>{
+ const app={pid:501,parentPid:201,name:'codex.exe',startedAt:'2026-11-03T01:00:02.100Z'},foreign={...app,pid:601},proof={origin,owner,server,window:'@1',frontend,appServer:{endpoint:'ws://127.0.0.1:12345/',process:app}};
+ assert.throws(()=>api.verifyHost(proof,'hook',deps({processes:()=>[{...hook,parentPid:601},app,foreign,frontend,owner,server]})),/origin|ancestry|server/i);
+ assert.throws(()=>api.verifyHost(proof,'hook',deps({processes:()=>[{...hook,parentPid:501},app,owner,server]})),/frontend/i);
+});
 test('detached split targets the exact pane and returns a scoped pane, never a WT destination',()=>{
  assert.equal(typeof api.PsmuxClient,'function','psmux backend is missing');
  let emitted;

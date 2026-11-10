@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { configPath, get } from './config.js';
 import { createLaunch, readLaunch, updateLaunch, requestStop } from './runtime.js';
-import { PsmuxClient, readHostOrigin, readProcessFacts, verifyHost, hostIdPattern, samePath } from './psmux.js';
+import { PsmuxClient, readHostOrigin, readProcessFacts, verifyHost, verifyLocalAppServer, hostProcessIds, hostIdPattern, samePath } from './psmux.js';
 import { acquireStartupLock } from './startup-lock.js';
 import { planInitialPaneSize } from './pane-size.js';
 import { emptySnapshot } from './types.js';
@@ -66,11 +66,20 @@ export function loadCurrentHost(role = 'hook', dependencies = {}, env = process.
     return record;
 }
 export function registerCurrentFrontend() {
-    const record = currentOriginRecord(), values = readProcessFacts([record.proof.owner.pid, record.proof.server.pid, process.pid]), own = values.find(p => p.pid === process.pid);
+    const record = currentOriginRecord(), values = readProcessFacts(hostProcessIds(record.proof, [process.pid])), own = values.find(p => p.pid === process.pid);
     verifyHost(record.proof, 'frontend', { processes: () => values });
     if (!own || record.proof.frontend && record.proof.frontend.pid !== process.pid)
         throw new Error('A different official frontend already owns this host');
     record.proof.frontend = fact(own);
+    atomic(record.file, record);
+}
+export function registerLocalAppServer(proof) {
+    const record = loadCurrentHost('owner');
+    if (record.proof.appServer || record.proof.frontend)
+        throw new Error('This host already registered its runtime');
+    const values = readProcessFacts(hostProcessIds(record.proof, [proof.process.pid]));
+    verifyLocalAppServer(proof, record.proof.owner, values);
+    record.proof.appServer = { endpoint: proof.endpoint, process: fact(proof.process) };
     atomic(record.file, record);
 }
 function ownedDisplay(record, d) {
@@ -92,7 +101,7 @@ export async function ensureHostDisplay(input, config, options = {}) {
         const existing = record.launchFile ? readLaunch(record.launchFile) : undefined;
         if (existing)
             ownedDisplay(record, existing);
-        const initial = (dependencies.processes ?? readProcessFacts)([record.proof.owner.pid, record.proof.server.pid, ...(existing?.host?.hudProcess ? [existing.host.hudProcess.pid] : [])], dependencies.pid ?? process.pid);
+        const initial = (dependencies.processes ?? readProcessFacts)(hostProcessIds(record.proof, existing?.host?.hudProcess ? [existing.host.hudProcess.pid] : []), dependencies.pid ?? process.pid);
         const initialDependencies = { ...dependencies, processes: () => initial };
         verifyHost(record.proof, options.role ?? 'owner', initialDependencies);
         const client = new PsmuxClient(record.proof.origin, dependencies);
@@ -138,7 +147,7 @@ export async function ensureHostDisplay(input, config, options = {}) {
             do {
                 const current = readLaunch(display.file);
                 if (current.state === 'running' && current.host?.hudProcess && current.host.hudPane === hudPane) {
-                    const hud = client.pane(hudPane), processes = (dependencies.processes ?? readProcessFacts)([current.host.hudProcess.pid, record.proof.owner.pid, record.proof.server.pid], dependencies.pid ?? process.pid), actual = processes.find(p => p.pid === current.host.hudProcess.pid);
+                    const hud = client.pane(hudPane), processes = (dependencies.processes ?? readProcessFacts)(hostProcessIds(record.proof, [current.host.hudProcess.pid]), dependencies.pid ?? process.pid), actual = processes.find(p => p.pid === current.host.hudProcess.pid);
                     if (hud.pid !== current.pid || hud.window !== record.proof.window || actual?.startedAt !== current.host.hudProcess.startedAt)
                         throw new Error('HUD did not prove its process/pane incarnation');
                     verifyHost(record.proof, options.role ?? 'owner', { ...dependencies, processes: () => processes });
@@ -178,7 +187,7 @@ export function acknowledgeViewer(file) {
     for (const key of ['originId', 'namespace', 'tmux', 'session'])
         if (origin[key] !== record.proof.origin[key])
             throw new Error('Viewer inherited a different host origin');
-    const processes = readProcessFacts([process.pid, record.proof.owner.pid, record.proof.server.pid]);
+    const processes = readProcessFacts(hostProcessIds(record.proof, [process.pid]));
     verifyHost(record.proof, 'viewer', { processes: () => processes });
     const physical = new PsmuxClient(record.proof.origin).pane(origin.pane), own = processes.find(p => p.pid === process.pid);
     if (origin.pane === record.proof.origin.pane || physical.pid !== process.pid || physical.window !== record.proof.window || !own)

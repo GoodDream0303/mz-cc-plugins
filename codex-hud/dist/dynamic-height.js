@@ -1,6 +1,6 @@
 import { get } from './config.js';
 import { readHost } from './host-session.js';
-import { PsmuxClient, readProcessIdentities, samePath, verifyHost } from './psmux.js';
+import { PsmuxClient, readProcessIdentities, samePath, verifyHost, hostProcessIds } from './psmux.js';
 /** Resize only this viewer's registered two-pane stack; fixed sizing is untouched. */
 export class DynamicHeightController {
     dependencies;
@@ -58,7 +58,7 @@ export class DynamicHeightController {
         const refresh = get(config, 'terminal.refreshMs'), debounce = target < hud.height ? Math.max(2000, refresh) : refresh;
         if (now - this.since < debounce)
             return;
-        const values = (this.dependencies.processes ?? readProcessIdentities)([host.proof.owner.pid, host.proof.server.pid, viewer.pid], pid), actual = values.find(p => p.pid === pid);
+        const values = (this.dependencies.processes ?? readProcessIdentities)(hostProcessIds(host.proof, [viewer.pid]), pid), actual = values.find(p => p.pid === pid);
         if (!actual || actual.startedAt !== viewer.startedAt || actual.parentPid !== viewer.parentPid || actual.name !== viewer.name)
             throw new Error('HUD viewer process incarnation changed');
         verifyHost(host.proof, 'viewer', { ...this.dependencies, processes: () => values });

@@ -50,8 +50,8 @@
 **Files:** Create `codex-hud/src/local-app-server.ts`, `codex-hud/bin/listener-facts.ps1`, `codex-hud/test/local-app-server.test.mjs`; modify `src/host-launch.ts`, `src/psmux.ts`, `src/host-session.ts`, related host/proof/autostart tests.
 
 **Interfaces:**
-- `LocalAppServerProof {endpoint:string;launcher:ProcessFact;process:ProcessFact}` extends `HostProof.appServer?`.
-- `startLocalAppServer(command:string,token:string):Promise<{proof:LocalAppServerProof;stop():Promise<void>}>`; resolves official native/npm entry, proves actual listener process is launcher or its direct native child.
+- `LocalAppServerProof {endpoint:string;process:ProcessFact}` extends `HostProof.appServer?`.
+- `startLocalAppServer(invocation:CodexInvocation,token:string):Promise<{proof:LocalAppServerProof;stop():Promise<void>}>`; resolves official native/npm entry to the actual native executable and proves its loopback listener.
 - `registerLocalAppServer(proof:LocalAppServerProof):void` records only under verified owner.
 - `readLoopbackListener(port:number):number` returns sole 127.0.0.1 listening PID with native PS helper; no commandline or credentials.
 
@@ -60,6 +60,8 @@
 - [ ] Generate token only in local mode before psmux host creation, start/prove/register official service before HUD/TUI, pass native remote arguments without changing user argv, extend exact-process proof and explicit identity queries. Keep legacy path unchanged; cleanup only proven local children.
 - [ ] Run host-launch/host-session/autostart/psmux and local-server tests serially; expect all pass.
 - [ ] Commit only Task 2 files and generated dist.
+
+Implementation ruling: npm service startup resolves its official native executable so a single owned process handle controls lifetime; no separate launcher fact is needed. Supported config overrides and cwd reach the service; named profiles, local-provider startup and explicit --no-daemon fall back to the ordinary CLI before any TUI starts.
 
 ### Task 3: Viewer integration, offline checks and final review
 

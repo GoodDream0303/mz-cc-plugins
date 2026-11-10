@@ -46,6 +46,12 @@ function queryProcessFacts(pids, rootPid, identitiesOnly) {
 }
 function validFact(value) { return !!value && positive(value.pid) && Number.isSafeInteger(value.parentPid) && value.parentPid >= 0 && typeof value.name === 'string' && value.name.length < 260 && typeof value.startedAt === 'string' && Number.isFinite(Date.parse(value.startedAt)); }
 function sameProcess(actual, expected) { return !!actual && validFact(expected) && actual.pid === expected.pid && actual.startedAt === expected.startedAt && actual.name.toLowerCase() === expected.name.toLowerCase() && actual.parentPid === expected.parentPid; }
+export function hostProcessIds(proof, extra = []) { return [...new Set([proof.owner.pid, proof.server.pid, ...(proof.frontend ? [proof.frontend.pid] : []), ...(proof.appServer ? [proof.appServer.process.pid] : []), ...extra])]; }
+export function verifyLocalAppServer(proof, owner, values) {
+    const endpoint = /^ws:\/\/127\.0\.0\.1:([1-9]\d{0,4})\/?$/.exec(proof.endpoint);
+    if (!endpoint || Number(endpoint[1]) > 65535 || !validFact(proof.process) || proof.process.name.toLowerCase() !== 'codex.exe' || proof.process.parentPid !== owner.pid || Date.parse(proof.process.startedAt) < Date.parse(owner.startedAt) || !sameProcess(values.find(p => p.pid === proof.process.pid), proof.process))
+        throw new Error('Local App Server endpoint or process incarnation is unavailable');
+}
 export class PsmuxClient {
     origin;
     dependencies;
@@ -127,19 +133,21 @@ export function proveOwner(origin, dependencies = {}) {
 }
 export function verifyHost(proof, role, dependencies = {}) {
     const pid = dependencies.pid ?? process.pid, physical = new PsmuxClient(proof.origin, dependencies).pane(proof.origin.pane);
-    const values = (dependencies.processes ?? readProcessFacts)([proof.owner.pid, proof.server.pid, ...(proof.frontend ? [proof.frontend.pid] : [])], pid), table = new Map(values.map(p => [p.pid, p]));
+    const values = (dependencies.processes ?? readProcessFacts)(hostProcessIds(proof), pid), table = new Map(values.map(p => [p.pid, p]));
     if (physical.pid !== proof.owner.pid || physical.window !== proof.window || physical.serverPid !== proof.server.pid || !sameProcess(table.get(proof.owner.pid), proof.owner) || !sameProcess(table.get(proof.server.pid), proof.server))
         throw new Error('Source owner/server process incarnation changed');
     if (role === 'owner' && pid !== proof.owner.pid)
         throw new Error('Current process does not own this source pane');
     if (role === 'frontend' && (table.get(pid)?.parentPid !== proof.owner.pid || pid === proof.owner.pid))
         throw new Error('Frontend entry must be a direct child of the registered source');
+    if (proof.appServer)
+        verifyLocalAppServer(proof.appServer, proof.owner, values);
     if (role === 'hook') {
         if (!proof.frontend)
             throw Object.assign(new Error('Official frontend registration is pending'), { code: 'ERR_HUD_FRONTEND_PENDING' });
         if (proof.frontend.parentPid !== proof.owner.pid || !sameProcess(table.get(proof.frontend.pid), proof.frontend))
             throw new Error('Registered official frontend incarnation is unavailable');
-        let current = table.get(pid), reached = false, frontend = false;
+        let current = table.get(pid), reached = false, frontend = false, appServer = false;
         const seen = new Set(), codex = [];
         for (let depth = 0; depth < 64 && current && !seen.has(current.pid); depth++) {
             seen.add(current.pid);
@@ -147,6 +155,8 @@ export function verifyHost(proof, role, dependencies = {}) {
                 codex.push(current);
             if (current.pid === proof.frontend.pid)
                 frontend = true;
+            if (proof.appServer && current.pid === proof.appServer.process.pid)
+                appServer = true;
             if (current.pid === proof.owner.pid) {
                 reached = true;
                 break;
@@ -156,7 +166,11 @@ export function verifyHost(proof, role, dependencies = {}) {
                 break;
             current = parent;
         }
-        if (!reached || !frontend || codex.length !== 1 || (proof.frontend.name.toLowerCase() === 'codex.exe' ? codex[0].pid !== proof.frontend.pid : codex[0].parentPid !== proof.frontend.pid))
+        if (proof.appServer) {
+            if (!reached || !appServer || codex.length !== 1 || codex[0].pid !== proof.appServer.process.pid)
+                throw new Error('Local App Server ancestry cannot prove this hook origin');
+        }
+        else if (!reached || !frontend || codex.length !== 1 || (proof.frontend.name.toLowerCase() === 'codex.exe' ? codex[0].pid !== proof.frontend.pid : codex[0].parentPid !== proof.frontend.pid))
             throw new Error('Ambiguous frontend/daemon ancestry cannot prove this hook origin');
     }
     return proof;
