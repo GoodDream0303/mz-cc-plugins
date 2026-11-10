@@ -5,6 +5,19 @@ WT tabs or separate PowerShell windows. The official CLI and native statusline
 remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
 task names retain their original language.
 
+## Version 0.7.13: less refresh work and clearer headings
+
+The viewer avoids duplicate renders and unused timestamp/Git work. Idle session
+readers reuse hash work only within each validation phase and defer increment
+buffers until data arrives. Session discovery reads verified metadata with at
+most eight workers while preserving duplicate-ID and equal-time ordering.
+Unused viewport helpers and ineffective configuration labels have been removed.
+
+Current, Recent, Agents and Todo headings have compact monochrome icons and a
+separate `colors.heading` foreground. Activity colors, provenance checks and the
+foreground-first startup behavior remain intact. Component measurements support
+reduced work; real launch duration and long-term stability remain acceptance items.
+
 ## Version 0.7.12: foreground-first startup
 
 The host publishes its exact HUD intent and starts the official frontend before
