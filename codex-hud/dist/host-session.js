@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { configPath, get } from './config.js';
 import { createLaunch, readLaunch, updateLaunch, requestStop } from './runtime.js';
-import { PsmuxClient, readHostOrigin, readProcessFacts, verifyHost, verifyLocalAppServer, hostProcessIds, hostIdPattern, samePath } from './psmux.js';
+import { PsmuxClient, readHostOrigin, readProcessFacts, verifyHost, verifyLocalAppServer, hostProcessIds, hostIdPattern, samePath, sameProcess } from './psmux.js';
 import { acquireStartupLock } from './startup-lock.js';
 import { planInitialPaneSize } from './pane-size.js';
 import { emptySnapshot } from './types.js';
@@ -85,6 +85,38 @@ export function registerLocalAppServer(proof) {
 function ownedDisplay(record, d) {
     if (!d.host || !samePath(d.host.recordFile, record.file) || d.host.proof.origin.originId !== record.id || d.host.proof.owner.pid !== record.proof.owner.pid || d.host.proof.owner.startedAt !== record.proof.owner.startedAt || d.host.proof.server.startedAt !== record.proof.server.startedAt)
         throw new Error('Display does not belong to this exact host');
+}
+export function verifyRuntimeHost(d, dependencies = {}) {
+    const host = d.host, pid = dependencies.pid ?? process.pid;
+    if (!host?.proof.appServer)
+        throw new Error('This display has no local App Server runtime');
+    const record = readHost(host.recordFile);
+    ownedDisplay(record, d);
+    if (record.state !== 'running' || !record.launchFile || !samePath(record.launchFile, d.file) || host.phase !== 'running')
+        throw new Error('Runtime host registration is no longer current');
+    for (const key of ['originId', 'namespace', 'tmux', 'session', 'pane'])
+        if (record.proof.origin[key] !== host.proof.origin[key])
+            throw new Error('Runtime host registration changed');
+    for (const key of ['binary', 'dataDir', 'hostDir'])
+        if (!samePath(record.proof.origin[key], host.proof.origin[key]))
+            throw new Error('Runtime host registration paths changed');
+    if (record.proof.window !== host.proof.window)
+        throw new Error('Runtime host window registration changed');
+    const expected = host.proof.appServer, actual = record.proof.appServer;
+    if (!expected || !actual || expected.endpoint !== actual.endpoint || !sameProcess(actual.process, expected.process))
+        throw new Error('Runtime App Server incarnation changed');
+    const values = (dependencies.processes ?? readProcessFacts)(hostProcessIds(record.proof, [pid]), pid);
+    verifyHost(record.proof, 'viewer', { ...dependencies, processes: () => values });
+    const frontend = record.proof.frontend;
+    if (!frontend || !sameProcess(values.find(p => p.pid === frontend.pid), frontend))
+        throw new Error('Runtime frontend incarnation is unavailable');
+    const viewer = host.hudProcess;
+    if (!viewer || viewer.pid !== pid || d.pid !== pid || !sameProcess(values.find(p => p.pid === pid), viewer))
+        throw new Error('Runtime observer is not this physical viewer');
+    const physical = new PsmuxClient(record.proof.origin, dependencies).pane(host.hudPane ?? '');
+    if (physical.pid !== pid || physical.window !== record.proof.window)
+        throw new Error('Runtime viewer pane incarnation changed');
+    return record;
 }
 function applyBinding(file, binding) {
     if (binding)

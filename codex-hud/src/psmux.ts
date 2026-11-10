@@ -44,7 +44,7 @@ function queryProcessFacts(pids:number[],rootPid:number,identitiesOnly:boolean):
  return value;
 }
 function validFact(value:any):value is ProcessFact{return !!value&&positive(value.pid)&&Number.isSafeInteger(value.parentPid)&&value.parentPid>=0&&typeof value.name==='string'&&value.name.length<260&&typeof value.startedAt==='string'&&Number.isFinite(Date.parse(value.startedAt));}
-function sameProcess(actual:ProcessFact|undefined,expected:ProcessFact):boolean{return !!actual&&validFact(expected)&&actual.pid===expected.pid&&actual.startedAt===expected.startedAt&&actual.name.toLowerCase()===expected.name.toLowerCase()&&actual.parentPid===expected.parentPid;}
+export function sameProcess(actual:ProcessFact|undefined,expected:ProcessFact):boolean{return !!actual&&validFact(expected)&&actual.pid===expected.pid&&actual.startedAt===expected.startedAt&&actual.name.toLowerCase()===expected.name.toLowerCase()&&actual.parentPid===expected.parentPid;}
 export function hostProcessIds(proof:HostProof,extra:number[]=[]):number[]{return [...new Set([proof.owner.pid,proof.server.pid,...(proof.frontend?[proof.frontend.pid]:[]),...(proof.appServer?[proof.appServer.process.pid]:[]),...extra])];}
 export function verifyLocalAppServer(proof:LocalAppServerProof,owner:ProcessFact,values:ProcessFact[]):void {
  const endpoint=/^ws:\/\/127\.0\.0\.1:([1-9]\d{0,4})\/?$/.exec(proof.endpoint);

@@ -17,6 +17,9 @@ export function mcpConnectionRows(snapshot, language, now = Date.now()) {
     for (const name of snapshot.mcpUsed)
         if (!names.has(name))
             names.set(name, true);
+    for (const name of snapshot.mcpNames ?? [])
+        if (!names.has(name))
+            names.set(name, true);
     for (const tool of snapshot.tools) {
         const identity = mcpIdentity(tool);
         if (identity && !names.has(identity.server))

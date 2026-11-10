@@ -22,6 +22,7 @@ export class McpRuntimeClient {
   this.endpoint=localAppServerEndpoint(endpoint);
   if(!/^[a-zA-Z0-9_-]{43,128}$/.test(token))throw new Error('Invalid local App Server credential');
  }
+ get connected():boolean{return !this.closed&&this.ready&&this.socket?.readyState===WebSocket.OPEN;}
  private invalidate(socket:WebSocket,error:Error):void {
   if(this.socket!==socket)return;
   this.socket=undefined;this.ready=false;
@@ -87,18 +88,21 @@ export class McpRuntimeClient {
 }
 
 export class McpRuntimePoller {
- private session='';private epoch=0;private pending=false;private next=0;private value?:McpRuntimeSnapshot;private closed=false;
- constructor(private readonly client:Pick<McpRuntimeClient,'read'|'close'>){}
+ private session='';private epoch=0;private pending=false;private next=0;private value?:McpRuntimeSnapshot;private names:string[]=[];private closed=false;
+ constructor(private readonly client:Pick<McpRuntimeClient,'read'|'close'>&{readonly connected?:boolean}){}
  refresh(sessionId:string,now=Date.now()):void {
   if(this.closed)return;
-  if(this.session!==sessionId){this.session=sessionId;this.epoch++;this.value=undefined;this.next=0;}
+  if(this.session!==sessionId){this.session=sessionId;this.epoch++;this.value=undefined;this.names=[];this.next=0;}
+  if(this.client.connected===false)this.value=undefined;
   if(this.pending||now<this.next)return;
   const epoch=this.epoch;this.pending=true;this.next=now+5000;
-  void this.client.read(sessionId).then(value=>{if(!this.closed&&epoch===this.epoch)this.value=value;},()=>{if(epoch===this.epoch)this.value=undefined;}).finally(()=>{this.pending=false;});
+  void this.client.read(sessionId).then(value=>{if(!this.closed&&epoch===this.epoch){this.value=value.sessionId===sessionId&&value.complete?value:undefined;if(this.value)this.names=this.value.servers.map(server=>server.name);}},()=>{if(epoch===this.epoch)this.value=undefined;}).finally(()=>{this.pending=false;});
  }
  snapshot(sessionId:string,now=Date.now()):McpRuntimeSnapshot|undefined {
+  if(this.client.connected===false)this.value=undefined;
   const value=this.value;
   return !this.closed&&value?.sessionId===sessionId&&value.complete&&Number.isFinite(value.checkedAt)&&now>=value.checkedAt&&now-value.checkedAt<=12000?value:undefined;
  }
- close():void{this.closed=true;this.value=undefined;this.client.close();}
+ knownServers(sessionId:string):string[]{return !this.closed&&sessionId===this.session?this.names.slice():[];}
+ close():void{this.closed=true;this.value=undefined;this.names=[];this.client.close();}
 }

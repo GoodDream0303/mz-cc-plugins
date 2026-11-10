@@ -29,6 +29,7 @@ export class McpRuntimeClient {
         if (!/^[a-zA-Z0-9_-]{43,128}$/.test(token))
             throw new Error('Invalid local App Server credential');
     }
+    get connected() { return !this.closed && this.ready && this.socket?.readyState === WebSocket.OPEN; }
     invalidate(socket, error) {
         if (this.socket !== socket)
             return;
@@ -162,6 +163,7 @@ export class McpRuntimePoller {
     pending = false;
     next = 0;
     value;
+    names = [];
     closed = false;
     constructor(client) {
         this.client = client;
@@ -173,20 +175,29 @@ export class McpRuntimePoller {
             this.session = sessionId;
             this.epoch++;
             this.value = undefined;
+            this.names = [];
             this.next = 0;
         }
+        if (this.client.connected === false)
+            this.value = undefined;
         if (this.pending || now < this.next)
             return;
         const epoch = this.epoch;
         this.pending = true;
         this.next = now + 5000;
-        void this.client.read(sessionId).then(value => { if (!this.closed && epoch === this.epoch)
-            this.value = value; }, () => { if (epoch === this.epoch)
+        void this.client.read(sessionId).then(value => { if (!this.closed && epoch === this.epoch) {
+            this.value = value.sessionId === sessionId && value.complete ? value : undefined;
+            if (this.value)
+                this.names = this.value.servers.map(server => server.name);
+        } }, () => { if (epoch === this.epoch)
             this.value = undefined; }).finally(() => { this.pending = false; });
     }
     snapshot(sessionId, now = Date.now()) {
+        if (this.client.connected === false)
+            this.value = undefined;
         const value = this.value;
         return !this.closed && value?.sessionId === sessionId && value.complete && Number.isFinite(value.checkedAt) && now >= value.checkedAt && now - value.checkedAt <= 12000 ? value : undefined;
     }
-    close() { this.closed = true; this.value = undefined; this.client.close(); }
+    knownServers(sessionId) { return !this.closed && sessionId === this.session ? this.names.slice() : []; }
+    close() { this.closed = true; this.value = undefined; this.names = []; this.client.close(); }
 }

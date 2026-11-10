@@ -38,6 +38,15 @@ test('runtime rejects nonlocal endpoints and never follows an authentication red
 test('runtime times out unresponsive requests and closes its transport',async t=>{
  assert.equal(typeof api.McpRuntimeClient,'function');const {client}=await fixture(t,r=>base(r));const start=Date.now();await assert.rejects(client.read('thread-a'),/timeout/i);assert.ok(Date.now()-start<4000);
 });
+test('a known transport disconnect invalidates a fresh connected result immediately',async t=>{
+ assert.equal(typeof api.McpRuntimePoller,'function');const {client,server}=await fixture(t,r=>base(r)??{data:[{name:'docs',runtimeStatus:'connected'}],nextCursor:null}),poller=new api.McpRuntimePoller(client);t.after(()=>poller.close());poller.refresh('thread-a');
+ for(let i=0;i<50&&!poller.snapshot('thread-a');i++)await new Promise(r=>setTimeout(r,10));assert.equal(poller.snapshot('thread-a')?.servers[0].status,'connected');
+ for(const socket of server.clients)socket.terminate();await new Promise(r=>setTimeout(r,30));assert.equal(poller.snapshot('thread-a'),undefined);
+});
+test('a failed refresh retains only known server names for an unknown-state connection row',async()=>{
+ assert.equal(typeof api.McpRuntimePoller.prototype.knownServers,'function');let fail=false;const poller=new api.McpRuntimePoller({read:async sessionId=>{if(fail)throw Error('offline');return {sessionId,checkedAt:1000,complete:true,servers:[{name:'plugin-docs',status:'connected'}]};},close(){}});
+ poller.refresh('thread-a',1000);await new Promise(setImmediate);fail=true;poller.refresh('thread-a',6000);await new Promise(setImmediate);assert.equal(poller.snapshot('thread-a',6001),undefined);assert.deepEqual(poller.knownServers('thread-a'),['plugin-docs']);poller.refresh('thread-b',6002);assert.deepEqual(poller.knownServers('thread-b'),[]);poller.close();
+});
 test('poller clears a switched thread immediately and never overlaps an outstanding request',async()=>{
  assert.equal(typeof api.McpRuntimePoller,'function');let resolve,calls=0;const client={read:()=>{calls++;return new Promise(r=>{resolve=r;});},close(){}};
  const poller=new api.McpRuntimePoller(client);poller.refresh('thread-a',1000);poller.refresh('thread-b',1001);assert.equal(calls,1);assert.equal(poller.snapshot('thread-b',1001),undefined);

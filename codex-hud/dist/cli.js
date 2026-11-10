@@ -14,8 +14,8 @@ import { readEnvironment } from './environment.js';
 import { sanitize } from './terminal-text.js';
 import { emptySnapshot } from './types.js';
 import { buildTerminalArgs, checkRuntime, createLaunch, readLaunch, requestStop, runtimeRoot, selectSessionId, updateLaunch } from './runtime.js';
-import { loadCurrentHost, ensureHostDisplay, bindHostSession, acknowledgeViewer, readHost } from './host-session.js';
-import { readProcessIdentities } from './psmux.js';
+import { loadCurrentHost, ensureHostDisplay, bindHostSession, acknowledgeViewer, readHost, verifyRuntimeHost } from './host-session.js';
+import { readProcessIdentities, hostProcessIds } from './psmux.js';
 import { decodeInvocation, launchHostedCodex, runHostOwner, runHostFrontend } from './host-launch.js';
 import { profileChange, applyProfileChange, stableEntryPlan, applyStableEntry } from './profile-setup.js';
 import { fileURLToPath } from 'node:url';
@@ -24,6 +24,8 @@ import { inspectSetup } from './setup-readiness.js';
 import { sessionMetadata, isMainSession } from './autostart.js';
 import { DynamicHeightController } from './dynamic-height.js';
 import { AgentSessionTracker } from './agent-sessions.js';
+import { McpRuntimeClient, McpRuntimePoller } from './mcp-runtime.js';
+import { appServerTokenEnvironment } from './local-app-server.js';
 function option(args, key) { const i = args.indexOf(key); return i >= 0 ? args[i + 1] : args.find(v => v.startsWith(key + '='))?.slice(key.length + 1); }
 function launchFile(args) { const encoded = option(args, '--launch64'); return encoded ? Buffer.from(encoded, 'base64').toString('utf8') : option(args, '--launch'); }
 function configFile(args) { return option(args, '--config') ?? configPath(); }
@@ -72,6 +74,8 @@ async function watch(args, once = false) {
     const interactive = !once && !!process.stdin.isTTY;
     const dynamicHeight = new DynamicHeightController();
     const agentSessions = new AgentSessionTracker(root);
+    let mcpPoller, mcpKey = '', mcpVerified = false, mcpMessage = '';
+    const closeMcp = () => { mcpPoller?.close(); mcpPoller = undefined; mcpKey = ''; mcpVerified = false; };
     if (interactive) {
         emitKeypressEvents(process.stdin);
         process.stdin.setRawMode(true);
@@ -96,13 +100,35 @@ async function watch(args, once = false) {
                 }
                 selected = descriptor.sessionId;
                 if (descriptor.host) {
-                    if (readHost(descriptor.host.recordFile).state === 'closed')
+                    const registered = readHost(descriptor.host.recordFile);
+                    if (registered.state === 'closed')
                         break;
                     if (Date.now() >= nextOwnerCheck) {
-                        const expected = descriptor.host.proof.owner, actual = readProcessIdentities([expected.pid]).find(p => p.pid === expected.pid);
+                        const expected = descriptor.host.proof.owner, wantsMcp = !!descriptor.host.proof.appServer && !!selected && !!get(config, 'display.showMcp');
+                        const values = readProcessIdentities(wantsMcp ? hostProcessIds(registered.proof, [expected.pid, process.pid]) : [expected.pid]), actual = values.find(p => p.pid === expected.pid);
                         nextOwnerCheck = Date.now() + 5000;
                         if (!actual || actual.startedAt !== expected.startedAt)
                             break;
+                        if (wantsMcp) {
+                            try {
+                                const verified = verifyRuntimeHost(descriptor, { processes: () => values }), runtime = verified.proof.appServer, key = JSON.stringify([verified.id, runtime]);
+                                if (mcpKey !== key) {
+                                    closeMcp();
+                                    mcpPoller = new McpRuntimePoller(new McpRuntimeClient(runtime.endpoint, process.env[appServerTokenEnvironment] ?? ''));
+                                    mcpKey = key;
+                                }
+                                mcpVerified = true;
+                                mcpMessage = '';
+                            }
+                            catch {
+                                closeMcp();
+                                mcpMessage = 'Live MCP state unavailable; source identity could not be verified';
+                            }
+                        }
+                        else {
+                            closeMcp();
+                            mcpMessage = '';
+                        }
                     }
                 }
             }
@@ -112,6 +138,10 @@ async function watch(args, once = false) {
             }
             catch (e) {
                 statusMessage = 'Configuration reload failed: ' + e.message;
+            }
+            if (!selected || !get(config, 'display.showMcp')) {
+                closeMcp();
+                mcpMessage = '';
             }
             let snapshot = emptySnapshot(selected ?? 'pending');
             if (selected) {
@@ -149,6 +179,13 @@ async function watch(args, once = false) {
                 await agentSessions.refresh(snapshot, reader);
             if (snapshot.cwd)
                 snapshot.environment = readEnvironment(snapshot.cwd, home);
+            if (mcpVerified && mcpPoller && selected) {
+                mcpPoller.refresh(selected);
+                snapshot.mcpRuntime = mcpPoller.snapshot(selected);
+                snapshot.mcpNames = mcpPoller.knownServers(selected);
+            }
+            if (mcpMessage)
+                snapshot.errors.push(mcpMessage);
             if (statusMessage)
                 snapshot.errors.push(statusMessage);
             const width = Number(option(args, '--width')) || process.stdout.columns || 100, color = !args.includes('--no-color') && !!process.stdout.isTTY;
@@ -183,6 +220,7 @@ async function watch(args, once = false) {
         } while (!quit);
     }
     finally {
+        closeMcp();
         if (interactive) {
             process.stdin.off('keypress', onKey);
             process.stdin.setRawMode(false);

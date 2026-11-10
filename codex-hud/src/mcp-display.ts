@@ -17,6 +17,7 @@ export function mcpConnectionRows(snapshot:HudSnapshot,language:string,now=Date.
  const names=new Map<string,boolean>();
  for(const server of snapshot.environment?.mcp??[])names.set(server.name,server.enabled);
  for(const name of snapshot.mcpUsed)if(!names.has(name))names.set(name,true);
+ for(const name of snapshot.mcpNames??[])if(!names.has(name))names.set(name,true);
  for(const tool of snapshot.tools){const identity=mcpIdentity(tool);if(identity&&!names.has(identity.server))names.set(identity.server,true);}
  const runtime=snapshot.mcpRuntime;
  const live=runtime?.sessionId===snapshot.sessionId&&runtime.complete&&Number.isFinite(runtime.checkedAt)&&now>=runtime.checkedAt&&now-runtime.checkedAt<=12000?new Map(runtime.servers.map(s=>[s.name,s.status])):new Map<string,McpConnectionStatus>();

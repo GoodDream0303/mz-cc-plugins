@@ -5,6 +5,9 @@ const api=await import('../dist/mcp-display.js').catch(()=>({}));
 test('MCP connection summary is one logical row so the terminal wraps only when needed',()=>{
  const result=api.mcpConnectionRows({...emptySnapshot('parent'),mcpUsed:['docs','debug']},'en');assert.equal(result.rows.length,1);assert.match(result.rows[0],/Official.*docs.*debug/);
 });
+test('runtime-discovered names remain visible as unknown after their live status is unavailable',()=>{
+ const result=api.mcpConnectionRows({...emptySnapshot('thread-a'),mcpNames:['plugin-docs']},'en');assert.equal(result.persistent,true);assert.match(result.rows.join('\n'),/plugin-docs.*Unknown/);
+});
 
 test('idle nonofficial connections remain named while official inventory is summarized without a connection claim',()=>{
  assert.equal(typeof api.mcpConnectionRows,'function');

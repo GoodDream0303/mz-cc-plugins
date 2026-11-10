@@ -13,6 +13,7 @@ export interface HudSnapshot {
  errors:string[];status:string;sessionName?:string;
  environment?:EnvironmentFacts;
  mcpRuntime?:McpRuntimeSnapshot;
+ mcpNames?:string[];
 }
 export interface EnvironmentFacts {
  git?:{branch:string;dirty:boolean;ahead:number;behind:number;modified:number;added:number;untracked:number};

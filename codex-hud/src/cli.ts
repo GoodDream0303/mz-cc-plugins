@@ -14,8 +14,8 @@ import {readEnvironment} from './environment.js';
 import {sanitize} from './terminal-text.js';
 import {emptySnapshot,type HudSnapshot} from './types.js';
 import {buildTerminalArgs,checkRuntime,createLaunch,readLaunch,requestStop,runtimeRoot,selectSessionId,updateLaunch,type LaunchDescriptor} from './runtime.js';
-import {loadCurrentHost,ensureHostDisplay,bindHostSession,acknowledgeViewer,readHost} from './host-session.js';
-import {readProcessIdentities} from './psmux.js';
+import {loadCurrentHost,ensureHostDisplay,bindHostSession,acknowledgeViewer,readHost,verifyRuntimeHost} from './host-session.js';
+import {readProcessIdentities,hostProcessIds} from './psmux.js';
 import {decodeInvocation,launchHostedCodex,runHostOwner,runHostFrontend} from './host-launch.js';
 import {profileChange,applyProfileChange,stableEntryPlan,applyStableEntry} from './profile-setup.js';
 import {fileURLToPath} from 'node:url';
@@ -24,6 +24,8 @@ import {inspectSetup} from './setup-readiness.js';
 import {sessionMetadata,isMainSession} from './autostart.js';
 import {DynamicHeightController} from './dynamic-height.js';
 import {AgentSessionTracker} from './agent-sessions.js';
+import {McpRuntimeClient,McpRuntimePoller} from './mcp-runtime.js';
+import {appServerTokenEnvironment} from './local-app-server.js';
 
 function option(args:string[],key:string):string|undefined{const i=args.indexOf(key);return i>=0?args[i+1]:args.find(v=>v.startsWith(key+'='))?.slice(key.length+1);}
 function launchFile(args:string[]):string|undefined{const encoded=option(args,'--launch64');return encoded?Buffer.from(encoded,'base64').toString('utf8'):option(args,'--launch');}
@@ -47,6 +49,8 @@ async function watch(args:string[],once=false):Promise<void>{
  const interactive=!once&&!!process.stdin.isTTY;
  const dynamicHeight=new DynamicHeightController();
  const agentSessions=new AgentSessionTracker(root);
+ let mcpPoller:McpRuntimePoller|undefined,mcpKey='',mcpVerified=false,mcpMessage='';
+ const closeMcp=()=>{mcpPoller?.close();mcpPoller=undefined;mcpKey='';mcpVerified=false;};
  if(interactive){emitKeypressEvents(process.stdin);process.stdin.setRawMode(true);process.stdin.on('keypress',onKey);process.stdin.resume();}
  if(!once&&process.stdout.isTTY)process.stdout.write('\x1b[?1049h\x1b[?25l');
  if(descriptor&&!descriptor.demo)updateLaunch(ownedFile!,d=>{d.state='running';d.pid=process.pid;d.heartbeat=Date.now();});
@@ -57,14 +61,23 @@ async function watch(args:string[],once=false):Promise<void>{
     if(selected!==descriptor.sessionId){reader=undefined;knownPath='';lastSnapshot=emptySnapshot(descriptor.sessionId??'pending');page=0;}
     selected=descriptor.sessionId;
     if(descriptor.host){
-     if(readHost(descriptor.host.recordFile).state==='closed')break;
+     const registered=readHost(descriptor.host.recordFile);if(registered.state==='closed')break;
      if(Date.now()>=nextOwnerCheck){
-      const expected=descriptor.host.proof.owner,actual=readProcessIdentities([expected.pid]).find(p=>p.pid===expected.pid);nextOwnerCheck=Date.now()+5000;
+      const expected=descriptor.host.proof.owner,wantsMcp=!!descriptor.host.proof.appServer&&!!selected&&!!get(config,'display.showMcp');
+      const values=readProcessIdentities(wantsMcp?hostProcessIds(registered.proof,[expected.pid,process.pid]):[expected.pid]),actual=values.find(p=>p.pid===expected.pid);nextOwnerCheck=Date.now()+5000;
       if(!actual||actual.startedAt!==expected.startedAt)break;
+      if(wantsMcp){
+       try{
+        const verified=verifyRuntimeHost(descriptor,{processes:()=>values}),runtime=verified.proof.appServer!,key=JSON.stringify([verified.id,runtime]);
+        if(mcpKey!==key){closeMcp();mcpPoller=new McpRuntimePoller(new McpRuntimeClient(runtime.endpoint,process.env[appServerTokenEnvironment]??''));mcpKey=key;}
+        mcpVerified=true;mcpMessage='';
+       }catch{closeMcp();mcpMessage='Live MCP state unavailable; source identity could not be verified';}
+      }else{closeMcp();mcpMessage='';}
      }
     }
    }
    try{config=loadConfig(cfgFile);statusMessage='';}catch(e){statusMessage='Configuration reload failed: '+(e as Error).message;}
+   if(!selected||!get(config,'display.showMcp')){closeMcp();mcpMessage='';}
    let snapshot=emptySnapshot(selected??'pending');
    if(selected){
     if(descriptor?.transcriptPath){if(!reader||knownPath!==descriptor.transcriptPath){knownPath=descriptor.transcriptPath;reader=new SessionReader(knownPath,selected);}}
@@ -77,6 +90,8 @@ async function watch(args:string[],once=false):Promise<void>{
    }else snapshot.errors.push(descriptor?.host?'Waiting for this Codex conversation':'Select the existing Codex session to display');
    if(reader)await agentSessions.refresh(snapshot,reader);
    if(snapshot.cwd)snapshot.environment=readEnvironment(snapshot.cwd,home);
+   if(mcpVerified&&mcpPoller&&selected){mcpPoller.refresh(selected);snapshot.mcpRuntime=mcpPoller.snapshot(selected);snapshot.mcpNames=mcpPoller.knownServers(selected);}
+   if(mcpMessage)snapshot.errors.push(mcpMessage);
    if(statusMessage)snapshot.errors.push(statusMessage);
    const width=Number(option(args,'--width'))||process.stdout.columns||100,color=!args.includes('--no-color')&&!!process.stdout.isTTY;
    let rows=once?1000:process.stdout.rows||12,result=render(snapshot,config,{width,height:rows,page,color});
@@ -94,6 +109,7 @@ async function watch(args:string[],once=false):Promise<void>{
    await delay(get(config,'terminal.refreshMs'));
   }while(!quit);
  }finally{
+  closeMcp();
   if(interactive){process.stdin.off('keypress',onKey);process.stdin.setRawMode(false);process.stdin.pause();}
   if(!once&&process.stdout.isTTY)process.stdout.write('\x1b[0m\x1b[?25h\x1b[?1049l');
   if(descriptor&&!descriptor.demo)updateLaunch(ownedFile!,d=>{d.state='exited';d.exitCode=0;});

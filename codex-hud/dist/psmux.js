@@ -45,7 +45,7 @@ function queryProcessFacts(pids, rootPid, identitiesOnly) {
     return value;
 }
 function validFact(value) { return !!value && positive(value.pid) && Number.isSafeInteger(value.parentPid) && value.parentPid >= 0 && typeof value.name === 'string' && value.name.length < 260 && typeof value.startedAt === 'string' && Number.isFinite(Date.parse(value.startedAt)); }
-function sameProcess(actual, expected) { return !!actual && validFact(expected) && actual.pid === expected.pid && actual.startedAt === expected.startedAt && actual.name.toLowerCase() === expected.name.toLowerCase() && actual.parentPid === expected.parentPid; }
+export function sameProcess(actual, expected) { return !!actual && validFact(expected) && actual.pid === expected.pid && actual.startedAt === expected.startedAt && actual.name.toLowerCase() === expected.name.toLowerCase() && actual.parentPid === expected.parentPid; }
 export function hostProcessIds(proof, extra = []) { return [...new Set([proof.owner.pid, proof.server.pid, ...(proof.frontend ? [proof.frontend.pid] : []), ...(proof.appServer ? [proof.appServer.process.pid] : []), ...extra])]; }
 export function verifyLocalAppServer(proof, owner, values) {
     const endpoint = /^ws:\/\/127\.0\.0\.1:([1-9]\d{0,4})\/?$/.exec(proof.endpoint);

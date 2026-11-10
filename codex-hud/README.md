@@ -5,6 +5,58 @@ WT tabs or separate PowerShell windows. The official CLI and native statusline
 remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
 task names retain their original language.
 
+## Unreleased: live MCP connection status
+
+The connection summary uses one logical row, wrapping at the actual terminal
+width when necessary. The active-call area keeps its existing event sources and
+behavior.
+
+The optional `host.runtime=localAppServer` mode starts one official App Server per
+physical HUD host and connects the official TUI directly to it. A second,
+read-only HUD connection queries the **currently bound thread's** MCP runtime
+states every five seconds. Authentication-required, starting, connected, failed,
+cancelled and disabled states come from that runtime; configuration, tool counts
+and past successes never establish a connection. Missing, incomplete or expired
+facts display Unknown. A known transport disconnect invalidates old facts
+immediately; other stale observations expire after twelve seconds.
+
+`host.runtime` defaults to `cli`. The ordinary mode and existing sessions continue
+to work without an App Server endpoint. Enabling the new mode applies on the next
+normal `codex` or `codex resume` invocation, after installing a release containing
+this change. For an explicitly selected development checkout, use its own CLI:
+
+```powershell
+node '<plugin-root>/bin/hud.mjs' config set host.runtime localAppServer
+```
+
+This changes the selected HUD configuration only; it does not rewrite profiles or
+enable a shared daemon. Restore `host.runtime` to `cli` for ordinary future starts.
+Keep `display.showMcp=true` to show the connection summary. Official services remain
+combined without inventory details; differing reported states display Mixed.
+
+The managed mode supports native and supported npm Codex layouts on Windows with
+Node20+. Its WebSocket transport is experimental. It uses an authenticated,
+loopback-only endpoint, proves the actual native listener and source process
+incarnations, and carries the client dependency and license in the offline package.
+Tokens stay in this host's child environment; they are not stored in descriptors,
+command lines or logs. The official service receives only the verifier hash.
+
+Named profiles, `--no-daemon`, local-provider/OSS startup, unavailable native npm
+layouts and failed service preparation produce an explicit notice and retain the
+ordinary CLI path before a TUI is started. Supported `-c`/feature overrides and
+the selected working directory are passed to the service. Once a TUI has started,
+an uncertain outcome never triggers another Codex invocation.
+
+Automated coverage includes controlled loopback servers, thread changes, source
+rejection, offline packaging and a separate isolated official-backend smoke check
+with a local test MCP and zero model turns. This does **not** establish actual
+user-TUI acceptance: on the first deliberately enabled session, verify the CLI
+source and SessionStart binding, original-session `resume`, `/clear`, real MCP
+states and endpoint cleanup on exit. Review hooks with native `/hooks` where
+needed; do not bypass trust or weaken source checks. Keep any rejected or
+unverified source at Unknown. Do not treat the unchanged call area as newly
+validated by the connection-state tests.
+
 Version 0.7.8 refines tool labels: only agent operations display a task target.
 Ordinary tools show their action and recorded duration without file names,
 directories or other object summaries. Git subcommands remain part of the action
