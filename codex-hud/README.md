@@ -5,7 +5,7 @@ WT tabs or separate PowerShell windows. The official CLI and native statusline
 remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
 task names retain their original language.
 
-## Version 0.7.9 candidate: live MCP connection status
+## Version 0.7.9: live MCP connection status
 
 The connection summary uses one logical row, wrapping at the actual terminal
 width when necessary. The active-call area keeps its existing event sources and
