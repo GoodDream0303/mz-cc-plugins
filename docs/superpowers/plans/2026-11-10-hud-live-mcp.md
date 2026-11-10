@@ -1,6 +1,6 @@
 # HUD Live MCP Status Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 在可选本机 App Server 模式中显示当前线程的权威 MCP 连接状态，调用栏保持原样。
 
@@ -39,11 +39,11 @@
 - `McpRuntimeClient(endpoint:string,token:string)`, `read(sessionId:string):Promise<McpRuntimeSnapshot>`, `close():void`.
 - `McpRuntimePoller` owns async nonoverlapping 5-second reads and returns only current-session, unexpired status; constructor consumes client `read/close`, `refresh(sessionId,now?)`, `snapshot(sessionId,now?)`, `close()`.
 
-- [ ] Write failing tests: real loopback WebSocket fixture observes only permitted methods and exact threadId; only server name/status retained; pagination, repeated cursors, unknown states, not-loaded thread, timeout/oversize/disconnect; poller drops switched/stale/incomplete data. Presentation uses runtime status only for matching session, returns Unknown for missing/expired facts, localizes all states and official Mixed; existing call tests unchanged.
-- [ ] Run `node --test --test-concurrency=1 test/mcp-runtime.test.mjs test/mcp-display.test.mjs`; observe missing-feature failures before implementation.
-- [ ] Add fixed ws/client typing, vendoring and license. Implement bounded requests with no redirects/compression, loopback endpoint validation and at most 64 servers, pagination, safe projection, freshness and localization; add validated default-off config choice.
-- [ ] Run build and affected tests including config/package/render; expect all pass, offline ws import works.
-- [ ] Commit only Task 1 files and generated dist.
+- [x] Write failing tests: real loopback WebSocket fixture observes only permitted methods and exact threadId; only server name/status retained; pagination, repeated cursors, unknown states, not-loaded thread, timeout/oversize/disconnect; poller drops switched/stale/incomplete data. Presentation uses runtime status only for matching session, returns Unknown for missing/expired facts, localizes all states and official Mixed; existing call tests unchanged.
+- [x] Run `node --test --test-concurrency=1 test/mcp-runtime.test.mjs test/mcp-display.test.mjs`; observe missing-feature failures before implementation.
+- [x] Add fixed ws/client typing, vendoring and license. Implement bounded requests with no redirects/compression, loopback endpoint validation and at most 64 servers, pagination, safe projection, freshness and localization; add validated default-off config choice.
+- [x] Run build and affected tests including config/package/render; expect all pass, offline ws import works.
+- [x] Commit only Task 1 files and generated dist.
 
 ### Task 2: Local service lifecycle and source proof
 
@@ -55,11 +55,11 @@
 - `registerLocalAppServer(proof:LocalAppServerProof):void` records only under verified owner.
 - `readLoopbackListener(port:number):number` returns sole 127.0.0.1 listening PID with native PS helper; no commandline or credentials.
 
-- [ ] Write failing tests for source ancestry (registered server vs foreign/reused/dead process, sibling frontend, legacy rejection), default-off routing, remote argv and token privacy, startup cleanup/exit behavior. Native service test uses an isolated CODEX_HOME and local fixture only, no model or real user TUI.
-- [ ] Run selected host/local-server suites; observe missing-source/runtime failures.
-- [ ] Generate token only in local mode before psmux host creation, start/prove/register official service before HUD/TUI, pass native remote arguments without changing user argv, extend exact-process proof and explicit identity queries. Keep legacy path unchanged; cleanup only proven local children.
-- [ ] Run host-launch/host-session/autostart/psmux and local-server tests serially; expect all pass.
-- [ ] Commit only Task 2 files and generated dist.
+- [x] Write failing tests for source ancestry (registered server vs foreign/reused/dead process, sibling frontend, legacy rejection), default-off routing, remote argv and token privacy, startup cleanup/exit behavior. Native service test uses an isolated CODEX_HOME and local fixture only, no model or real user TUI.
+- [x] Run selected host/local-server suites; observe missing-source/runtime failures.
+- [x] Generate token only in local mode before psmux host creation, start/prove/register official service before HUD/TUI, pass native remote arguments without changing user argv, extend exact-process proof and explicit identity queries. Keep legacy path unchanged; cleanup only proven local children.
+- [x] Run host-launch/host-session/autostart/psmux and local-server tests serially; expect all pass.
+- [x] Commit only Task 2 files and generated dist.
 
 Implementation ruling: npm service startup resolves its official native executable so a single owned process handle controls lifetime; no separate launcher fact is needed. Supported config overrides and cwd reach the service; named profiles, local-provider startup and explicit --no-daemon fall back to the ordinary CLI before any TUI starts.
 
@@ -69,8 +69,8 @@ Implementation ruling: npm service startup resolves its official native executab
 
 **Interfaces:** Viewer consumes verified `record.proof.appServer`, inherited token and explicitly bound session ID; owner/viewer checks retain actual birth times. `McpRuntimePoller` supplies `snapshot.mcpRuntime` only after host proof succeeds.
 
-- [ ] Write failing integration tests for valid display and stale/foreign/closed-host fallback; offline Node20 package imports and reads test runtime without node_modules; call-area regression remains unchanged.
-- [ ] Observe failures, then integrate nonblocking polling and resource cleanup into watch; verify host/server/frontend identity before starting each refresh, clear on config/session/host changes. Reuse existing 5-second identity checks where safe.
-- [ ] Document opt-in next-start behavior, unchanged call-area scope, experimental transport and exact manual acceptance for actual CLI source, SessionStart, resume/clear and real user MCP. Do not auto-enable, publish, install or claim those manual checks passed.
-- [ ] Run serial full suite, affected Node20 suites and isolated official App Server plus local test MCP. Inspect results and product/user config diff. Expect zero relevant automated failures and no residual test processes.
-- [ ] Commit completed implementation and verified results; request one fresh whole-branch review; fix material findings with RED→GREEN and rerun affected checks. Keep unrelated files untouched.
+- [x] Write failing integration tests for valid display and stale/foreign/closed-host fallback; offline Node20 package imports and reads test runtime without node_modules; call-area regression remains unchanged.
+- [x] Observe failures, then integrate nonblocking polling and resource cleanup into watch; verify host/server/frontend identity before starting each refresh, clear on config/session/host changes. Reuse existing 5-second identity checks where safe.
+- [x] Document opt-in next-start behavior, unchanged call-area scope, experimental transport and exact manual acceptance for actual CLI source, SessionStart, resume/clear and real user MCP. Do not auto-enable, publish, install or claim those manual checks passed.
+- [x] Run serial full suite, affected Node20 suites and isolated official App Server plus local test MCP. Inspect results and product/user config diff. Expect zero relevant automated failures and no residual test processes.
+- [x] Commit completed implementation and verified results; request one fresh whole-branch review; fix material findings with RED→GREEN and rerun affected checks. Keep unrelated files untouched.

@@ -38,6 +38,14 @@ test('runtime rejects nonlocal endpoints and never follows an authentication red
 test('runtime times out unresponsive requests and closes its transport',async t=>{
  assert.equal(typeof api.McpRuntimeClient,'function');const {client}=await fixture(t,r=>base(r));const start=Date.now();await assert.rejects(client.read('thread-a'),/timeout/i);assert.ok(Date.now()-start<4000);
 });
+test('initialization refusal closes every failed socket before retry and final shutdown',async t=>{
+ assert.equal(typeof api.McpRuntimeClient,'function');let attempts=0;const {client,server}=await fixture(t,(r,socket)=>{
+  if(r.method==='initialize'&&++attempts<=2){socket.send(JSON.stringify(attempts===1?{id:r.id,error:{code:-32600,message:'refused'}}:{id:r.id}));return;}
+  return base(r)??{data:[{name:'docs',runtimeStatus:'connected'}],nextCursor:null};
+ });
+ for(let attempt=0;attempt<2;attempt++){await assert.rejects(client.read('thread-a'),/request failed/);for(let i=0;i<20&&server.clients.size;i++)await new Promise(r=>setTimeout(r,5));assert.equal(server.clients.size,0,'a refused initialization must not retain an authenticated connection');}
+ assert.equal((await client.read('thread-a')).servers[0].status,'connected');client.close();for(let i=0;i<20&&server.clients.size;i++)await new Promise(r=>setTimeout(r,5));assert.equal(server.clients.size,0);
+});
 test('a known transport disconnect invalidates a fresh connected result immediately',async t=>{
  assert.equal(typeof api.McpRuntimePoller,'function');const {client,server}=await fixture(t,r=>base(r)??{data:[{name:'docs',runtimeStatus:'connected'}],nextCursor:null}),poller=new api.McpRuntimePoller(client);t.after(()=>poller.close());poller.refresh('thread-a');
  for(let i=0;i<50&&!poller.snapshot('thread-a');i++)await new Promise(r=>setTimeout(r,10));assert.equal(poller.snapshot('thread-a')?.servers[0].status,'connected');

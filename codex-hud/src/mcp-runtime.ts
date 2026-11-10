@@ -43,10 +43,12 @@ export class McpRuntimeClient {
     this.pending.delete(message.id);clearTimeout(pending.timer);
     if(message.error||!Object.hasOwn(message,'result'))pending.reject(new Error('MCP runtime request failed'));else pending.resolve(message.result);
    });
-   await new Promise<void>((resolve,reject)=>{socket.once('open',resolve);socket.once('error',()=>reject(new Error('MCP runtime connection failed')));socket.once('close',()=>reject(new Error('MCP runtime disconnected')));});
-   await this.request('initialize',{clientInfo:{name:'mz_codex_hud',version:'1.0.0'},capabilities:{experimentalApi:true}});
-   if(this.socket!==socket)throw new Error('MCP runtime disconnected');
-   socket.send(JSON.stringify({method:'initialized',params:{}}));this.ready=true;
+   try{
+    await new Promise<void>((resolve,reject)=>{socket.once('open',resolve);socket.once('error',()=>reject(new Error('MCP runtime connection failed')));socket.once('close',()=>reject(new Error('MCP runtime disconnected')));});
+    await this.request('initialize',{clientInfo:{name:'mz_codex_hud',version:'1.0.0'},capabilities:{experimentalApi:true}});
+    if(this.socket!==socket)throw new Error('MCP runtime disconnected');
+    socket.send(JSON.stringify({method:'initialized',params:{}}));this.ready=true;
+   }catch(error){this.invalidate(socket,new Error('MCP runtime initialization failed'));throw error;}
   })();
   try{await this.connecting;}finally{this.connecting=undefined;}
  }
