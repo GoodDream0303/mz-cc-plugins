@@ -1,4 +1,4 @@
-import type {HudSnapshot,Tool} from './types.js';
+import type {HudSnapshot,Tool,McpConnectionStatus} from './types.js';
 import {sanitize} from './terminal-text.js';
 import {toolDetails} from './tool-details.js';
 
@@ -6,15 +6,26 @@ const official=new Set(['codex_apps','codex_tui']);
 function label(language:string,en:string,zh:string,tw=zh):string{return language==='zh-Hans'?zh:language==='zh-Hant'?tw:en;}
 export function mcpIdentity(tool:Tool):Tool['mcp'] {return tool.mcp??toolDetails(tool.name).mcp;}
 
-/** Configuration and historical calls establish names, never live connections. */
-export function mcpConnectionRows(snapshot:HudSnapshot,language:string):{rows:string[];persistent:boolean} {
+function stateLabel(state:McpConnectionStatus|'mixed',language:string):string {
+ const labels:Record<McpConnectionStatus|'mixed',[string,string,string]>={
+  unknown:['? Unknown','? 未知','? 未知'],notStarted:['○ Not started','○ 未启动','○ 未啟動'],starting:['◐ Starting','◐ 启动中','◐ 啟動中'],connected:['● Connected','● 已连接','● 已連線'],authenticationRequired:['! Authentication required','! 需要认证','! 需要驗證'],failed:['! Failed','! 失败','! 失敗'],cancelled:['○ Cancelled','○ 已取消','○ 已取消'],disabled:['⊘ Disabled','⊘ 已禁用','⊘ 已停用'],mixed:['◑ Mixed','◑ 状态不一','◑ 狀態不一']
+ };
+ return label(language,...(labels[state]??labels.unknown));
+}
+/** Configuration/history establish names; only matching fresh runtime facts establish state. */
+export function mcpConnectionRows(snapshot:HudSnapshot,language:string,now=Date.now()):{rows:string[];persistent:boolean} {
  const names=new Map<string,boolean>();
  for(const server of snapshot.environment?.mcp??[])names.set(server.name,server.enabled);
  for(const name of snapshot.mcpUsed)if(!names.has(name))names.set(name,true);
  for(const tool of snapshot.tools){const identity=mcpIdentity(tool);if(identity&&!names.has(identity.server))names.set(identity.server,true);}
+ const runtime=snapshot.mcpRuntime;
+ const live=runtime?.sessionId===snapshot.sessionId&&runtime.complete&&Number.isFinite(runtime.checkedAt)&&now>=runtime.checkedAt&&now-runtime.checkedAt<=12000?new Map(runtime.servers.map(s=>[s.name,s.status])):new Map<string,McpConnectionStatus>();
+ for(const name of live.keys())if(!names.has(name))names.set(name,true);
+ const officialStates=[...live].filter(([name])=>official.has(name)).map(([,state])=>state);
+ const combined: McpConnectionStatus|'mixed'=!officialStates.length||officialStates.includes('unknown')?'unknown':new Set(officialStates).size===1?officialStates[0]:'mixed';
  const foreign=[...names].filter(([name])=>!official.has(name));
- const rows=[label(language,'MCP connections: Official ? Unknown','MCP连接: 官方 ? 未知','MCP連線: 官方 ? 未知')];
- if(foreign.length)rows.push(foreign.map(([name,enabled])=>sanitize(name)+(enabled?' ? '+label(language,'Unknown','未知'):' ⊘ '+label(language,'Disabled (config)','禁用（配置）'))).join(' | '));
+ const rows=[label(language,'MCP connections: Official ','MCP连接: 官方 ','MCP連線: 官方 ')+stateLabel(combined,language)];
+ if(foreign.length)rows[0]+=' | '+foreign.map(([name,enabled])=>sanitize(name)+' '+(live.has(name)?stateLabel(live.get(name)!,language):enabled?stateLabel('unknown',language):'⊘ '+label(language,'Disabled (config)','禁用（配置）'))).join(' | ');
  return {rows,persistent:foreign.length>0};
 }
 

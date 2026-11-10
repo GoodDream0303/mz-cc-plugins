@@ -83,6 +83,7 @@ def('startup.enabled',true,'startup','Auto open HUD',{label:'Legacy startup',rea
 def('startup.window','last','startup','Terminal target',{pattern:/^[a-zA-Z0-9_.-]{1,100}$/,reason:'Legacy value preserved; attachment uses the verified source pane'});
 def('host.psmuxPath',packagedBackendPath(),'startup','Portable psmux executable');
 def('host.autoStart','inherit','startup','Exact host automatic opening',{choices:['inherit','enabled','disabled']});
+def('host.runtime','cli','startup','Codex runtime',{choices:['cli','localAppServer']});
 export const definitions:readonly Definition[]=defs;
 export const unsupported=unavailable;
 const unsafe=new Set(['__proto__','prototype','constructor']);

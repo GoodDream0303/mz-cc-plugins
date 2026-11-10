@@ -76,8 +76,8 @@ export function render(s:HudSnapshot,c:Config,o:RenderOptions={}):RenderResult {
   if(quotas.length){groups.set('usage',quotas.join(' | '));fields.set('usage',quotas);}
  }
  if(on('showMcp')){
-  const presentation=mcpConnectionRows(s,lang);persistentMcp=presentation.persistent;
-  const connections=presentation.rows.map((text,index)=>({text:ink(text,'inactive'),pinPriority:index===0?0:1}));
+  const presentation=mcpConnectionRows(s,lang,now);persistentMcp=presentation.persistent;
+  const connections=presentation.rows.map(text=>({text:ink(text,'inactive'),pinPriority:presentation.persistent?1:0}));
   groups.set('mcp',connections[0].text);separate.set('mcp',connections);
  }
  if(on('showTools')&&s.tools.length){

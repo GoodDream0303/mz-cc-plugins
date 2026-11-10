@@ -132,6 +132,7 @@ add('startup.enabled','旧版自动启动','舊版自動啟動',false,'Keep fals
 add('startup.window','旧版目标窗口','舊版目標視窗','last','Compatibility only; attachment uses the verified source pane.','仅用于兼容；附着使用已验证的来源面板。','僅用於相容；附著使用已驗證的來源面板。');
 add('host.psmuxPath','便携 psmux 路径','可攜式 psmux 路徑','C:/tools/psmux/psmux.exe','Use an existing verified portable executable at this absolute path; no installation is performed.','使用此绝对路径下已存在并核验的便携程序；设置路径不会安装程序。','使用此絕對路徑下已存在並核驗的可攜式程式；設定路徑不會安裝程式。');
 add('host.autoStart','精确宿主自动启动','精確宿主自動啟動','enabled','enabled: exact-host startup on; disabled: off; inherit: follow the legacy enabled preference.','enabled：启用精确宿主启动；disabled：关闭；inherit：遵循旧版 enabled 偏好。','enabled：啟用精確宿主啟動；disabled：關閉；inherit：遵循舊版 enabled 偏好。');
+add('host.runtime','Codex 运行方式','Codex 執行方式','cli','cli: ordinary startup; localAppServer: opt into an isolated local server on the next start for live MCP status.','cli：普通启动；localAppServer：下次启动使用独立本机服务，提供实时 MCP 状态。','cli：一般啟動；localAppServer：下次啟動使用獨立本機服務，提供即時 MCP 狀態。');
 
 const reasons:Record<string,Copy>={
  forceMaxWidth:text('Rendering respects actual viewport width.','渲染遵守实际窗口宽度。','呈現遵守實際視窗寬度。'),
@@ -152,6 +153,7 @@ for(const key of ['showCost','showRoutedCost','showDailyCost'])reasons['display.
 reasons['display.advisorOverride']=reasons['display.showAdvisor'];
 for(const key of ['externalUsagePath','externalUsageWritePath'])reasons['display.'+key]=text('Preserved only; external path I/O is disabled.','仅保留配置；已禁用外部路径读写。','僅保留設定；已停用外部路徑讀寫。');
 const choices:Record<string,Copy>={
+ cli:text('Ordinary CLI','普通 CLI','一般 CLI'),localAppServer:text('Local App Server (experimental)','本机 App Server（实验性）','本機 App Server（實驗性）'),
  en:text('English','英文','英文'),'zh-Hans':text('Simplified Chinese','简体中文','簡體中文'),'zh-Hant':text('Traditional Chinese','繁体中文','繁體中文'),
  expanded:text('Separate groups','按组分行','按組分行'),compact:text('Compact format','紧凑格式','緊湊格式'),full:text('Full value or path','完整值或完整路径','完整值或完整路徑'),short:text('Short model name','简短模型名','簡短模型名稱'),
  truncate:text('Truncate','截短','截短'),wrap:text('Wrap','换行','換行'),percent:text('Used percentage','已用百分比','已用百分比'),tokens:text('Token counts','Token 数量','Token 數量'),remaining:text('Remaining amount','剩余量','剩餘量'),both:text('Both formats','同时显示两种格式','同時顯示兩種格式'),

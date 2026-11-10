@@ -15,10 +15,12 @@
     "test": "npm run build && node scripts/test.mjs"
   },
   "dependencies": {
-    "smol-toml": "1.9.1"
+    "smol-toml": "1.9.1",
+    "ws": "8.22.2"
   },
   "devDependencies": {
     "@types/node": "24.10.1",
+    "@types/ws": "8.18.2",
     "typescript": "7.0.2"
   }
 }

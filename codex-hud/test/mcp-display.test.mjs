@@ -2,6 +2,10 @@ import test from 'node:test';import assert from 'node:assert/strict';
 import {emptySnapshot} from '../dist/types.js';
 const api=await import('../dist/mcp-display.js').catch(()=>({}));
 
+test('MCP connection summary is one logical row so the terminal wraps only when needed',()=>{
+ const result=api.mcpConnectionRows({...emptySnapshot('parent'),mcpUsed:['docs','debug']},'en');assert.equal(result.rows.length,1);assert.match(result.rows[0],/Official.*docs.*debug/);
+});
+
 test('idle nonofficial connections remain named while official inventory is summarized without a connection claim',()=>{
  assert.equal(typeof api.mcpConnectionRows,'function');
  const s={...emptySnapshot('parent'),environment:{mcp:[{name:'codex_apps',enabled:true},{name:'codex_tui',enabled:true},{name:'context7',enabled:true},{name:'debug',enabled:false}],errors:[]}};
@@ -31,4 +35,16 @@ test('MCP presentation localizes unknown states, removes terminal controls and b
   const text=api.mcpConnectionRows({...emptySnapshot('parent'),mcpUsed:['docs\u001b[31m']},lang).rows.join('\n');assert.ok(text.includes(label));assert.ok(!text.includes('\u001b'));
   const rows=api.mcpCallRows(tools,lang,1000,2);assert.equal(rows.length,3);assert.match(rows[2].text,/\+1/);assert.ok(rows.every(r=>!r.text.includes('NaN')));
  }
+});
+
+test('connection rows use only fresh matching runtime states and combine official differences',()=>{
+ const s={...emptySnapshot('thread-a'),mcpRuntime:{sessionId:'thread-a',checkedAt:1000,complete:true,servers:[{name:'codex_apps',status:'connected'},{name:'codex_tui',status:'starting'},{name:'docs',status:'authenticationRequired'}]}};
+ const text=api.mcpConnectionRows(s,'en',2000).rows.join('\n');assert.match(text,/Official.*Mixed/);assert.match(text,/docs.*Authentication required/);assert.doesNotMatch(text,/codex_apps|codex_tui/);
+ for(const runtime of [{...s.mcpRuntime,sessionId:'foreign'},{...s.mcpRuntime,checkedAt:-20000},{...s.mcpRuntime,complete:false}])assert.match(api.mcpConnectionRows({...s,mcpRuntime:runtime},'en',2000).rows[0],/Unknown/);
+ const connected={...s,mcpRuntime:{...s.mcpRuntime,servers:[{name:'codex_apps',status:'connected'}]}};assert.match(api.mcpConnectionRows(connected,'en',2000).rows[0],/Official.*Connected/);
+});
+
+test('live connection states localize without changing configured-only disabled labels',()=>{
+ const states=[['connected','已连接','已連線'],['starting','启动中','啟動中'],['failed','失败','失敗'],['cancelled','已取消','已取消'],['disabled','已禁用','已停用'],['notStarted','未启动','未啟動'],['authenticationRequired','需要认证','需要驗證']];
+ for(const [status,zh,tw] of states){const s={...emptySnapshot('thread-a'),mcpRuntime:{sessionId:'thread-a',checkedAt:1000,complete:true,servers:[{name:'docs',status}]}};assert.match(api.mcpConnectionRows(s,'zh-Hans',1001).rows.join('\n'),new RegExp(zh));assert.match(api.mcpConnectionRows(s,'zh-Hant',1001).rows.join('\n'),new RegExp(tw));}
 });

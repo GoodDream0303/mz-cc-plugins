@@ -41,11 +41,16 @@ test('only agent operations show task targets while Git subcommands remain visib
 
 test('nonofficial MCP connection names stay visible on every activity page alongside critical warnings',()=>{
  const config=set(set(set(set(defaultConfig(),'display.showMcp',true),'display.showTools',true),'display.showContextBar',false),'display.toolsMaxVisible',0);
- const s={...emptySnapshot('parent'),errors:['critical warning'],environment:{mcp:[{name:'docs',enabled:true}],errors:[]},tools:Array.from({length:12},(_,i)=>({id:String(i),name:'task_'+i,status:'running'}))};
+ const s={...emptySnapshot('parent'),errors:['critical warning'],environment:{mcp:[{name:'docs',enabled:true}],errors:[]},tools:Array.from({length:18},(_,i)=>({id:String(i),name:'task_'+i,status:'running'}))};
  const first=render(s,config,{width:80,height:5,color:false});assert.ok(first.pages>1);
  const pages=Array.from({length:first.pages},(_,page)=>render(s,config,{width:80,height:5,color:false,page}).lines.join('\n'));
  for(const page of pages){assert.match(page,/critical warning/);assert.match(page,/docs.*Unknown/);assert.ok(page.split('\n').length<=5);}
- const text=pages.join('\n');for(let i=0;i<12;i++)assert.ok(text.includes('task_'+i),'task_'+i);
+ const text=pages.join('\n');for(let i=0;i<18;i++)assert.ok(text.includes('task_'+i),'task_'+i);
+});
+
+test('MCP summary stays on one physical line when it fits and wraps naturally when narrow',()=>{
+ const config=set(set(set(defaultConfig(),'display.showMcp',true),'display.showContextBar',false),'display.showTokenBreakdown',false),s={...emptySnapshot('parent'),mcpUsed:['docs','debug']};
+ const wide=render(s,config,{width:120,height:20,color:false}),narrow=render(s,config,{width:36,height:20,color:false});assert.equal(wide.lines.length,1);assert.match(wide.lines[0],/Official.*docs.*debug/);assert.ok(narrow.lines.length>1);assert.ok(narrow.lines.every(line=>displayWidth(line)<=32));assert.match(narrow.lines.join(' '),/docs.*debug/);
 });
 
 test('narrow short MCP layouts preserve overflow content and critical warning priority',()=>{

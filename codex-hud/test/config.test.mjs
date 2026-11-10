@@ -5,6 +5,10 @@ import os from 'node:os';
 import path from 'node:path';
 import {defaultConfig,validateConfig,importClaude,saveConfig,loadConfig,set,get,preset,definitions,configPath} from '../dist/config.js';
 
+test('local App Server mode is explicit and invalid runtime choices are rejected',()=>{
+ assert.equal(get(defaultConfig(),'host.runtime'),'cli');assert.equal(get(set(defaultConfig(),'host.runtime','localAppServer'),'host.runtime'),'localAppServer');assert.throws(()=>set(defaultConfig(),'host.runtime','foreign-server'));
+});
+
 test('config defaults and configuration labels are English while user text is preserved',()=>{
  assert.equal(get(defaultConfig(),'language'),'en');assert.ok(definitions.every(d=>!/[\u3400-\u9fff]/.test(d.label)));
  const config=set(defaultConfig(),'display.customLine','列出 Codex 常用插件');assert.equal(get(config,'display.customLine'),'列出 Codex 常用插件');
