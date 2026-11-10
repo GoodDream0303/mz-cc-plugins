@@ -51,9 +51,10 @@ export function render(s:HudSnapshot,c:Config,o:RenderOptions={}):RenderResult {
  if(on('showAuth')&&s.plan)identity.auth=ink(s.plan,'label');
  function timestamp(value:string|number):string {
   const time=typeof value==='number'?value:Date.parse(value);if(!Number.isFinite(time))return unknown;
-  const absolute=new Date(time).toLocaleString(en?'en-US':trad?'zh-TW':'zh-CN',{hourCycle:get(c,'display.hourCycle')==='auto'?undefined:get(c,'display.hourCycle'),second:on('showClockSeconds')?'2-digit':undefined});
   const minutes=Math.abs(Math.round((time-now)/60000));const relative=(minutes>=60?Math.floor(minutes/60)+'h '+minutes%60+'m':minutes+'m')+(time<now?label(' ago','前'):label(' left','后','後'));
-  const format=get(c,'display.timeFormat');return format==='absolute'?absolute:['both','elapsedAndAbsolute'].includes(format)?relative+' / '+absolute:relative;
+  const format=get(c,'display.timeFormat');if(!['absolute','both','elapsedAndAbsolute'].includes(format))return relative;
+  const absolute=new Date(time).toLocaleString(en?'en-US':trad?'zh-TW':'zh-CN',{hourCycle:get(c,'display.hourCycle')==='auto'?undefined:get(c,'display.hourCycle'),second:on('showClockSeconds')?'2-digit':undefined});
+  return format==='absolute'?absolute:relative+' / '+absolute;
  }
  if(on('showDuration')&&s.startedAt){const duration=Math.max(0,Math.floor((now-Date.parse(s.startedAt))/60000));identity.duration=ink(label('Duration ','时长 ','時長 ')+(duration>=60?Math.floor(duration/60)+'h ':'')+duration%60+'m','label');}
  const custom=sanitize(get(c,'display.customLine')??'');
@@ -102,16 +103,16 @@ export function render(s:HudSnapshot,c:Config,o:RenderOptions={}):RenderResult {
    return ink((t.status==='running'?'◐ ':t.status==='failed'?'✗ ':t.status==='cancelled'?'⊘ ':'✓ ')+(get(c,'display.toolNameMaxLength')?truncate(name,get(c,'display.toolNameMaxLength')):sanitize(name))+(rich?(elapsed?' · '+elapsed:''):' ×'+t.count),t.status==='running'?'active':t.status==='failed'?'critical':'inactive');
   };
   const current=visible.filter(t=>t.status==='running'),recent=visible.filter(t=>t.status!=='running'),parts:string[]=[];
-  if(current.length)parts.push(ink(label('Current: ','当前: ','目前: '),'active')+current.map(format).join(' | '));if(recent.length)parts.push(ink(label('Recent: ','近期: '),'inactive')+recent.map(format).join(' | '));
+  if(current.length)parts.push(ink('▸ '+label('Current: ','当前: ','目前: '),'heading')+current.map(format).join(' | '));if(recent.length)parts.push(ink('◷ '+label('Recent: ','近期: '),'heading')+recent.map(format).join(' | '));
   if(ordered.length>limit)parts.push(ink('+'+(ordered.length-limit)+' '+label('more','更多'),'inactive'));if(parts.length){groups.set('tools',parts[0]);separate.set('tools',parts.map(text=>({text})));}
  }
  if(on('showAgents')&&s.agents.length){
   const rows=agentRows(s.agents,lang,now,get(c,'display.agentsMaxVisible')).map(row=>({text:ink(row.text,['starting','running'].includes(row.status)?'active':'inactive'),indent:2}));
-  if(rows.length){const heading=ink(label('Agents:','子代理:'),'label');groups.set('agents',heading);separate.set('agents',[{text:heading},...rows]);}
+  if(rows.length){const heading=ink('◈ '+label('Agents:','子代理:'),'heading');groups.set('agents',heading);separate.set('agents',[{text:heading},...rows]);}
  }
  if(on('showTodos')&&s.todos.length){
   const pending=s.todos.filter(t=>t.status!=='completed'),done=s.todos.length-pending.length;
-  groups.set('todos',ink(label('Todo: ','待办: ','待辦: ')+(pending.length?pending.map(t=>(t.status==='in_progress'?'▸ ':'○ ')+sanitize(t.step)).join(' | '):'✓ '+label('All tasks complete','全部完成'))+' ('+done+'/'+s.todos.length+')','label'));
+  groups.set('todos',ink('≡ '+label('Todo: ','待办: ','待辦: '),'heading')+ink((pending.length?pending.map(t=>(t.status==='in_progress'?'▸ ':'○ ')+sanitize(t.step)).join(' | '):'✓ '+label('All tasks complete','全部完成'))+' ('+done+'/'+s.todos.length+')','label'));
  }
  const sessionTime:string[]=[];
  if(on('showSessionStartDate')&&s.startedAt)sessionTime.push(label('Started ','开始 ','開始 ')+timestamp(s.startedAt));

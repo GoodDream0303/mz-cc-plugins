@@ -50,7 +50,7 @@ export async function runHostFrontend(invocation:CodexInvocation):Promise<number
  // SessionStart, including an immediately supplied first prompt.
  registerCurrentFrontend();const command=resolveOfficial(invocation.command);
  if(command.prefix.length){process.argv=[process.execPath,command.prefix[0],...invocation.args];await import(pathToFileURL(command.prefix[0]).href);return process.exitCode===undefined?0:Number(process.exitCode);}
- return runOfficial(invocation);
+ return foreground(command.file,invocation.args,process.env);
 }
 function prepareHost(invocation:CodexInvocation,options:{configFile?:string;runtimeDir?:string}):{binary:string;args:string[];env:NodeJS.ProcessEnv;registered:string}|undefined {
  if(classifyCodexInvocation(invocation.args)==='passthrough')return;

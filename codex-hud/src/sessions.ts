@@ -8,9 +8,10 @@ export async function listSessions(root=path.join(codexHome(),'sessions')):Promi
  async function visit(dir:string){let entries;try{entries=await fs.readdir(dir,{withFileTypes:true});}catch(e){if(['ENOENT','EACCES','EPERM'].includes((e as NodeJS.ErrnoException).code??''))return;throw e;}
   for(const entry of entries){if(entry.isSymbolicLink())continue;const file=path.join(dir,entry.name);if(entry.isDirectory())await visit(file);else if(entry.name.endsWith('.jsonl'))files.push(file);}
  }
- await visit(root);const sessions:SessionInfo[]=[];
+ await visit(root);const sessions:Array<SessionInfo|undefined>=new Array(files.length);let next=0;
  // Metadata is at the head; never load conversation text to name a session.
- for(const file of files){
+ async function readMetadata(){for(;;){
+  const index=next++;if(index>=files.length)return;const file=files[index];
   let handle;try{handle=await fs.open(file,'r');const buffer=Buffer.alloc(4096),chunks:Buffer[]=[];let offset=0;
    while(offset<256*1024){
     const {bytesRead}=await handle.read(buffer,0,Math.min(buffer.length,256*1024-offset),offset);if(!bytesRead)break;
@@ -18,10 +19,13 @@ export async function listSessions(root=path.join(codexHome(),'sessions')):Promi
    }
    const meta=JSON.parse(Buffer.concat(chunks).toString('utf8'));const p=meta.payload;
    if(meta.type!=='session_meta'||typeof p?.id!=='string')continue;const stat=await handle.stat();
-   sessions.push({id:p.id,cwd:typeof p.cwd==='string'?p.cwd:'',path:file,startedAt:p.timestamp??meta.timestamp,parentId:p.source?.subagent?.thread_spawn?.parent_thread_id,modified:stat.mtimeMs});
+   sessions[index]={id:p.id,cwd:typeof p.cwd==='string'?p.cwd:'',path:file,startedAt:p.timestamp??meta.timestamp,parentId:p.source?.subagent?.thread_spawn?.parent_thread_id,modified:stat.mtimeMs};
   }catch{/* missing, busy or partial file; retry on the next discovery tick */}finally{await handle?.close();}
- }
- return sessions.sort((a,b)=>b.modified-a.modified);
+ }}
+ const workers=await Promise.allSettled(Array.from({length:Math.min(8,files.length)},()=>readMetadata()));
+ for(const result of workers)if(result.status==='rejected')throw result.reason;
+ // Preserve enumeration order when mtimes tie, regardless of read completion order.
+ return sessions.filter((value):value is SessionInfo=>value!==undefined).sort((a,b)=>b.modified-a.modified);
 }
 export async function findSession(root:string,id:string):Promise<SessionInfo|null>{
  if(!/^[a-zA-Z0-9_-]{3,100}$/.test(id))throw new Error('Invalid session ID');

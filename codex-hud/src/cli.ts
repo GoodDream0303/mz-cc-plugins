@@ -84,14 +84,14 @@ async function watch(args:string[],once=false):Promise<void>{
     else snapshot.errors.push('Waiting for the selected session log');
    }else snapshot.errors.push(descriptor?.host?'Waiting for this Codex conversation':'Select the existing Codex session to display');
    if(reader)await agentSessions.refresh(snapshot,reader);
-   if(snapshot.cwd)snapshot.environment=readEnvironment(snapshot.cwd);
+   if(snapshot.cwd&&(get(config,'gitStatus.enabled')||args.includes('--json')))snapshot.environment=readEnvironment(snapshot.cwd);
    if(statusMessage)snapshot.errors.push(statusMessage);
    if(sourceMessage)snapshot.errors.push(sourceMessage);
    const width=Number(option(args,'--width'))||process.stdout.columns||100,color=!args.includes('--no-color')&&!!process.stdout.isTTY;
-   let rows=once?1000:process.stdout.rows||12,result=render(snapshot,config,{width,height:rows,page,color});
+   const now=Date.now();let rows=once?1000:process.stdout.rows||12,result=render(snapshot,config,{width,height:rows,page,color,now});
    if(!once&&process.stdout.isTTY&&descriptor?.host&&sourceVerified){
-    try{const fitted=dynamicHeight.fit(descriptor,config,result.totalLines,Date.now(),{columns:width,rows});if(fitted!==undefined)rows=fitted;result=render(snapshot,config,{width,height:rows,page,color,showPager:!dynamicHeight.awaitingGrowth});}
-    catch{snapshot.errors.push('Automatic height unavailable; keeping the current pane size');result=render(snapshot,config,{width,height:rows,page,color});}
+    try{const fitted=dynamicHeight.fit(descriptor,config,result.totalLines,now,{columns:width,rows});if(fitted!==undefined&&fitted!==rows||dynamicHeight.awaitingGrowth){rows=fitted??rows;result=render(snapshot,config,{width,height:rows,page,color,now,showPager:!dynamicHeight.awaitingGrowth});}}
+    catch{snapshot.errors.push('Automatic height unavailable; keeping the current pane size');result=render(snapshot,config,{width,height:rows,page,color,now});}
    }
    if(descriptor&&!descriptor.demo)updateLaunch(ownedFile!,d=>{d.heartbeat=Date.now();d.viewport={columns:process.stdout.columns??100,rows,contentRows:result.totalLines,pages:result.pages};});
    if(args.includes('--json'))console.log(JSON.stringify(snapshot));else{

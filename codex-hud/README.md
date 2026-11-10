@@ -402,6 +402,8 @@ The Agents heading occupies its own line; entries and wrapped continuations shar
 the same indentation. Starting/running agents and current tools use bright text,
 while inactive agents and recent tools use gray text. Customize these foregrounds
 with `colors.active` and `colors.inactive`; tool failures retain the critical color.
+Current, Recent, Agents and Todo headings use compact monochrome icons and a
+separate soft gray-blue foreground, configurable with `colors.heading`.
 Backgrounds and font weight stay unchanged, and color-disabled output stays plain.
 Completed spawn/wait tools alone do not mean an agent finished. Missing lifecycle
 metadata is shown as `status not reported`; prompt and result bodies are discarded.

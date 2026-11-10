@@ -27,8 +27,8 @@ export class SessionReader {
  agentActivityAt(id:string):number|undefined{return this.agents.activityAt(id);}
  agentTiming(id:string):{startedAt?:number;endedAt?:number}{return this.agents.timing(id);}
  private reset(){this.offset=0;this.carry='';this.decoder=new StringDecoder('utf8');this.snapshot=emptySnapshot(this.sessionId);this.agents=new AgentTracker(this.snapshot.agents,this.sessionId);this.mismatch=false;this.absolute=false;this.discard=false;this.canonicalCompleted.clear();this.canonicalTools.clear();this.processTools.clear();this.pollTargets.clear();this.prefix=undefined;this.checkpoint=undefined;}
- private async unchanged(handle:FileHandle):Promise<boolean>{
-  for(const point of [this.prefix,this.checkpoint])if(point&&await fingerprint(handle,point.start,point.length)!==point.digest)return false;
+ private async unchanged(hash:(start:number,length:number)=>Promise<string>):Promise<boolean>{
+  for(const point of [this.prefix,this.checkpoint])if(point&&await hash(point.start,point.length)!==point.digest)return false;
   return true;
  }
  async read():Promise<HudSnapshot>{
@@ -36,11 +36,14 @@ export class SessionReader {
   try {
    const stat=await handle.stat();const identity=stat.dev+':'+stat.ino+':'+stat.birthtimeMs;
    if(identity!==this.identity||stat.size<this.offset||(stat.mtimeMs!==this.mtime&&stat.size===this.offset&&this.offset>0))this.reset();
-   if(this.offset&&!await this.unchanged(handle))this.reset();
+   const phase=()=>{const digests=new Map<string,Promise<string>>();return (start:number,length:number)=>{const key=start+':'+length;let digest=digests.get(key);if(!digest){digest=fingerprint(handle,start,length);digests.set(key,digest);}return digest;};};
+   let beforeHash=phase();
+   if(this.offset&&!await this.unchanged(beforeHash)){this.reset();beforeHash=phase();}
    this.identity=identity;this.mtime=stat.mtimeMs;
-   const prefixLength=Math.min(stat.size,4096),before=await fingerprint(handle,0,prefixLength);
-   const buffer=Buffer.alloc(64*1024);
+   const prefixLength=Math.min(stat.size,4096),before=await beforeHash(0,prefixLength);
+   let buffer:Buffer|undefined;
    while(this.offset<stat.size){
+    buffer??=Buffer.alloc(64*1024);
     const {bytesRead}=await handle.read(buffer,0,Math.min(buffer.length,stat.size-this.offset),this.offset);if(!bytesRead)break;
     this.offset+=bytesRead;this.carry+=this.decoder.write(buffer.subarray(0,bytesRead));
     let end:number;while((end=this.carry.indexOf('\n'))>=0){
@@ -51,12 +54,13 @@ export class SessionReader {
     if(this.carry.length>MAX_LINE){this.carry='';this.discard=true;this.error('oversized record ignored');}
    }
    // Hash anchors, not raw log text, are retained. Revalidate across the read too.
-   if(await fingerprint(handle,0,prefixLength)!==before||!await this.unchanged(handle)){
+   const afterHash=phase();
+   if(await afterHash(0,prefixLength)!==before||!await this.unchanged(afterHash)){
     this.reset();this.error('Session log changed during read; retrying');return structuredClone(this.snapshot);
    }
    const length=Math.min(this.offset,4096),start=this.offset-length;
    this.prefix={start:0,length:prefixLength,digest:before};
-   this.checkpoint={start,length,digest:await fingerprint(handle,start,length)};
+   this.checkpoint={start,length,digest:await afterHash(start,length)};
    return structuredClone(this.snapshot);
   }finally{await handle.close();}
  }

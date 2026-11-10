@@ -71,11 +71,13 @@ export function render(s, c, o = {}) {
         const time = typeof value === 'number' ? value : Date.parse(value);
         if (!Number.isFinite(time))
             return unknown;
-        const absolute = new Date(time).toLocaleString(en ? 'en-US' : trad ? 'zh-TW' : 'zh-CN', { hourCycle: get(c, 'display.hourCycle') === 'auto' ? undefined : get(c, 'display.hourCycle'), second: on('showClockSeconds') ? '2-digit' : undefined });
         const minutes = Math.abs(Math.round((time - now) / 60000));
         const relative = (minutes >= 60 ? Math.floor(minutes / 60) + 'h ' + minutes % 60 + 'm' : minutes + 'm') + (time < now ? label(' ago', '前') : label(' left', '后', '後'));
         const format = get(c, 'display.timeFormat');
-        return format === 'absolute' ? absolute : ['both', 'elapsedAndAbsolute'].includes(format) ? relative + ' / ' + absolute : relative;
+        if (!['absolute', 'both', 'elapsedAndAbsolute'].includes(format))
+            return relative;
+        const absolute = new Date(time).toLocaleString(en ? 'en-US' : trad ? 'zh-TW' : 'zh-CN', { hourCycle: get(c, 'display.hourCycle') === 'auto' ? undefined : get(c, 'display.hourCycle'), second: on('showClockSeconds') ? '2-digit' : undefined });
+        return format === 'absolute' ? absolute : relative + ' / ' + absolute;
     }
     if (on('showDuration') && s.startedAt) {
         const duration = Math.max(0, Math.floor((now - Date.parse(s.startedAt)) / 60000));
@@ -157,9 +159,9 @@ export function render(s, c, o = {}) {
         };
         const current = visible.filter(t => t.status === 'running'), recent = visible.filter(t => t.status !== 'running'), parts = [];
         if (current.length)
-            parts.push(ink(label('Current: ', '当前: ', '目前: '), 'active') + current.map(format).join(' | '));
+            parts.push(ink('▸ ' + label('Current: ', '当前: ', '目前: '), 'heading') + current.map(format).join(' | '));
         if (recent.length)
-            parts.push(ink(label('Recent: ', '近期: '), 'inactive') + recent.map(format).join(' | '));
+            parts.push(ink('◷ ' + label('Recent: ', '近期: '), 'heading') + recent.map(format).join(' | '));
         if (ordered.length > limit)
             parts.push(ink('+' + (ordered.length - limit) + ' ' + label('more', '更多'), 'inactive'));
         if (parts.length) {
@@ -170,14 +172,14 @@ export function render(s, c, o = {}) {
     if (on('showAgents') && s.agents.length) {
         const rows = agentRows(s.agents, lang, now, get(c, 'display.agentsMaxVisible')).map(row => ({ text: ink(row.text, ['starting', 'running'].includes(row.status) ? 'active' : 'inactive'), indent: 2 }));
         if (rows.length) {
-            const heading = ink(label('Agents:', '子代理:'), 'label');
+            const heading = ink('◈ ' + label('Agents:', '子代理:'), 'heading');
             groups.set('agents', heading);
             separate.set('agents', [{ text: heading }, ...rows]);
         }
     }
     if (on('showTodos') && s.todos.length) {
         const pending = s.todos.filter(t => t.status !== 'completed'), done = s.todos.length - pending.length;
-        groups.set('todos', ink(label('Todo: ', '待办: ', '待辦: ') + (pending.length ? pending.map(t => (t.status === 'in_progress' ? '▸ ' : '○ ') + sanitize(t.step)).join(' | ') : '✓ ' + label('All tasks complete', '全部完成')) + ' (' + done + '/' + s.todos.length + ')', 'label'));
+        groups.set('todos', ink('≡ ' + label('Todo: ', '待办: ', '待辦: '), 'heading') + ink((pending.length ? pending.map(t => (t.status === 'in_progress' ? '▸ ' : '○ ') + sanitize(t.step)).join(' | ') : '✓ ' + label('All tasks complete', '全部完成')) + ' (' + done + '/' + s.todos.length + ')', 'label'));
     }
     const sessionTime = [];
     if (on('showSessionStartDate') && s.startedAt)

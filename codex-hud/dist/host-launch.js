@@ -81,7 +81,7 @@ export async function runHostFrontend(invocation) {
         await import(pathToFileURL(command.prefix[0]).href);
         return process.exitCode === undefined ? 0 : Number(process.exitCode);
     }
-    return runOfficial(invocation);
+    return foreground(command.file, invocation.args, process.env);
 }
 function prepareHost(invocation, options) {
     if (classifyCodexInvocation(invocation.args) === 'passthrough')

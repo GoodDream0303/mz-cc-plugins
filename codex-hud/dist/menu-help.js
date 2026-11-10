@@ -111,6 +111,7 @@ for (const [key, [zh, tw]] of Object.entries(colors))
     add('colors.' + key, zh, tw, '#66ccff', 'Light blue; also accepts named colors or ANSI indices 0-255.', '浅蓝色；也支持预设颜色名或 0–255 的 ANSI 色号。', '淺藍色；也支援預設色彩名稱或 0–255 的 ANSI 色號。');
 add('colors.active', '活跃条目文字颜色', '活躍項目文字色彩', '#f2f2f2', 'Bright text for current tools and starting/running agents; background and font weight stay unchanged.', '当前工具及启动中、运行中代理的明亮文字；背景和字重不变。', '目前工具及啟動中、執行中代理的明亮文字；背景與字重不變。');
 add('colors.inactive', '近期及非活跃条目文字颜色', '近期及非活躍項目文字色彩', '#9a9a9a', 'Gray text for recent tools and inactive agents; tool failures retain the critical color.', '近期工具及非活跃代理的灰色文字；工具失败保留严重告警颜色。', '近期工具及非活躍代理的灰色文字；工具失敗保留嚴重警示色彩。');
+add('colors.heading', '小标题文字颜色', '小標題文字色彩', '#bac2ce', 'Soft gray-blue text for Current, Recent, Agents and Todo headings; activity colors stay independent.', '当前、近期、子代理和待办小标题使用柔和灰蓝色；条目颜色独立保留。', '目前、近期、子代理和待辦小標題使用柔和灰藍色；項目色彩獨立保留。');
 add('colors.git', 'Git 颜色', 'Git 色彩', '#66ccff', 'Preserved setting; the current branch renderer uses colors.gitBranch.', '保留项；当前分支显示使用 colors.gitBranch。', '保留項；目前分支顯示使用 colors.gitBranch。');
 add('colors.usageWarning', '额度警告颜色', '額度警告色彩', '#66ccff', 'Preserved setting; quota currently uses usage or critical colors.', '保留项；当前额度使用 usage 或 critical 颜色。', '保留項；目前額度使用 usage 或 critical 色彩。');
 add('colors.barFilled', '进度条填充字符', '進度條填滿字元', '█', 'At 30%, repeat this character three times in a ten-step bar.', '30% 时，十格进度条中使用 3 个此字符。', '30% 時，十格進度條中使用 3 個此字元。');

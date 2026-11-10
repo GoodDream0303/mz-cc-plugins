@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {planInitialPaneSize,initialPaneSize} from '../dist/pane-size.js';
+import {planInitialPaneSize} from '../dist/pane-size.js';
 import {defaultConfig,set} from '../dist/config.js';
 import {emptySnapshot} from '../dist/types.js';
 test('initial pane height follows rendered content and parent rows',()=>{
@@ -26,8 +26,4 @@ test('fresh defaults request six visible HUD rows across viewport sizes without 
  }
  const short=planInitialPaneSize(defaultConfig(),emptySnapshot('thread'),{columns:120,rows:14});assert.equal(short.rows,3);
  assert.throws(()=>set(defaultConfig(),'terminal.initialRows',2.5));
-});
-test('explicit target windows preserve their fraction without probing another pane',async()=>{
- let probed=false;const sized=await initialPaneSize(defaultConfig(),{sessionId:'current-thread',transcriptPath:'unused',home:'unused',window:'another-window',measure:()=>{probed=true;throw Error('Wrong pane');}});
- assert.equal(probed,false);assert.deepEqual(sized,{mode:'ratio',fraction:0.22});
 });

@@ -8,9 +8,9 @@ test('session selection uses an explicit ID or the Codex-provided current thread
  assert.equal(selectSessionId(undefined,{CODEX_SESSION_ID:'tree-root'}),'tree-root');
  assert.equal(selectSessionId(undefined,{}),undefined);assert.throws(()=>selectSessionId('../bad',{}));
 });
-test('a window name cannot prove an existing tab or pane and is rejected',t=>{
+test('a Terminal launch cannot replace verified physical host attachment',t=>{
  const d=createLaunch(process.cwd(),defaultConfig(),temp(t));d.sessionId='current-thread';
- for(const window of ['last','0','target-window'])assert.throws(()=>buildTerminalArgs(d,window),/host|pane|psmux/i);
+ assert.throws(()=>buildTerminalArgs(d),/host|pane|psmux/i);
 });
 test('closing HUD never changes or ends the native Codex session',t=>{
  const d=createLaunch(process.cwd(),defaultConfig(),temp(t));requestStop(d.file);const value=readLaunch(d.file);assert.equal(value.hudStop,true);assert.equal(value.state,'created');assert.equal(value.exitCode,undefined);

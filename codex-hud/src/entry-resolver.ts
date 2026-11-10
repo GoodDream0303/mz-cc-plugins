@@ -39,7 +39,7 @@ export function selectInstalledEntry(list:unknown,hint:string,home:string):strin
  if(typeof record.version!=='string'||!(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(record.version)||record.version==='local'))throw new Error('Invalid HUD installation version');
  const root=path.join(home,'plugins','cache',identity.market,identity.name,record.version),cli=path.join(root,'bin','hud.mjs');
  const manifest=JSON.parse(fs.readFileSync(path.join(root,'.codex-plugin','plugin.json'),'utf8'));
- if(manifest.name!==identity.name||record.version!=='local'&&manifest.version!==record.version)throw new Error('HUD package manifest identity does not match its installation');
+ if(manifest.name!==identity.name||manifest.version!==record.version)throw new Error('HUD package manifest identity does not match its installation');
  for(const file of [cli,path.join(root,'dist','cli.js')])if(!fs.statSync(file).isFile())throw new Error('HUD package entry is missing');
  return cli;
 }

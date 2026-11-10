@@ -88,6 +88,7 @@ Native Codex statusline is unchanged. Model, effort, project and session-name fi
 | colors.git | "magenta" | Supported |
 | colors.gitBranch | "cyan" | Supported |
 | colors.label | "dim" | Supported |
+| colors.heading | "#bac2ce" | Current, Recent, Agents and Todo heading foreground |
 | colors.custom | 208 | Supported |
 | colors.barFilled | "█" | Supported |
 | colors.barEmpty | "░" | Supported |
