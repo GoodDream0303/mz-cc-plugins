@@ -25,7 +25,6 @@ import {sessionMetadata,isMainSession} from './autostart.js';
 import {DynamicHeightController} from './dynamic-height.js';
 import {AgentSessionTracker} from './agent-sessions.js';
 import {McpRuntimeClient,McpRuntimePoller} from './mcp-runtime.js';
-import {appServerTokenEnvironment} from './local-app-server.js';
 
 function option(args:string[],key:string):string|undefined{const i=args.indexOf(key);return i>=0?args[i+1]:args.find(v=>v.startsWith(key+'='))?.slice(key.length+1);}
 function launchFile(args:string[]):string|undefined{const encoded=option(args,'--launch64');return encoded?Buffer.from(encoded,'base64').toString('utf8'):option(args,'--launch');}
@@ -45,7 +44,10 @@ async function watch(args:string[],once=false):Promise<void>{
  let selected=descriptor?.host?descriptor.sessionId:descriptor?.sessionId??selectSessionId(option(args,'--session'));if(!selected&&!descriptor?.host)selected=await chooseSession(root);
  if(descriptor?.host&&!once){acknowledgeViewer(ownedFile!);descriptor=readLaunch(ownedFile!);}
  let cfgFile=descriptor?.configFile??configFile(args),config=loadConfig(cfgFile);let page=0,quit=false,reader:SessionReader|undefined,nextDiscover=0,nextOwnerCheck=0,knownPath='',statusMessage='';let lastSnapshot=emptySnapshot(selected??'pending');
- const onKey=(_:unknown,key:{name?:string;ctrl?:boolean})=>{if(key?.name==='q')quit=true;else if(key?.name==='right'||key?.name==='n')page++;else if(key?.name==='left'||key?.name==='p')page=Math.max(0,page-1);};
+ let exitReason:NonNullable<LaunchDescriptor['exitReason']>='normal',exitErrorCode:string|undefined,sourceMessage='',sourceVerified=true;
+ let bodyFailed=false;
+ const recordFailure=(error:unknown)=>{exitReason='error';const code=(error as NodeJS.ErrnoException)?.code;exitErrorCode=typeof code==='string'&&/^[A-Z0-9_]{1,64}$/.test(code)?code:undefined;};
+ const onKey=(_:unknown,key:{name?:string;ctrl?:boolean})=>{if(key?.name==='q'){quit=true;exitReason='user-quit';}else if(key?.name==='right'||key?.name==='n')page++;else if(key?.name==='left'||key?.name==='p')page=Math.max(0,page-1);};
  const interactive=!once&&!!process.stdin.isTTY;
  const dynamicHeight=new DynamicHeightController();
  const agentSessions=new AgentSessionTracker(root);
@@ -57,23 +59,26 @@ async function watch(args:string[],once=false):Promise<void>{
  try{
   do{
    if(descriptor){
-    descriptor=readLaunch(ownedFile!);if(descriptor.hudStop||descriptor.state==='exited')break;
+    descriptor=readLaunch(ownedFile!);if(descriptor.hudStop||descriptor.state==='exited'){exitReason='stop-requested';break;}
     if(selected!==descriptor.sessionId){reader=undefined;knownPath='';lastSnapshot=emptySnapshot(descriptor.sessionId??'pending');page=0;}
     selected=descriptor.sessionId;
     if(descriptor.host){
-     const registered=readHost(descriptor.host.recordFile);if(registered.state==='closed')break;
+     try{
+     const registered=readHost(descriptor.host.recordFile);if(registered.state==='closed'){exitReason='source-closed';break;}
      if(Date.now()>=nextOwnerCheck){
       const expected=descriptor.host.proof.owner,wantsMcp=!!descriptor.host.proof.appServer&&!!selected&&!!get(config,'display.showMcp');
       const values=readProcessIdentities(wantsMcp?hostProcessIds(registered.proof,[expected.pid,process.pid]):[expected.pid]),actual=values.find(p=>p.pid===expected.pid);nextOwnerCheck=Date.now()+5000;
-      if(!actual||actual.startedAt!==expected.startedAt)break;
+      if(!actual||actual.startedAt!==expected.startedAt){exitReason='owner-exited';break;}
+      sourceVerified=true;sourceMessage='';
       if(wantsMcp){
        try{
         const verified=verifyRuntimeHost(descriptor,{processes:()=>values}),runtime=verified.proof.appServer!,key=JSON.stringify([verified.id,runtime]);
-        if(mcpKey!==key){closeMcp();mcpPoller=new McpRuntimePoller(new McpRuntimeClient(runtime.endpoint,process.env[appServerTokenEnvironment]??''));mcpKey=key;}
+        if(mcpKey!==key){closeMcp();mcpPoller=new McpRuntimePoller(new McpRuntimeClient(runtime.endpoint,process.env.MZ_HUD_APP_SERVER_TOKEN??''));mcpKey=key;}
         mcpVerified=true;mcpMessage='';
        }catch{closeMcp();mcpMessage='Live MCP state unavailable; source identity could not be verified';}
       }else{closeMcp();mcpMessage='';}
      }
+     }catch{sourceVerified=false;closeMcp();mcpMessage='';sourceMessage='Source identity unavailable; keeping HUD open and retrying';nextOwnerCheck=Date.now()+5000;}
     }
    }
    try{config=loadConfig(cfgFile);statusMessage='';}catch(e){statusMessage='Configuration reload failed: '+(e as Error).message;}
@@ -93,9 +98,10 @@ async function watch(args:string[],once=false):Promise<void>{
    if(mcpVerified&&mcpPoller&&selected){mcpPoller.refresh(selected);snapshot.mcpRuntime=mcpPoller.snapshot(selected);snapshot.mcpNames=mcpPoller.knownServers(selected);}
    if(mcpMessage)snapshot.errors.push(mcpMessage);
    if(statusMessage)snapshot.errors.push(statusMessage);
+   if(sourceMessage)snapshot.errors.push(sourceMessage);
    const width=Number(option(args,'--width'))||process.stdout.columns||100,color=!args.includes('--no-color')&&!!process.stdout.isTTY;
    let rows=once?1000:process.stdout.rows||12,result=render(snapshot,config,{width,height:rows,page,color});
-   if(!once&&process.stdout.isTTY&&descriptor?.host){
+   if(!once&&process.stdout.isTTY&&descriptor?.host&&sourceVerified){
     try{const fitted=dynamicHeight.fit(descriptor,config,result.totalLines,Date.now(),{columns:width,rows});if(fitted!==undefined)rows=fitted;result=render(snapshot,config,{width,height:rows,page,color,showPager:!dynamicHeight.awaitingGrowth});}
     catch{snapshot.errors.push('Automatic height unavailable; keeping the current pane size');result=render(snapshot,config,{width,height:rows,page,color});}
    }
@@ -104,15 +110,20 @@ async function watch(args:string[],once=false):Promise<void>{
     if(!once&&process.stdout.isTTY)process.stdout.write('\x1b[H\x1b[2J'+result.lines.join('\r\n'));
     else console.log(result.lines.join('\n'));
    }
-   if(once)break;
-   if(!process.stdout.isTTY)break;
+   if(once){exitReason='one-shot';break;}
+   if(!process.stdout.isTTY){exitReason='noninteractive';break;}
    await delay(get(config,'terminal.refreshMs'));
   }while(!quit);
- }finally{
-  closeMcp();
-  if(interactive){process.stdin.off('keypress',onKey);process.stdin.setRawMode(false);process.stdin.pause();}
-  if(!once&&process.stdout.isTTY)process.stdout.write('\x1b[0m\x1b[?25h\x1b[?1049l');
-  if(descriptor&&!descriptor.demo)updateLaunch(ownedFile!,d=>{d.state='exited';d.exitCode=0;});
+ }catch(error){bodyFailed=true;recordFailure(error);throw error;}finally{
+  let cleanupFailed=false,cleanupError:unknown;
+  const cleanup=(action:()=>void)=>{try{action();}catch(error){if(!cleanupFailed){cleanupFailed=true;cleanupError=error;}}};
+  cleanup(closeMcp);
+  if(interactive){cleanup(()=>{process.stdin.off('keypress',onKey);});cleanup(()=>process.stdin.setRawMode(false));cleanup(()=>process.stdin.pause());}
+  if(!once&&process.stdout.isTTY)cleanup(()=>{process.stdout.write('\x1b[0m\x1b[?25h\x1b[?1049l');});
+  if(cleanupFailed&&!bodyFailed)recordFailure(cleanupError);
+  try{if(descriptor&&!descriptor.demo)updateLaunch(ownedFile!,d=>{d.state='exited';d.exitCode=exitReason==='error'?1:0;d.exitReason=exitReason;d.exitErrorCode=exitErrorCode;});}
+  catch(error){if(!bodyFailed&&!cleanupFailed)throw error;}
+  if(cleanupFailed&&!bodyFailed)throw cleanupError;
  }
 }
 async function demoRunner(d:LaunchDescriptor):Promise<void>{
@@ -136,7 +147,7 @@ async function start(args:string[],demo=false):Promise<void>{
   if(!current||selected!==current)throw new Error('HUD must display the current Codex conversation in this exact host');
   const sessionsRoot=option(args,'--sessions-root')??path.join(codexHome(),'sessions'),session=await findSession(sessionsRoot,current);
   if(!session||session.id!==current)throw new Error('Current Codex transcript is not available yet');
-  const meta=await sessionMetadata(session.path);if(session.parentId||!isMainSession(meta,current)||meta?.id!==current)throw new Error('HUD requires main CLI conversation provenance; subagent and non-CLI transcripts are excluded');
+  const meta=await sessionMetadata(session.path);if(session.parentId||!isMainSession(meta,current,true)||meta?.id!==current)throw new Error('HUD requires main CLI conversation provenance; subagent and non-CLI transcripts are excluded');
   if(args.includes('--dry-run')){await ensureHostDisplay(record,loadConfig(configFile(args)),{role:'hook',dryRun:true});console.log(JSON.stringify({mode:'attach',backend:'psmux',status:'validated',ownerPane:record.proof.origin.pane}));return;}
   const result=await bindHostSession(record,current,session.path,{role:'hook',config:loadConfig(configFile(args)),configFile:configFile(args)});console.log('HUD '+result.status+'.');return;
  }
@@ -214,7 +225,7 @@ export async function main(args=process.argv.slice(2)):Promise<void>{
   }
   case 'stop':{const id=option(rest,'--launch');if(!id||!/^[a-f0-9-]{36}$/i.test(id))throw new Error('stop --launch <launch ID>');requestStop(path.join(runtimeRoot(configFile(rest)),id+'.json'));console.log('HUD stop requested; Codex keeps running');return;}
   case 'help':case '--help':case '-h':
-   console.log('mz-codex-hud\n  start [--session CURRENT_ID]\n  watch|once [--session ID] [--json] [--width N]\n  list\n  setup --profile ABSOLUTE_PATH [--initialize] [--psmux ABSOLUTE_PATH] [--enable] [--apply] [--remove]\n  configure\n  config show | config set KEY VALUE\n  import-claude [--path CONFIG] [--yes]\n  doctor\n  demo [--duration MILLISECONDS]\n  stop --launch ID\nAutomatic opening requires the configured PowerShell host entry. SessionStart binds current telemetry.\nNative statusline is unchanged. All commands accept --config FILE.');return;
+   console.log('mz-codex-hud\n  start [--session CURRENT_ID]\n  watch|once [--session ID] [--json] [--width N]\n  list\n  setup --profile ABSOLUTE_PATH [--initialize] [--psmux ABSOLUTE_PATH] [--enable] [--apply] [--remove]\n  configure\n  config show | config set KEY VALUE\n  import-claude [--path CONFIG] [--yes]\n  doctor\n  demo [--duration MILLISECONDS]\n  stop --launch ID\nstart opens or reopens this conversation HUD; setup performs one-time initialization.\nAutomatic opening requires the configured PowerShell host entry. SessionStart binds current telemetry.\nNative statusline is unchanged. All commands accept --config FILE.');return;
   default:throw new Error('Unknown command: '+command);
  }
 }

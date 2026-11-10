@@ -4,7 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {setTimeout as delay} from 'node:timers/promises';
 import {configPath,get,type Config} from './config.js';
 import {createLaunch,readLaunch,updateLaunch,requestStop,type LaunchDescriptor} from './runtime.js';
-import {PsmuxClient,readHostOrigin,readProcessFacts,verifyHost,verifyLocalAppServer,hostProcessIds,hostIdPattern,samePath,sameProcess,type HostProof,type HostDependencies,type ProcessFact,type LocalAppServerProof} from './psmux.js';
+import {PsmuxClient,readHostOrigin,readProcessFacts,verifyHost,hostProcessIds,hostIdPattern,samePath,sameProcess,type HostProof,type HostDependencies,type ProcessFact} from './psmux.js';
 import {acquireStartupLock} from './startup-lock.js';
 import {planInitialPaneSize} from './pane-size.js';
 import {emptySnapshot} from './types.js';
@@ -48,11 +48,6 @@ export function registerCurrentFrontend():void {
  verifyHost(record.proof,'frontend',{processes:()=>values});
  if(!own||record.proof.frontend&&record.proof.frontend.pid!==process.pid)throw new Error('A different official frontend already owns this host');
  record.proof.frontend=fact(own);atomic(record.file,record);
-}
-export function registerLocalAppServer(proof:LocalAppServerProof):void {
- const record=loadCurrentHost('owner');if(record.proof.appServer||record.proof.frontend)throw new Error('This host already registered its runtime');
- const values=readProcessFacts(hostProcessIds(record.proof,[proof.process.pid]));verifyLocalAppServer(proof,record.proof.owner,values);
- record.proof.appServer={endpoint:proof.endpoint,process:fact(proof.process)};atomic(record.file,record);
 }
 function ownedDisplay(record:HostRecord,d:LaunchDescriptor):void {
  if(!d.host||!samePath(d.host.recordFile,record.file)||d.host.proof.origin.originId!==record.id||d.host.proof.owner.pid!==record.proof.owner.pid||d.host.proof.owner.startedAt!==record.proof.owner.startedAt||d.host.proof.server.startedAt!==record.proof.server.startedAt)throw new Error('Display does not belong to this exact host');

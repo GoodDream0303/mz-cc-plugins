@@ -1,102 +1,44 @@
 ---
 name: hud-start
-description: Use for first-time Codex HUD setup after marketplace installation, independent HUDs in PowerShell tabs or windows, or reopening the current conversation's HUD.
+description: Use when the current configured Codex conversation has a missing or closed HUD, or the user wants to open or reopen it manually.
 ---
 
-Resolve this plugin root two directories above the skill. Use its direct
-`node "<plugin-root>/bin/hud.mjs"` entry; a global npm link may target older code.
-Published packages include dist. Build only an explicitly selected source checkout.
+# Open the current HUD
 
-## First installation
+This is the manual open/reopen entry. It reuses a verified live HUD or opens the
+missing HUD for this conversation. First-time initialization belongs to
+[hud-setup](../hud-setup/SKILL.md); do not rewrite profiles or preferences here.
+Resolve the installed plugin root two directories above this skill.
 
-This is the marketplace onboarding entry. Official Codex can be installed natively
-without Node.js, so check for a Node 20+ executable before invoking the Node CLI
-or doctor. Reuse an existing compatible runtime; do not reinstall dependencies
-on an already configured machine. If Node is missing or too old, explain that it
-is a HUD prerequisite and offer an official Node LTS installation or an existing
-portable runtime. Obtain the user's choice before installing anything; do not
-guess a portable path or change PATH automatically. With no usable runtime,
-stop the Node-dependent steps and give the specific prerequisite to resolve.
+Run from the current Codex tool environment:
 
-The one-time flow is: prerequisites, initialization preview, authorized apply,
-native hook review, new shell/profile reload, and actual HUD acceptance. Resolve
-the profile separately from each PS5/PS7 host the user uses. The existing ordinary
-Codex process cannot be moved into the new host: finish it normally and use the
-unchanged `codex` or `codex resume` command from an initialized shell.
+```text
+node "<plugin-root>/bin/hud.mjs" doctor
+node "<plugin-root>/bin/hud.mjs" start
+```
 
-Show the concrete profile/settings preview before applying. Recommend live
-content fitting for a fresh setup: include the proposed
-`terminal.dynamicHeight=true` change in that review, and use
-`config set terminal.dynamicHeight true` only if chosen. Existing explicit
-preferences are preserved. A configured installation that needs only its current
-HUD reopened does not need another initialization or preference change.
+Use the existing Node20+ executable; no reinstall, build or dependency installation
+is needed for a configured package. Doctor readiness is a prerequisite report,
+not source ownership or native hook trust. `start` verifies current host ancestry,
+actual process birth times, source/HUD panes and this thread before attachment.
+It does not launch another Codex or model turn.
 
-`bin/setup.ps1` is the PowerShell-first entry and accepts an explicit portable
-`-NodePath` when needed. Published packages
-include a checksum-pinned compact backend; fresh defaults select it without a
-Rust installation. Preserve an existing explicit backend choice.
+- An existing verified live HUD is reused; delayed telemetry alone is not proof
+  it died. Never create a duplicate to hide uncertain identity.
+- When the old process/pane are confirmed gone, `start` opens the replacement in
+  that same source host. Check the returned state and progressing heartbeat.
+- `start --session ID` is restricted to the current proven conversation; it does
+  not authorize picking another window or guessing a thread.
+- Genuine remote TUI metadata may use source=vscode, originator=codex-tui and
+  thread_source=user. The implementation accepts it only after actual host
+  verification; ordinary IDE and subagent logs remain excluded.
+- Without a registered physical host, explain the missing prerequisite and use
+  hud-setup when initialization is requested. A standalone PowerShell prompt
+  outside the current host cannot identify which active conversation to reopen.
 
-Run `doctor` first. It distinguishes configured psmux from present origin metadata;
-`origin: present` is not live ownership proof. `start` verifies that proof itself.
-Read `setup.prerequisites` and `setup.required`; `setup.ready` covers runtime
-prerequisites, while hook trust and real interaction remain separate checks.
-
-| Observable situation | Action |
-| --- | --- |
-| Current Codex already runs inside its registered HUD host | Run `start` from this Codex tool environment to reuse/reopen its exact HUD. |
-| No registered physical host, including an ordinary existing WT/PowerShell Codex | Explain that this live process cannot be retroactively moved into psmux. Prepare the one-time PowerShell entry setup; do not open a guessed pane. |
-| Registered owner is waiting for its first conversation metadata | Leave its independent waiting HUD in place; native SessionStart supplies data. |
-| User asks to enable automatic opening | Verify portable psmux, prepare profile changes, arrange native hook review, then enable only as part of the authorized setup. |
-
-One-time setup keeps the user's normal `codex` command. It internally creates an
-independent host per interactive invocation in that same PowerShell tab/window.
-After marketplace installation, guide this one initialization rather than adding
-a replacement launch command. The profile points to a stable loader beside its
-selected configuration. It resolves the actual enabled plugin from official
-installation metadata and rediscovers official Codex on each invocation. Normal
-plugin upgrades need no repeated setup. For old version-bound profiles, migrate
-once and reload/open that PowerShell once; do not claim another already-open
-shell's in-memory function was changed. A running ordinary Codex still cannot
-move retroactively into a terminal host; resume normally after initialization.
-The 0.5.1 to 0.5.2 bootstrap correction also updates the copied files outside the
-cache: run setup once from the active installed 0.5.2 package, then reload the
-profile to adopt its detailed failure notice. Package upgrade alone is insufficient
-for that bootstrap fix; this is separate from ordinary versioned runtime updates.
-HUD preflight failures fall back to official Codex. A nonzero official exit or
-uncertain backend outcome never starts another session. Saved package-managed
-backend paths follow the current verified bundle; external portable paths remain
-explicit. The copied entry is initialization runtime, not a local marketplace
-substitute; installation and updates still use the formal source.
-Preview initialization with `bin/setup.ps1 -Enable` in each PS5/PS7 host in use,
-or `setup --profile <absolute-profile-path> --initialize --enable` through Node.
-The preview includes both the loader and settings changes. Direct profile-only
-setup remains available for explicit maintenance, but is not full initialization.
-Writing a real user profile requires the user's authorization for that concrete
-change; only then use `--apply`. Do not silently change PATH, WT settings or profiles.
-PowerShell 5/7 have separate user profiles; resolve the actual profile from each
-shell instead of assuming a Documents path. `host.psmuxPath` selects the verified
-portable backend. The compact build requires its packaged checksum manifest;
-an arbitrary executable with a matching-looking version is insufficient.
-For a machine with older 0.3.4 sessions, keep
-`startup.enabled=false`: enabling that legacy flag can revive their unsafe MRU
-launcher. Explicitly enable only `host.autoStart` with the value `enabled` for
-the authorized 0.4 setup; old runtimes ignore it. Its default `inherit` preserves
-existing preferences, and `disabled` explicitly pauses exact-host startup.
-Do not treat hook trust alone as setup.
-
-For first-use data binding, direct the user to native Codex `/hooks` to review the
-current hook. Never edit trust hashes or add bypass/daemon/security overrides.
-Do not start another real Codex or send a model prompt as an implicit self-test.
-
-`start --session <ID>` accepts only the current conversation in its proven host.
-An ID or WT window name alone cannot identify a pane. Never use `--window`, WT
-last/MRU, focus, titles or the latest log to attach. `once --session <ID>` can
-inspect explicitly selected telemetry; it is not proof of a correctly placed HUD.
-
-Menus follow `language` (English by default; Simplified/Traditional Chinese are
-supported). Preserve task-name language. Initial HUD height defaults to six rows;
-later manual resizing is retained. Compact hosts use Alt+drag on the underlined
-last source row; the upstream backend keeps its ordinary divider drag.
-Native Codex/statusline
-remain intact. Report waiting, rejected or unverified states accurately; only
-actual independent displays prove the user's multi-session goal is met.
+User command inside the intended conversation: `$codex-hud:hud-start`.
+`q` closes only the HUD; the same command reopens it. Ctrl+C does not close it.
+Manual start does not require a trusted SessionStart hook; automatic binding does.
+Never choose MRU/latest log, fake rootPid/ancestry, send keys to another pane,
+restart another session, change daemon/security/trust settings, or take over
+terminal mouse selection and clipboard. Preserve sizing and native statusline.

@@ -31,7 +31,8 @@ export async function sessionMetadata(file) {
         await handle?.close();
     }
 }
-export function isMainSession(meta, id) { return !!meta && meta.source === 'cli' && typeof meta.id === 'string' && idPattern.test(meta.id) && (id === meta.id || id === meta.session_id) && typeof meta.cwd === 'string'; }
+function remoteTuiMain(meta) { return meta.source === 'vscode' && meta.originator === 'codex-tui' && meta.thread_source === 'user'; }
+export function isMainSession(meta, id, verifiedHost = false) { return !!meta && (meta.source === 'cli' || verifiedHost && remoteTuiMain(meta)) && typeof meta.id === 'string' && idPattern.test(meta.id) && (id === meta.id || id === meta.session_id) && typeof meta.cwd === 'string'; }
 export async function autoStart(event, options = {}) {
     if (event.hook_event_name !== 'SessionStart' || !['startup', 'resume', 'clear', 'fork'].includes(String(event.source)) || event.agent_id || event.subagent_id || event.agent_transcript_path)
         return { status: 'ignored', reason: 'not-main-start' };
@@ -52,9 +53,9 @@ export async function autoStart(event, options = {}) {
     } while (Date.now() < deadline);
     if (!meta)
         return { status: 'ignored', reason: 'metadata-unavailable' };
-    if (meta.source !== 'cli')
+    if (meta.source !== 'cli' && !remoteTuiMain(meta))
         return { status: 'ignored', reason: 'not-cli-main' };
-    if (!isMainSession(meta, event.session_id))
+    if (meta.source === 'cli' && !isMainSession(meta, event.session_id))
         return { status: 'ignored', reason: 'identity-mismatch' };
     let record;
     const registrationDeadline = Date.now() + 2500;
@@ -69,6 +70,8 @@ export async function autoStart(event, options = {}) {
             await new Promise(r => setTimeout(r, 100));
         }
     }
+    if (!isMainSession(meta, event.session_id, true))
+        return { status: 'ignored', reason: 'identity-mismatch' };
     const result = await bindHostSession(record, meta.id, event.transcript_path, { role: 'hook', config, configFile: file, dependencies: options.dependencies });
     return result.status === 'stopping' ? { status: 'ignored', reason: 'hud-stopping' } : { status: result.status };
 }

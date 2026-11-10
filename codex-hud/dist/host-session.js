@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { configPath, get } from './config.js';
 import { createLaunch, readLaunch, updateLaunch, requestStop } from './runtime.js';
-import { PsmuxClient, readHostOrigin, readProcessFacts, verifyHost, verifyLocalAppServer, hostProcessIds, hostIdPattern, samePath, sameProcess } from './psmux.js';
+import { PsmuxClient, readHostOrigin, readProcessFacts, verifyHost, hostProcessIds, hostIdPattern, samePath, sameProcess } from './psmux.js';
 import { acquireStartupLock } from './startup-lock.js';
 import { planInitialPaneSize } from './pane-size.js';
 import { emptySnapshot } from './types.js';
@@ -71,15 +71,6 @@ export function registerCurrentFrontend() {
     if (!own || record.proof.frontend && record.proof.frontend.pid !== process.pid)
         throw new Error('A different official frontend already owns this host');
     record.proof.frontend = fact(own);
-    atomic(record.file, record);
-}
-export function registerLocalAppServer(proof) {
-    const record = loadCurrentHost('owner');
-    if (record.proof.appServer || record.proof.frontend)
-        throw new Error('This host already registered its runtime');
-    const values = readProcessFacts(hostProcessIds(record.proof, [proof.process.pid]));
-    verifyLocalAppServer(proof, record.proof.owner, values);
-    record.proof.appServer = { endpoint: proof.endpoint, process: fact(proof.process) };
     atomic(record.file, record);
 }
 function ownedDisplay(record, d) {

@@ -1,14 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { randomUUID, randomBytes } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadConfig, get, configPath, startupEnabled } from './config.js';
 import { readHostOrigin, proveOwner } from './psmux.js';
-import { registerHost, ensureHostDisplay, readHost, closeHost, registerCurrentFrontend, registerLocalAppServer } from './host-session.js';
+import { registerHost, ensureHostDisplay, readHost, closeHost, registerCurrentFrontend } from './host-session.js';
 import { verifyBackend, effectiveBackendPath } from './backend-version.js';
 import { resolveOfficial } from './entry-resolver.js';
-import { startLocalAppServer, remoteInvocation, appServerTokenEnvironment } from './local-app-server.js';
 export { resolveOfficial } from './entry-resolver.js';
 const commands = new Set(['agents', 'exec', 'e', 'review', 'login', 'logout', 'mcp', 'mcp-server', 'plugin', 'app-server', 'remote-control', 'app', 'completion', 'update', 'doctor', 'sandbox', 'debug', 'apply', 'a', 'queue', 'archive', 'delete', 'migrate-rollouts', 'migrate-nfs-db', 'unarchive', 'cloud', 'cloud-tasks', 'execpolicy', 'tcp-tunnel', 'responses-api-proxy', 'stdio-to-uds', 'exec-server', 'features', 'help']);
 const values = new Set(['-c', '--config', '--enable', '--disable', '--remote', '--remote-auth-token-env', '-m', '--model', '--local-provider', '-p', '--profile', '-s', '--sandbox', '-C', '--cd', '--add-dir', '-a', '--ask-for-approval']);
@@ -110,9 +109,7 @@ function prepareHost(invocation, options) {
     for (const key of Object.keys(env))
         if (/^TMUX|^PSMUX_/i.test(key))
             delete env[key];
-    delete env[appServerTokenEnvironment];
-    if (get(config, 'host.runtime') === 'localAppServer')
-        env[appServerTokenEnvironment] = randomBytes(32).toString('base64url');
+    delete env.MZ_HUD_APP_SERVER_TOKEN;
     Object.assign(env, { MZ_HUD_ORIGIN: id, MZ_HUD_NAMESPACE: namespace, MZ_HUD_HOST_DIR: hostDir, MZ_HUD_PSMUX: binary, MZ_HUD_CONFIG_FILE: path.resolve(file), PSMUX_DATA_DIR: dataDir, PSMUX_CONFIG_FILE: hostConfig, PSMUX_NO_WARM: '1' });
     const entry = fileURLToPath(new URL('../bin/hud.mjs', import.meta.url)), encoded = Buffer.from(JSON.stringify(invocation)).toString('base64');
     return { binary, args: ['-L', namespace, '-f', hostConfig, 'new-session', '-s', 'codex', '-c', process.cwd(), '--', process.execPath, entry, 'host-owner', '--invocation64', encoded, '--config', path.resolve(file)], env, registered: path.join(hostDir, id + '.json') };
@@ -152,20 +149,10 @@ export async function launchHostedCodex(invocation, options = {}) {
 }
 export async function runHostOwner(invocation, configFile = configPath()) {
     const origin = readHostOrigin(), proof = proveOwner(origin), record = registerHost(proof, origin.hostDir), config = loadConfig(configFile);
-    let exitCode = 1, local, frontend = invocation;
+    let exitCode = 1;
     try {
-        if (get(config, 'host.runtime') === 'localAppServer') {
-            try {
-                local = await startLocalAppServer(invocation, process.env[appServerTokenEnvironment] ?? '');
-            }
-            catch (error) {
-                process.stderr.write('Codex HUD: local App Server unavailable; using ordinary CLI. ' + error.message + '\n');
-            }
-            if (local) {
-                registerLocalAppServer(local.proof);
-                frontend = remoteInvocation(invocation, local.proof.endpoint);
-            }
-        }
+        if (get(config, 'host.runtime') === 'localAppServer')
+            process.stderr.write('Codex HUD: the 0.7.9 automatic App Server mode is retired for compatibility; using ordinary CLI.\n');
         if (startupEnabled(config)) {
             // A retry still verifies the exact slot: only an acknowledged viewer or a
             // successfully queried, definitively absent reported pane can be reused.
@@ -179,16 +166,11 @@ export async function runHostOwner(invocation, configFile = configPath()) {
                         process.stderr.write('Codex HUD is not ready; inspect this host with hud doctor.\n');
                 }
         }
-        const command = resolveOfficial(frontend.command), entry = fileURLToPath(new URL('../bin/hud.mjs', import.meta.url)), encoded = Buffer.from(JSON.stringify(frontend)).toString('base64');
+        const command = resolveOfficial(invocation.command), entry = fileURLToPath(new URL('../bin/hud.mjs', import.meta.url)), encoded = Buffer.from(JSON.stringify(invocation)).toString('base64');
         exitCode = await foreground(command.prefix.length ? command.file : process.execPath, [entry, 'host-frontend', '--invocation64', encoded], { ...process.env, MZ_HUD_CONFIG_FILE: path.resolve(configFile) });
         return exitCode;
     }
     finally {
-        try {
-            await local?.stop();
-        }
-        finally {
-            closeHost(readHost(record.file), exitCode);
-        }
+        closeHost(readHost(record.file), exitCode);
     }
 }

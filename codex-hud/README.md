@@ -5,57 +5,25 @@ WT tabs or separate PowerShell windows. The official CLI and native statusline
 remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
 task names retain their original language.
 
-## Version 0.7.9: live MCP connection status
+## Compatibility repair after 0.7.9
 
-The connection summary uses one logical row, wrapping at the actual terminal
-width when necessary. The active-call area keeps its existing event sources and
-behavior.
+The automatic local App Server experiment is retired. HUD preserves the user's
+ordinary Codex invocation; it does not add `--remote`, create an App Server or
+change session metadata to obtain a Connected label. Old `host.runtime` values
+remain parseable for migration, but cannot enable that automatic startup path.
+Already running 0.7.9 remote sessions need normal user-controlled exit/resume;
+they cannot hot-migrate. Existing proven legacy hosts can still be displayed.
 
-The optional `host.runtime=localAppServer` mode starts one official App Server per
-physical HUD host and connects the official TUI directly to it. A second,
-read-only HUD connection queries the **currently bound thread's** MCP runtime
-states every five seconds. Authentication-required, starting, connected, failed,
-cancelled and disabled states come from that runtime; configuration, tool counts
-and past successes never establish a connection. Missing, incomplete or expired
-facts display Unknown. A known transport disconnect invalidates old facts
-immediately; other stale observations expire after twelve seconds.
+New remote TUI metadata can be tagged `source=vscode` with exact
+`originator=codex-tui` and `thread_source=user`. HUD accepts that shape only after
+its existing physical host/ancestry checks, so affected existing conversations
+can reopen their HUD. IDE clients, subagents and unproven hosts stay excluded.
+No other plugin's files or configuration are modified.
 
-`host.runtime` defaults to `cli`. The ordinary mode and existing sessions continue
-to work without an App Server endpoint. Enabling the new mode applies on the next
-normal `codex` or `codex resume` invocation, after installing a release containing
-this change. For an explicitly selected development checkout, use its own CLI:
-
-```powershell
-node '<plugin-root>/bin/hud.mjs' config set host.runtime localAppServer
-```
-
-This changes the selected HUD configuration only; it does not rewrite profiles or
-enable a shared daemon. Restore `host.runtime` to `cli` for ordinary future starts.
-Keep `display.showMcp=true` to show the connection summary. Official services remain
-combined without inventory details; differing reported states display Mixed.
-
-The managed mode supports native and supported npm Codex layouts on Windows with
-Node20+. Its WebSocket transport is experimental. It uses an authenticated,
-loopback-only endpoint, proves the actual native listener and source process
-incarnations, and carries the client dependency and license in the offline package.
-Tokens stay in this host's child environment; they are not stored in descriptors,
-command lines or logs. The official service receives only the verifier hash.
-
-Named profiles, `--no-daemon`, local-provider/OSS startup, unavailable native npm
-layouts and failed service preparation produce an explicit notice and retain the
-ordinary CLI path before a TUI is started. Supported `-c`/feature overrides and
-the selected working directory are passed to the service. Once a TUI has started,
-an uncertain outcome never triggers another Codex invocation.
-
-Automated coverage includes controlled loopback servers, thread changes, source
-rejection, offline packaging and a separate isolated official-backend smoke check
-with a local test MCP and zero model turns. This does **not** establish actual
-user-TUI acceptance: on the first deliberately enabled session, verify the CLI
-source and SessionStart binding, original-session `resume`, `/clear`, real MCP
-states and endpoint cleanup on exit. Review hooks with native `/hooks` where
-needed; do not bypass trust or weaken source checks. Keep any rejected or
-unverified source at Unknown. Do not treat the unchanged call area as newly
-validated by the connection-state tests.
+The MCP connection summary keeps one logical row and wraps at terminal width.
+The call area is unchanged. When the existing host supplies no authoritative
+runtime state, connections remain Unknown. The plugin does not change Codex's
+backend or invent connectivity to avoid that label.
 
 Version 0.7.8 refines tool labels: only agent operations display a task target.
 Ordinary tools show their action and recorded duration without file names,
@@ -186,7 +154,7 @@ psmux. Apply setup to future launches, then verify the actual multi-session flow
 
 The target environment already has official Codex and Node 20+. Keep using
 `codex` and `codex resume <ID>`; no replacement launch command is introduced.
-After marketplace installation, ask the installed `hud-start` skill to guide the
+After marketplace installation, ask the installed `hud-setup` skill to guide the
 one-time initialization for the PowerShell hosts you use. Existing ordinary
 Codex processes keep running; initialization applies to subsequent launches.
 
@@ -204,7 +172,7 @@ SHA256 is
 See [the fixed release](https://github.com/psmux/psmux/releases/tag/v3.4.0).
 No global PATH changes or automatic dependency installation are performed.
 
-The marketplace's **Set up** action opens the packaged `hud-start` onboarding
+The marketplace's **Set up** action opens the packaged `hud-setup` onboarding
 skill. It checks prerequisites, previews the one-time changes, guides native hook
 review and keeps the normal `codex` / `codex resume` commands. An existing plain
 Codex process must be resumed from a newly initialized shell to gain its HUD host.
@@ -309,6 +277,22 @@ No prompts, invocation arguments, command output, credentials or environment dum
 are persisted in HUD state. Bindings contain only allowlisted identity/lifecycle
 metadata. Official Codex shims, approval/sandbox/daemon settings and WT settings
 are unchanged. No automatic model request is made for setup or self-test.
+
+## Manual opening and initialization
+
+In the intended Codex conversation, invoke `$codex-hud:hud-start` to manually open
+or reopen its HUD. This does not initialize profiles or start another Codex.
+Use `$codex-hud:hud-setup` for first-time setup; the marketplace Set up action
+routes there. Existing CLI `start` remains manual attachment and `setup` remains
+initialization. A plain PowerShell outside a registered host cannot guess which
+open conversation to control.
+
+Transient source-identity queries keep the viewer visible with a warning, stop
+live MCP facts and avoid unverified resizing until the source is revalidated.
+Launch metadata records a safe `exitReason`/exit code, and a safe error code for
+fatal errors; it never stores raw error messages or command/transcript content.
+Earlier 0.7.9 exit records lack a reason and cannot establish the cause of a past
+closure merely from exitCode=0.
 
 ## Commands and diagnostics
 

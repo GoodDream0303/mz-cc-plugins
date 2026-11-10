@@ -1,13 +1,13 @@
 {
   "name": "codex-hud",
-  "version": "0.7.9",
+  "version": "0.7.10",
   "description": "Independent per-Codex HUDs for PowerShell tabs and windows.",
   "author": {
     "name": "mzzhu2"
   },
   "license": "MIT",
   "skills": "./skills/",
-  "onboardingSkill": "./skills/hud-start/SKILL.md",
+  "onboardingSkill": "./skills/hud-setup/SKILL.md",
   "interface": {
     "displayName": "Codex HUD",
     "shortDescription": "Multiline Windows Terminal status",

@@ -29,7 +29,7 @@ test('marketplace onboarding resolves to a shipped skill without source or build
  const manifest=JSON.parse(fs.readFileSync(path.join(tmp,'.codex-plugin','plugin.json'),'utf8'));
  assert.equal(typeof manifest.onboardingSkill,'string','marketplace setup has no onboarding target');
  const skill=path.resolve(tmp,manifest.onboardingSkill);assert.ok(skill.startsWith(tmp+path.sep));
- assert.ok(fs.statSync(skill).isFile());assert.equal(path.basename(skill),'SKILL.md');
+ assert.ok(fs.statSync(skill).isFile());assert.equal(path.basename(skill),'SKILL.md');assert.equal(path.basename(path.dirname(skill)),'hud-setup','marketplace setup must not invoke the manual start skill');
 });
 
 test('package registers one quiet hook for every main-conversation start source',t=>{
