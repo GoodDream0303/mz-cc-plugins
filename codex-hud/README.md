@@ -5,6 +5,25 @@ WT tabs or separate PowerShell windows. The official CLI and native statusline
 remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
 task names retain their original language.
 
+## Version 0.7.11: connection layout and startup
+
+The default connection summary follows context/token and usage rows, before
+ordinary tools and MCP calls. Pagination retains that order while keeping
+nonofficial connections visible on activity pages. Existing custom element
+orders remain authoritative; move `mcp` before `tools` in `elementOrder` to apply
+the same order to saved settings.
+
+Fresh Connected states are green (`colors.mcpConnected`); starting, authentication
+and mixed states use the warning color, failed states use the critical color,
+and unknown/inactive states stay gray. Only foreground colors change; NO_COLOR
+and uncolored output remain available. Stale facts still become Unknown.
+
+New host startup reuses its just-read owner snapshot for the immediate display
+check, saving one repeated process query. Reuse is limited to the same bootstrap,
+caller and known PIDs within 100 ms; a delay beyond that bound or a new PID triggers a fresh
+query, and viewer acknowledgement always obtains fresh facts. Birth times,
+ancestry and physical pane checks remain required; no background service is added.
+
 ## Compatibility repair after 0.7.9
 
 The automatic local App Server experiment is retired. HUD preserves the user's

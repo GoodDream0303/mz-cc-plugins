@@ -2,6 +2,38 @@ import test from 'node:test';import assert from 'node:assert/strict';
 import {render} from '../dist/render.js';import {displayWidth,sanitize,wrapAnsi} from '../dist/terminal-text.js';import {defaultConfig,set,importClaude,preset} from '../dist/config.js';import {emptySnapshot} from '../dist/types.js';
 function sample(){return {...emptySnapshot('abc-session'),model:'gpt-example',effort:'high',cwd:'C:/项目/固件😀',context:{used:30,window:200},totals:{input:100,cached:80,output:20,reasoning:5,total:120},latest:{input:25,cached:20,output:5,reasoning:1,total:30},quotas:[{id:'codex:primary',minutes:10080,usedPercent:15,resetsAt:2000000000}],mcpUsed:['docs'],agents:[{id:'a',name:'分析',status:'unknown'}],todos:[{step:'验证驱动',status:'in_progress'}],tools:[{id:'t',name:'secret-tool',status:'running'}]};}
 
+test('default connections follow context and quotas and precede ordinary and MCP calls',()=>{
+ let c=defaultConfig();for(const [k,v]of [['display.showMcp',true],['display.showTools',true],['display.showUsage',true],['display.sevenDayThreshold',0],['display.mergeGroups',[]]])c=set(c,k,v);
+ const s=sample();s.tools.push({id:'m',name:'mcp__docs__query',status:'running'});
+ const text=render(s,c,{width:200,height:40,color:false}).lines.join('\n');
+ const positions=['Context','7d:','MCP connections:','Current:','MCP calls:'].map(label=>text.indexOf(label));
+ assert.ok(positions.every(p=>p>=0));assert.deepEqual(positions,[...positions].sort((a,b)=>a-b));
+});
+
+test('pinned connections retain document order on the first page after context and quotas',()=>{
+ let c=defaultConfig();for(const [k,v]of [['display.showMcp',true],['display.showTools',true],['display.showUsage',true],['display.sevenDayThreshold',0],['display.mergeGroups',[]],['display.toolsMaxVisible',0]])c=set(c,k,v);
+ const s=sample();s.tools=Array.from({length:40},(_,i)=>({id:String(i),name:'task_'+i,status:'running'}));
+ const first=render(s,c,{width:180,height:6,color:false});assert.ok(first.pages>1);
+ const text=first.lines.join('\n');assert.ok(text.indexOf('Context')>=0&&text.indexOf('Context')<text.indexOf('MCP connections:'));assert.ok(text.indexOf('7d:')>=0&&text.indexOf('7d:')<text.indexOf('MCP connections:'));
+ for(let page=0;page<first.pages;page++)assert.match(render(s,c,{width:180,height:6,page,color:false}).lines.join('\n'),/docs.*Unknown/);
+});
+
+test('fresh MCP states use distinct foreground colors and stale or NO_COLOR output never implies connected',()=>{
+ const previous=process.env.NO_COLOR;delete process.env.NO_COLOR;
+ try{
+  const c=set(set(defaultConfig(),'display.showMcp',true),'display.showContextBar',false);
+  const s={...emptySnapshot('thread-a'),mcpNames:['docs','boot','broken'],mcpRuntime:{sessionId:'thread-a',checkedAt:1000,complete:true,servers:[{name:'docs',status:'connected'},{name:'boot',status:'starting'},{name:'broken',status:'failed'}]}};
+  for(const [lang,connected,starting,failed]of [['en','Connected','Starting','Failed'],['zh-Hans','已连接','启动中','失败'],['zh-Hant','已連線','啟動中','失敗']]){
+   const config=set(c,'language',lang),text=render(s,config,{width:200,height:30,color:true,now:2000}).lines.join('\n');
+   assert.ok(text.includes('\x1b[32m● '+connected));assert.ok(text.includes('\x1b[33m◐ '+starting));assert.ok(text.includes('\x1b[31m! '+failed));
+   assert.doesNotMatch(text,/\x1b\[(?:1|7|4[0-9]|48)[;m]/);
+   const narrow=render(s,config,{width:72,height:30,color:true,now:2000}).lines;assert.ok(narrow.every(line=>displayWidth(line)<=68));assert.deepEqual(narrow.map(sanitize),render(s,config,{width:72,height:30,color:false,now:2000}).lines);
+   const stale=render(s,config,{width:100,height:30,color:true,now:15000}).lines.join('\n');assert.ok(!stale.includes(connected)&&!stale.includes('\x1b[32m'));
+  }
+  process.env.NO_COLOR='1';assert.ok(!render(s,c,{width:120,height:30,color:true,now:2000}).lines.join('\n').includes('\x1b'));
+ }finally{if(previous===undefined)delete process.env.NO_COLOR;else process.env.NO_COLOR=previous;}
+});
+
 for(const [language,expected]of [
  ['en',['Run command','Run script','Follow up on task','Ask user','Wait']],
  ['zh-Hans',['执行命令','运行脚本','跟进子任务','向你提问','短暂等待']],

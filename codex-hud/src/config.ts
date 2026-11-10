@@ -20,7 +20,7 @@ def('showSeparators',false,'layout','分隔线');
 def('pathLevels',1,'layout','目录层数',{choices:[1,2,3,'full']});
 def('maxWidth',0,'layout','最大宽度（0=自动）',{min:0,max:1000});
 def('forceMaxWidth',false,'layout','Maximum width override',{reason:'Reserved: rendering always respects the actual viewport width'});
-def('elementOrder',['project','addedDirs','context','usage','promptCache','memory','environment','tools','skills','mcp','agents','todos','sessionTime'],'layout','元素顺序');
+def('elementOrder',['project','addedDirs','context','usage','promptCache','memory','environment','mcp','tools','skills','agents','todos','sessionTime'],'layout','元素顺序');
 def('projectLineOrder',[],'layout','首行顺序');
 def('display.mergeGroups',[['context','usage']],'layout','同行分组');
 def('display.rightAlign',[],'layout','靠右元素');
@@ -70,7 +70,7 @@ for(const [key,value,max] of [
 ] as const) def('display.'+key,value,'display',key,{min:0,max});
 for(const key of ['modelOverride','providerName','customLine','advisorOverride','externalUsagePath','externalUsageWritePath'])
  def('display.'+key,'','display',key,{reason:key.startsWith('externalUsage')?'Preserved only; external path I/O is disabled':key==='advisorOverride'?unavailable.showAdvisor:undefined});
-for(const [key,value] of Object.entries({context:'green',usage:'brightBlue',warning:'yellow',usageWarning:'brightMagenta',critical:'red',model:'cyan',project:'yellow',git:'magenta',gitBranch:'cyan',label:'dim',active:'#f2f2f2',inactive:'#9a9a9a',custom:208}))
+for(const [key,value] of Object.entries({context:'green',usage:'brightBlue',warning:'yellow',usageWarning:'brightMagenta',critical:'red',mcpConnected:'green',model:'cyan',project:'yellow',git:'magenta',gitBranch:'cyan',label:'dim',active:'#f2f2f2',inactive:'#9a9a9a',custom:208}))
  def('colors.'+key,value,'colors',key,{kind:'color'});
 def('colors.barFilled','█','colors','进度条填充');def('colors.barEmpty','░','colors','进度条空白');
 def('terminal.paneSize',0.22,'terminal','下方面板比例',{min:0.1,max:0.75});

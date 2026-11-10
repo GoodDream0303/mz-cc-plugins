@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadConfig, get, configPath, startupEnabled } from './config.js';
-import { readHostOrigin, proveOwner } from './psmux.js';
+import { readHostOrigin, proveOwner, readProcessFacts } from './psmux.js';
 import { registerHost, ensureHostDisplay, readHost, closeHost, registerCurrentFrontend } from './host-session.js';
 import { verifyBackend, effectiveBackendPath } from './backend-version.js';
 import { resolveOfficial } from './entry-resolver.js';
@@ -148,7 +148,18 @@ export async function launchHostedCodex(invocation, options = {}) {
     return status;
 }
 export async function runHostOwner(invocation, configFile = configPath()) {
-    const origin = readHostOrigin(), proof = proveOwner(origin), record = registerHost(proof, origin.hostDir), config = loadConfig(configFile);
+    let bootstrap;
+    const origin = readHostOrigin(), proof = proveOwner(origin, { processes: (pids, rootPid) => { const values = readProcessFacts(pids, rootPid); bootstrap = { values, rootPid, at: Date.now() }; return values; } }), record = registerHost(proof, origin.hostDir), config = loadConfig(configFile);
+    const processes = (pids, rootPid) => {
+        const initial = bootstrap;
+        bootstrap = undefined;
+        // Share only this immediate bootstrap observation. Expiry, new PIDs or
+        // viewer acknowledgement always require a fresh process snapshot.
+        const age = initial ? Date.now() - initial.at : Infinity;
+        if (initial && initial.rootPid === rootPid && age >= 0 && age <= 100 && pids.every(pid => initial.values.some(p => p.pid === pid)))
+            return initial.values;
+        return readProcessFacts(pids, rootPid);
+    };
     let exitCode = 1;
     try {
         if (get(config, 'host.runtime') === 'localAppServer')
@@ -158,7 +169,7 @@ export async function runHostOwner(invocation, configFile = configPath()) {
             // successfully queried, definitively absent reported pane can be reused.
             for (let attempt = 0; attempt < 2; attempt++)
                 try {
-                    await ensureHostDisplay(readHost(record.file), config, { configFile });
+                    await ensureHostDisplay(readHost(record.file), config, { configFile, dependencies: { processes } });
                     break;
                 }
                 catch {

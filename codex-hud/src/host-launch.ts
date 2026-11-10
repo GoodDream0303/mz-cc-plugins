@@ -4,7 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {spawn,execFileSync} from 'node:child_process';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {loadConfig,get,configPath,startupEnabled} from './config.js';
-import {readHostOrigin,proveOwner} from './psmux.js';
+import {readHostOrigin,proveOwner,readProcessFacts,type ProcessFact} from './psmux.js';
 import {registerHost,ensureHostDisplay,readHost,closeHost,registerCurrentFrontend} from './host-session.js';
 import {verifyBackend,effectiveBackendPath} from './backend-version.js';
 import {resolveOfficial} from './entry-resolver.js';
@@ -85,14 +85,23 @@ export async function launchHostedCodex(invocation:CodexInvocation,options:{conf
  return status;
 }
 export async function runHostOwner(invocation:CodexInvocation,configFile=configPath()):Promise<number> {
- const origin=readHostOrigin(),proof=proveOwner(origin),record=registerHost(proof,origin.hostDir),config=loadConfig(configFile);
+ let bootstrap:{values:ProcessFact[];rootPid:number;at:number}|undefined;
+ const origin=readHostOrigin(),proof=proveOwner(origin,{processes:(pids,rootPid)=>{const values=readProcessFacts(pids,rootPid);bootstrap={values,rootPid,at:Date.now()};return values;}}),record=registerHost(proof,origin.hostDir),config=loadConfig(configFile);
+ const processes=(pids:number[],rootPid:number)=>{
+  const initial=bootstrap;bootstrap=undefined;
+  // Share only this immediate bootstrap observation. Expiry, new PIDs or
+  // viewer acknowledgement always require a fresh process snapshot.
+  const age=initial?Date.now()-initial.at:Infinity;
+  if(initial&&initial.rootPid===rootPid&&age>=0&&age<=100&&pids.every(pid=>initial.values.some(p=>p.pid===pid)))return initial.values;
+  return readProcessFacts(pids,rootPid);
+ };
  let exitCode=1;
  try{
   if(get(config,'host.runtime')==='localAppServer')process.stderr.write('Codex HUD: the 0.7.9 automatic App Server mode is retired for compatibility; using ordinary CLI.\n');
   if(startupEnabled(config)){
    // A retry still verifies the exact slot: only an acknowledged viewer or a
    // successfully queried, definitively absent reported pane can be reused.
-   for(let attempt=0;attempt<2;attempt++)try{await ensureHostDisplay(readHost(record.file),config,{configFile});break;}catch{if(attempt===1)process.stderr.write('Codex HUD is not ready; inspect this host with hud doctor.\n');}
+   for(let attempt=0;attempt<2;attempt++)try{await ensureHostDisplay(readHost(record.file),config,{configFile,dependencies:{processes}});break;}catch{if(attempt===1)process.stderr.write('Codex HUD is not ready; inspect this host with hud doctor.\n');}
   }
   const command=resolveOfficial(invocation.command),entry=fileURLToPath(new URL('../bin/hud.mjs',import.meta.url)),encoded=Buffer.from(JSON.stringify(invocation)).toString('base64');
   exitCode=await foreground(command.prefix.length?command.file:process.execPath,[entry,'host-frontend','--invocation64',encoded],{...process.env,MZ_HUD_CONFIG_FILE:path.resolve(configFile)});return exitCode;

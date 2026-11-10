@@ -10,7 +10,7 @@ function stateLabel(state, language) {
     return label(language, ...(labels[state] ?? labels.unknown));
 }
 /** Configuration/history establish names; only matching fresh runtime facts establish state. */
-export function mcpConnectionRows(snapshot, language, now = Date.now()) {
+export function mcpConnectionRows(snapshot, language, now = Date.now(), paint = text => text) {
     const names = new Map();
     for (const server of snapshot.environment?.mcp ?? [])
         names.set(server.name, server.enabled);
@@ -33,9 +33,12 @@ export function mcpConnectionRows(snapshot, language, now = Date.now()) {
     const officialStates = [...live].filter(([name]) => official.has(name)).map(([, state]) => state);
     const combined = !officialStates.length || officialStates.includes('unknown') ? 'unknown' : new Set(officialStates).size === 1 ? officialStates[0] : 'mixed';
     const foreign = [...names].filter(([name]) => !official.has(name));
-    const rows = [label(language, 'MCP connections: Official ', 'MCP连接: 官方 ', 'MCP連線: 官方 ') + stateLabel(combined, language)];
-    if (foreign.length)
-        rows[0] += ' | ' + foreign.map(([name, enabled]) => sanitize(name) + ' ' + (live.has(name) ? stateLabel(live.get(name), language) : enabled ? stateLabel('unknown', language) : '⊘ ' + label(language, 'Disabled (config)', '禁用（配置）'))).join(' | ');
+    const rows = [paint(label(language, 'MCP connections: Official ', 'MCP连接: 官方 ', 'MCP連線: 官方 ')) + paint(stateLabel(combined, language), combined)];
+    for (const [name, enabled] of foreign) {
+        const state = live.get(name) ?? (enabled ? 'unknown' : 'disabled');
+        const text = !live.has(name) && !enabled ? '⊘ ' + label(language, 'Disabled (config)', '禁用（配置）') : stateLabel(state, language);
+        rows[0] += paint(' | ' + sanitize(name) + ' ') + paint(text, state);
+    }
     return { rows, persistent: foreign.length > 0 };
 }
 export function toolTime(tool, now) {

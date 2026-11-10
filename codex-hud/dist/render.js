@@ -117,9 +117,9 @@ export function render(s, c, o = {}) {
         }
     }
     if (on('showMcp')) {
-        const presentation = mcpConnectionRows(s, lang, now);
+        const presentation = mcpConnectionRows(s, lang, now, (text, state) => ink(text, state === 'connected' ? 'mcpConnected' : state === 'failed' ? 'critical' : state === 'starting' || state === 'authenticationRequired' || state === 'mixed' ? 'warning' : 'inactive'));
         persistentMcp = presentation.persistent;
-        const connections = presentation.rows.map(text => ({ text: ink(text, 'inactive'), pinPriority: presentation.persistent ? 1 : 0 }));
+        const connections = presentation.rows.map(text => ({ text, pinPriority: presentation.persistent ? 1 : 0 }));
         groups.set('mcp', connections[0].text);
         separate.set('mcp', connections);
     }
@@ -261,11 +261,12 @@ export function render(s, c, o = {}) {
     const pinLimit = Math.max(0, height - pinned.length - 1 - (showPager ? 1 : 0));
     const connectionRows = bodyRows.map((row, index) => ({ ...row, index })).filter(row => row.persistent);
     const chosen = new Set(connectionRows.sort((a, b) => b.priority - a.priority || a.index - b.index).slice(0, pinLimit).map(row => row.index));
-    pinned.push(...bodyRows.filter((_, index) => chosen.has(index)).map(row => row.text));
-    const pageable = [...warnings.slice(warnings.length ? 1 : 0), ...bodyRows.filter((_, index) => !chosen.has(index)).map(row => row.text)];
-    const capacity = Math.max(1, height - pinned.length - (showPager ? 1 : 0));
+    const fixed = bodyRows.map((row, index) => ({ ...row, index })).filter(row => chosen.has(row.index));
+    const pageable = [...warnings.slice(warnings.length ? 1 : 0).map((text, index) => ({ text, index: index - warnings.length })), ...bodyRows.map((row, index) => ({ ...row, index })).filter(row => !chosen.has(row.index))];
+    const capacity = Math.max(1, height - pinned.length - fixed.length - (showPager ? 1 : 0));
     const pages = Math.max(1, Math.ceil(pageable.length / capacity)), page = Math.min(pages - 1, Math.max(0, o.page ?? 0));
-    const lines = [...pinned, ...pageable.slice(page * capacity, (page + 1) * capacity)];
+    const visible = [...fixed, ...pageable.slice(page * capacity, (page + 1) * capacity)].sort((a, b) => a.index - b.index);
+    const lines = [...pinned, ...visible.map(row => row.text)];
     if (showPager && pages > 1)
         lines.push(ink(truncate('[' + (page + 1) + '/' + pages + '] ' + label('←/→ page · q close', '←/→ 翻页 · q 关闭', '←/→ 翻頁 · q 關閉'), width), 'label'));
     return { lines, totalLines: all.length, pages };
