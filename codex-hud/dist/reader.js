@@ -47,7 +47,6 @@ export class SessionReader {
     canonicalTools = new Set();
     processTools = new Map();
     pollTargets = new Map();
-    confirmedMcpServers = new Set();
     constructor(file, sessionId) {
         this.file = file;
         this.sessionId = sessionId;
@@ -56,7 +55,7 @@ export class SessionReader {
     }
     agentActivityAt(id) { return this.agents.activityAt(id); }
     agentTiming(id) { return this.agents.timing(id); }
-    reset() { this.offset = 0; this.carry = ''; this.decoder = new StringDecoder('utf8'); this.snapshot = emptySnapshot(this.sessionId); this.agents = new AgentTracker(this.snapshot.agents, this.sessionId); this.mismatch = false; this.absolute = false; this.discard = false; this.canonicalCompleted.clear(); this.canonicalTools.clear(); this.processTools.clear(); this.pollTargets.clear(); this.confirmedMcpServers.clear(); this.prefix = undefined; this.checkpoint = undefined; }
+    reset() { this.offset = 0; this.carry = ''; this.decoder = new StringDecoder('utf8'); this.snapshot = emptySnapshot(this.sessionId); this.agents = new AgentTracker(this.snapshot.agents, this.sessionId); this.mismatch = false; this.absolute = false; this.discard = false; this.canonicalCompleted.clear(); this.canonicalTools.clear(); this.processTools.clear(); this.pollTargets.clear(); this.prefix = undefined; this.checkpoint = undefined; }
     async unchanged(handle) {
         for (const point of [this.prefix, this.checkpoint])
             if (point && await fingerprint(handle, point.start, point.length) !== point.digest)
@@ -286,11 +285,6 @@ export class SessionReader {
         if (isAgentAction(details.action) && details.action.kind === row.action?.kind && details.action.target === undefined && row.action.target)
             details = { ...details, action: { ...details.action, target: row.action.target } };
         Object.assign(row, details);
-        if (row.mcp && !this.snapshot.mcpUsed.includes(row.mcp.server)) {
-            this.snapshot.mcpUsed.push(row.mcp.server);
-            if (this.snapshot.mcpUsed.length > 64)
-                this.confirmedMcpServers.delete(this.snapshot.mcpUsed.shift());
-        }
         if (typeof start === 'number' && Number.isFinite(start) && start >= 0)
             row.startedAt = start;
         if (row.status !== 'running' && typeof end === 'number' && Number.isFinite(end) && end >= 0)
@@ -314,12 +308,10 @@ export class SessionReader {
             let name = p.type === 'Extension' ? text(p.kind) : 'exec_command';
             if (!name)
                 return;
-            let mcp;
             if (p.type === 'McpToolCall') {
                 const server = text(p.server), tool = text(p.tool);
                 if (!server || !tool)
                     return;
-                mcp = { server, tool };
                 name = 'mcp__' + server + '__' + tool;
             }
             if (p.type === 'CommandExecution' && p.process_id !== undefined && p.process_id !== null) {
@@ -331,13 +323,7 @@ export class SessionReader {
             const failed = p.status === 'failed' || !!p.error || typeof p.exit_code === 'number' && p.exit_code !== 0, cancelled = ['cancelled', 'aborted', 'interrupted', 'declined'].includes(p.status), running = ['in_progress', 'inProgress', 'running'].includes(p.status);
             const row = this.tool(id, name, cancelled ? 'cancelled' : failed ? 'failed' : running ? 'running' : completed || p.status === 'completed' ? 'done' : 'running', true, timestamp);
             const action = p.type === 'CommandExecution' ? commandDetails(p.command, p.command_actions ?? p.commandActions) : undefined;
-            const previous = row?.mcp?.server;
-            this.annotate(row, { ...(mcp ? { mcp } : toolDetails(name)), ...(action ? { action } : {}) }, startedAt ?? p.started_at_ms, p.duration_ms ?? p.durationMs, completedAt ?? p.completed_at_ms);
-            if (row && mcp) {
-                this.confirmedMcpServers.add(mcp.server);
-                if (previous && previous !== mcp.server && !this.confirmedMcpServers.has(previous) && !this.snapshot.tools.some(t => t.mcp?.server === previous))
-                    this.snapshot.mcpUsed = this.snapshot.mcpUsed.filter(name => name !== previous);
-            }
+            this.annotate(row, { ...toolDetails(name), ...(action ? { action } : {}) }, startedAt ?? p.started_at_ms, p.duration_ms ?? p.durationMs, completedAt ?? p.completed_at_ms);
             return;
         }
         if (['function_call', 'custom_tool_call'].includes(p.type)) {

@@ -52,9 +52,6 @@ export function commandDetails(command, actions) {
         return { kind: 'shell' };
 }
 export function toolDetails(name, args) {
-    const mcp = /^(?:functions\.)?mcp__(.+?)__(.+)$/.exec(name);
-    if (mcp)
-        return { mcp: { server: mcp[1].slice(0, 200), tool: mcp[2].slice(0, 200) } };
     const operation = agentOperations.get(name.replace(/^collaboration\./, ''));
     if (operation) {
         const value = operation === 'agentSpawn' ? args?.task_name ?? args?.agent_type : args?.target ?? args?.agent_id ?? args?.id;

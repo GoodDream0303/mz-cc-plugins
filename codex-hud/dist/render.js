@@ -1,8 +1,17 @@
 import { get, unsupported } from './config.js';
 import { colorize, displayWidth, sanitize, truncate, wrapAnsi, wrapFields } from './terminal-text.js';
 import { agentRows } from './agent-display.js';
-import { mcpConnectionRows, mcpCallRows, mcpIdentity, toolTime } from './mcp-display.js';
 import { isAgentAction } from './tool-details.js';
+function toolTime(tool, now) {
+    const elapsed = tool.status === 'running' ? tool.startedAt === undefined ? undefined : now - tool.startedAt : tool.durationMs ?? (tool.startedAt === undefined || tool.finishedAt === undefined ? undefined : tool.finishedAt - tool.startedAt);
+    if (elapsed === undefined || !Number.isFinite(elapsed) || elapsed < 0)
+        return '';
+    if (elapsed < 1000)
+        return Math.round(elapsed) + 'ms';
+    if (elapsed < 60000)
+        return (elapsed / 1000).toFixed(1).replace(/\.0$/, '') + 's';
+    return Math.floor(elapsed / 60000) + 'm ' + Math.floor(elapsed % 60000 / 1000) + 's';
+}
 function num(n) { return n >= 1000000 ? (n / 1000000).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(Math.round(n)); }
 function percent(n) { return Number.isInteger(n) ? String(n) : n.toFixed(1); }
 function windowLabel(minutes) { return minutes % 1440 === 0 ? minutes / 1440 + 'd' : minutes % 60 === 0 ? minutes / 60 + 'h' : minutes + 'm'; }
@@ -20,7 +29,6 @@ export function render(s, c, o = {}) {
     const bar = (p) => { const n = Math.round(Math.max(0, Math.min(100, p)) / 10); return sanitize(get(c, 'colors.barFilled')).repeat(n) + sanitize(get(c, 'colors.barEmpty')).repeat(10 - n); };
     const groups = new Map();
     const fields = new Map(), separate = new Map();
-    let persistentMcp = false;
     const model = sanitize(get(c, 'display.modelOverride') || s.model || unknown);
     const formattedModel = get(c, 'display.modelFormat') === 'full' ? model : model.replace(/\s*\([^)]*context[^)]*\)/gi, '');
     let effort = '';
@@ -116,13 +124,6 @@ export function render(s, c, o = {}) {
             fields.set('usage', quotas);
         }
     }
-    if (on('showMcp')) {
-        const presentation = mcpConnectionRows(s, lang, now, (text, state) => ink(text, state === 'connected' ? 'mcpConnected' : state === 'failed' ? 'critical' : state === 'starting' || state === 'authenticationRequired' || state === 'mixed' ? 'warning' : 'inactive'));
-        persistentMcp = presentation.persistent;
-        const connections = presentation.rows.map(text => ({ text, pinPriority: presentation.persistent ? 1 : 0 }));
-        groups.set('mcp', connections[0].text);
-        separate.set('mcp', connections);
-    }
     if (on('showTools') && s.tools.length) {
         const names = new Map();
         for (const [keys, value] of [
@@ -140,7 +141,7 @@ export function render(s, c, o = {}) {
             names.set('collaboration.' + name, actions[kind]);
         }
         const grouped = new Map();
-        s.tools.forEach((t, i) => { if (mcpIdentity(t) || t.status !== 'running' && Number.isFinite(t.finishedAt) && (t.finishedAt > now || now - t.finishedAt > 60000))
+        s.tools.forEach((t, i) => { if (t.status !== 'running' && Number.isFinite(t.finishedAt) && (t.finishedAt > now || now - t.finishedAt > 60000))
             return; const key = t.action ? 'call\0' + t.id : 'name\0' + t.name + '\0' + t.status, entry = grouped.get(key); if (entry) {
             entry.count++;
             entry.last = i;
@@ -164,13 +165,6 @@ export function render(s, c, o = {}) {
         if (parts.length) {
             groups.set('tools', parts[0]);
             separate.set('tools', parts.map(text => ({ text })));
-        }
-    }
-    if (on('showTools')) {
-        const rows = mcpCallRows(s.tools, lang, now, get(c, 'display.toolsMaxVisible')).map(row => ({ ...row, text: ink(row.text, 'active') }));
-        if (rows.length) {
-            groups.set('mcpCalls', rows[0].text);
-            separate.set('mcpCalls', rows);
         }
     }
     if (on('showAgents') && s.agents.length) {
@@ -197,10 +191,7 @@ export function render(s, c, o = {}) {
     for (const [flag, reason] of Object.entries(unsupported))
         if (on(flag))
             groups.set('unsupported-' + flag, ink((en ? flag : reason) + ': ' + label('unavailable', '不可用'), 'label'));
-    const requestedOrder = [...get(c, 'elementOrder')];
-    if (!requestedOrder.includes('mcpCalls') && requestedOrder.includes('tools'))
-        requestedOrder.splice(requestedOrder.indexOf('tools') + 1, 0, 'mcpCalls');
-    const elementOrder = [...new Set([...requestedOrder, ...groups.keys()])];
+    const elementOrder = [...new Set([...get(c, 'elementOrder'), ...groups.keys()])];
     const blocks = [];
     const used = new Set();
     for (const key of elementOrder) {
@@ -230,7 +221,7 @@ export function render(s, c, o = {}) {
                 if (packed.length)
                     logical.push({ fields: packed });
                 packed = [];
-                logical.push(...b.rows.map(row => ({ fields: [row.text], indent: row.indent, persistent: persistentMcp && b.keys.includes('mcp'), pinPriority: row.pinPriority })));
+                logical.push(...b.rows.map(row => ({ fields: [row.text], indent: row.indent })));
             }
             else
                 packed.push(...b.fields);
@@ -241,15 +232,15 @@ export function render(s, c, o = {}) {
     else
         blocks.forEach((b, i) => { if (i && get(c, 'showSeparators'))
             logical.push({ fields: [ink('─'.repeat(Math.min(width, 60)), 'label')] }); if (b.rows)
-            logical.push(...b.rows.map(row => ({ fields: [row.text], indent: row.indent, persistent: persistentMcp && b.keys.includes('mcp'), pinPriority: row.pinPriority })));
+            logical.push(...b.rows.map(row => ({ fields: [row.text], indent: row.indent })));
         else
             logical.push({ fields: b.fields }); });
     if (custom && get(c, 'display.customLinePosition') === 'last')
         logical.push({ fields: [ink(custom, 'custom')] });
     const errors = [...s.errors, ...(s.environment?.errors ?? [])];
     const warnings = errors.flatMap(error => wrapAnsi(ink('! ' + sanitize(error), 'critical'), width));
-    const bodyRows = logical.flatMap(line => { const indent = Math.min(line.indent ?? 0, width - 1); return wrapFields(line.fields, width - indent).map(text => ({ text: ' '.repeat(indent) + text, persistent: line.persistent, priority: line.pinPriority ?? 0 })); });
-    const body = bodyRows.map(row => row.text), all = [...warnings, ...body];
+    const body = logical.flatMap(line => { const indent = Math.min(line.indent ?? 0, width - 1); return wrapFields(line.fields, width - indent).map(text => ' '.repeat(indent) + text); });
+    const all = [...warnings, ...body];
     if (!all.length)
         all.push(ink(label('No visible fields', '未启用显示项'), 'label'));
     if (all.length <= height)
@@ -258,15 +249,10 @@ export function render(s, c, o = {}) {
         return { lines: [warnings[0]], totalLines: all.length, pages: 1 };
     const pinned = warnings.length ? [warnings[0]] : [];
     const showPager = o.showPager !== false && height >= pinned.length + 2;
-    const pinLimit = Math.max(0, height - pinned.length - 1 - (showPager ? 1 : 0));
-    const connectionRows = bodyRows.map((row, index) => ({ ...row, index })).filter(row => row.persistent);
-    const chosen = new Set(connectionRows.sort((a, b) => b.priority - a.priority || a.index - b.index).slice(0, pinLimit).map(row => row.index));
-    const fixed = bodyRows.map((row, index) => ({ ...row, index })).filter(row => chosen.has(row.index));
-    const pageable = [...warnings.slice(warnings.length ? 1 : 0).map((text, index) => ({ text, index: index - warnings.length })), ...bodyRows.map((row, index) => ({ ...row, index })).filter(row => !chosen.has(row.index))];
-    const capacity = Math.max(1, height - pinned.length - fixed.length - (showPager ? 1 : 0));
+    const pageable = [...warnings.slice(warnings.length ? 1 : 0), ...body];
+    const capacity = Math.max(1, height - pinned.length - (showPager ? 1 : 0));
     const pages = Math.max(1, Math.ceil(pageable.length / capacity)), page = Math.min(pages - 1, Math.max(0, o.page ?? 0));
-    const visible = [...fixed, ...pageable.slice(page * capacity, (page + 1) * capacity)].sort((a, b) => a.index - b.index);
-    const lines = [...pinned, ...visible.map(row => row.text)];
+    const lines = [...pinned, ...pageable.slice(page * capacity, (page + 1) * capacity)];
     if (showPager && pages > 1)
         lines.push(ink(truncate('[' + (page + 1) + '/' + pages + '] ' + label('←/→ page · q close', '←/→ 翻页 · q 关闭', '←/→ 翻頁 · q 關閉'), width), 'label'));
     return { lines, totalLines: all.length, pages };

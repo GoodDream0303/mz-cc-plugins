@@ -42,7 +42,7 @@ export async function initialPaneSize(config:Config,options:{sessionId?:string;t
  const viewport=(options.measure??measureTerminalViewport)();if(!validViewport(viewport))return fallback;
  try{
   const snapshot=await new SessionReader(options.transcriptPath,options.sessionId).read();
-  if(snapshot.cwd)snapshot.environment=readEnvironment(snapshot.cwd,options.home);
+  if(snapshot.cwd)snapshot.environment=readEnvironment(snapshot.cwd);
   return planInitialPaneSize(config,snapshot,viewport);
  }catch{return fallback;}
 }

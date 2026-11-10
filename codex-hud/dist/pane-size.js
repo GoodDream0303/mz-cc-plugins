@@ -50,7 +50,7 @@ export async function initialPaneSize(config, options) {
     try {
         const snapshot = await new SessionReader(options.transcriptPath, options.sessionId).read();
         if (snapshot.cwd)
-            snapshot.environment = readEnvironment(snapshot.cwd, options.home);
+            snapshot.environment = readEnvironment(snapshot.cwd);
         return planInitialPaneSize(config, snapshot, viewport);
     }
     catch {

@@ -14,7 +14,7 @@ def('showSeparators', false, 'layout', '分隔线');
 def('pathLevels', 1, 'layout', '目录层数', { choices: [1, 2, 3, 'full'] });
 def('maxWidth', 0, 'layout', '最大宽度（0=自动）', { min: 0, max: 1000 });
 def('forceMaxWidth', false, 'layout', 'Maximum width override', { reason: 'Reserved: rendering always respects the actual viewport width' });
-def('elementOrder', ['project', 'addedDirs', 'context', 'usage', 'promptCache', 'memory', 'environment', 'mcp', 'tools', 'skills', 'agents', 'todos', 'sessionTime'], 'layout', '元素顺序');
+def('elementOrder', ['project', 'addedDirs', 'context', 'usage', 'promptCache', 'memory', 'environment', 'tools', 'skills', 'agents', 'todos', 'sessionTime'], 'layout', '元素顺序');
 def('projectLineOrder', [], 'layout', '首行顺序');
 def('display.mergeGroups', [['context', 'usage']], 'layout', '同行分组');
 def('display.rightAlign', [], 'layout', '靠右元素');
@@ -35,7 +35,7 @@ const flags = {
     showModel: false, showProject: false, showAddedDirs: false, showContextBar: true, showConfigCounts: false,
     showCost: false, showRoutedCost: false, showDailyCost: false, showDuration: false, showSpeed: false,
     showTokenBreakdown: true, showUsage: true, showFiveHourUsage: true, showSevenDayUsage: true, usageBarEnabled: true, showResetLabel: true, usageCompact: false,
-    showModelScopedUsage: false, showTools: false, showSkills: false, showMcp: false, showAgents: false, showTodos: false,
+    showModelScopedUsage: false, showTools: false, showSkills: false, showAgents: false, showTodos: false,
     showSessionName: false, showAuth: false, showAuthUser: false, showCodexVersion: false,
     showEffortLevel: false, showMemoryUsage: false, showPromptCache: false, showSessionTokens: false,
     showOutputStyle: false, showSessionStartDate: false, showLastResponseAt: false, showCompactions: false,
@@ -44,7 +44,7 @@ const flags = {
 const labels = {
     showModel: '模型', showProject: '项目', showContextBar: '上下文', showEffortLevel: '推理强度',
     showSessionTokens: '会话累计 Token', showTokenBreakdown: 'Token 明细', showUsage: '额度', showResetLabel: '重置标签',
-    usageBarEnabled: '额度进度条', usageCompact: '紧凑额度', showTools: '工具活动', showMcp: 'MCP', showAgents: '子代理',
+    usageBarEnabled: '额度进度条', usageCompact: '紧凑额度', showTools: '工具活动', showAgents: '子代理',
     showTodos: '待办进度', showDuration: '会话时长', showSessionId: '会话 ID', showSessionName: '会话名称',
     showCodexVersion: 'Codex 版本', showCompactions: '压缩次数', showAuth: '订阅类型', showProvider: '服务商',
     showSessionStartDate: '会话开始时间', showLastResponseAt: '最后响应时间'
@@ -68,7 +68,7 @@ for (const [key, value, max] of [
     def('display.' + key, value, 'display', key, { min: 0, max });
 for (const key of ['modelOverride', 'providerName', 'customLine', 'advisorOverride', 'externalUsagePath', 'externalUsageWritePath'])
     def('display.' + key, '', 'display', key, { reason: key.startsWith('externalUsage') ? 'Preserved only; external path I/O is disabled' : key === 'advisorOverride' ? unavailable.showAdvisor : undefined });
-for (const [key, value] of Object.entries({ context: 'green', usage: 'brightBlue', warning: 'yellow', usageWarning: 'brightMagenta', critical: 'red', mcpConnected: 'green', model: 'cyan', project: 'yellow', git: 'magenta', gitBranch: 'cyan', label: 'dim', active: '#f2f2f2', inactive: '#9a9a9a', custom: 208 }))
+for (const [key, value] of Object.entries({ context: 'green', usage: 'brightBlue', warning: 'yellow', usageWarning: 'brightMagenta', critical: 'red', model: 'cyan', project: 'yellow', git: 'magenta', gitBranch: 'cyan', label: 'dim', active: '#f2f2f2', inactive: '#9a9a9a', custom: 208 }))
     def('colors.' + key, value, 'colors', key, { kind: 'color' });
 def('colors.barFilled', '█', 'colors', '进度条填充');
 def('colors.barEmpty', '░', 'colors', '进度条空白');
@@ -82,7 +82,6 @@ def('startup.enabled', true, 'startup', 'Auto open HUD', { label: 'Legacy startu
 def('startup.window', 'last', 'startup', 'Terminal target', { pattern: /^[a-zA-Z0-9_.-]{1,100}$/, reason: 'Legacy value preserved; attachment uses the verified source pane' });
 def('host.psmuxPath', packagedBackendPath(), 'startup', 'Portable psmux executable');
 def('host.autoStart', 'inherit', 'startup', 'Exact host automatic opening', { choices: ['inherit', 'enabled', 'disabled'] });
-def('host.runtime', 'cli', 'startup', 'Codex runtime', { choices: ['cli', 'localAppServer'], reason: 'Legacy 0.7.9 choice preserved; automatic App Server startup is retired and ordinary CLI is retained' });
 export const definitions = defs;
 export const unsupported = unavailable;
 const unsafe = new Set(['__proto__', 'prototype', 'constructor']);

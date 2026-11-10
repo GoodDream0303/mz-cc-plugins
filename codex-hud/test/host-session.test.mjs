@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';
-import {defaultConfig,set} from '../dist/config.js';import {readLaunch,updateLaunch} from '../dist/runtime.js';
+import {defaultConfig,set} from '../dist/config.js';import {createLaunch,readLaunch,updateLaunch} from '../dist/runtime.js';import {acquireStartupLock} from '../dist/startup-lock.js';
 const api=await import('../dist/host-session.js').catch(()=>({}));
 function fixture(t,id='00112233-4455-4677-8899-aabbccddeeff'){
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'hud-host-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
@@ -53,6 +53,43 @@ test('switching thread updates only the exact owner display and never creates a 
  const next=await api.bindHostSession(api.readHost(record.file),'second-thread',path.join(f.root,'second.jsonl'),{...f.options,config:defaultConfig()});
  assert.equal(next.launchFile,one.launchFile);assert.equal(readLaunch(one.launchFile).sessionId,'second-thread');assert.equal(f.state.splits,1);
 });
+for(const foreign of [false,true])test('a SessionStart hook racing HUD creation '+(foreign?'rejects foreign ancestry':'binds the published intent without another split'),async t=>{
+ const f=fixture(t),record=f.record(),frontend={pid:301,parentPid:201,name:'codex.exe',startedAt:'2026-11-03T01:00:02.000Z'},hook={pid:401,parentPid:foreign?999:301,name:'node.exe',startedAt:'2026-11-03T01:00:03.000Z'};
+ record.proof.frontend=frontend;const config=defaultConfig(),d=createLaunch(f.root,config,path.dirname(record.proof.origin.hostDir),path.join(f.root,'config.json'));
+ record.launchFile=d.file;fs.writeFileSync(record.file,JSON.stringify(record));updateLaunch(d.file,v=>{v.host={recordFile:record.file,proof:record.proof,phase:'opening',reportedPane:'%7'};});
+ const release=await acquireStartupLock(path.join(record.proof.origin.hostDir,'.locks',record.id));assert.ok(release);t.after(release);
+ const dependencies={...f.dependencies,pid:401,processes:()=>[f.proof.owner,f.proof.server,frontend,hook]},transcript=path.join(f.root,'racing.jsonl');
+ const bind=()=>api.bindHostSession(record,'racing-thread',transcript,{role:'hook',config,dependencies});
+ if(foreign){await assert.rejects(bind,/origin|ancestry|frontend/i);assert.equal(readLaunch(d.file).sessionId,undefined);}
+ else{const result=await bind();assert.equal(result.status,'busy');assert.equal(result.launchFile,d.file);assert.equal(readLaunch(d.file).sessionId,'racing-thread');assert.equal(readLaunch(d.file).transcriptPath,transcript);assert.equal(readLaunch(d.file).host.phase,'opening');}
+ assert.equal(f.state.splits,0);
+});
+
+for(const mode of ['reused-viewer','wrong-pane'])test('a contended SessionStart binding rejects an acknowledged '+mode,async t=>{
+ const f=fixture(t),record=f.record(),opened=await api.ensureHostDisplay(record,defaultConfig(),f.options),frontend={pid:301,parentPid:201,name:'codex.exe',startedAt:'2026-11-03T01:00:02.000Z'},hook={pid:401,parentPid:301,name:'node.exe',startedAt:'2026-11-03T01:00:03.000Z'};
+ const current=api.readHost(record.file);current.proof.frontend=frontend;fs.writeFileSync(current.file,JSON.stringify(current));const viewer=readLaunch(opened.launchFile).host.hudProcess;
+ const release=await acquireStartupLock(path.join(record.proof.origin.hostDir,'.locks',record.id));assert.ok(release);t.after(release);
+ const dependencies={...f.dependencies,pid:401,processes:()=>[f.proof.owner,f.proof.server,frontend,hook,mode==='reused-viewer'?{...viewer,startedAt:'2026-11-03T02:00:04.000Z'}:viewer],run:args=>{const result=f.dependencies.run(args);return mode==='wrong-pane'&&args.includes('%7')?result.replace('@1','@2'):result;}};
+ await assert.rejects(()=>api.bindHostSession(current,'wrong-viewer-thread',path.join(f.root,'wrong.jsonl'),{role:'hook',config:defaultConfig(),dependencies}),/viewer|pane|incarnation/i);
+ assert.equal(readLaunch(opened.launchFile).sessionId,undefined);
+});
+
+test('a viewer acknowledged during contended hook proof is rechecked without losing its binding',async t=>{
+ const f=fixture(t),record=f.record(),frontend={pid:301,parentPid:201,name:'codex.exe',startedAt:'2026-11-03T01:00:02.000Z'},hook={pid:401,parentPid:301,name:'node.exe',startedAt:'2026-11-03T01:00:03.000Z'},viewer={pid:501,parentPid:101,name:'node.exe',startedAt:'2026-11-03T01:00:04.000Z',pane:'%7'};
+ record.proof.frontend=frontend;const d=createLaunch(f.root,defaultConfig(),path.dirname(record.proof.origin.hostDir),path.join(f.root,'config.json'));record.launchFile=d.file;fs.writeFileSync(record.file,JSON.stringify(record));updateLaunch(d.file,v=>{v.host={recordFile:record.file,proof:record.proof,phase:'opening',reportedPane:'%7'};});f.state.viewers.push(viewer);
+ const release=await acquireStartupLock(path.join(record.proof.origin.hostDir,'.locks',record.id));assert.ok(release);t.after(release);let queries=0;
+ const dependencies={...f.dependencies,pid:401,processes:()=>{queries++;if(queries===1)updateLaunch(d.file,v=>{v.pid=viewer.pid;v.state='running';v.host.hudProcess=viewer;v.host.hudPane='%7';v.host.phase='running';});return [f.proof.owner,f.proof.server,frontend,hook,...(queries>1?[viewer]:[])];}};
+ await api.bindHostSession(record,'racing-ack-thread',path.join(f.root,'ack.jsonl'),{role:'hook',config:defaultConfig(),dependencies});assert.equal(readLaunch(d.file).sessionId,'racing-ack-thread');assert.equal(queries,2,'newly acknowledged viewer needs a fresh physical/process proof');
+});
+
+test('a hook whose published intent is replaced during proof binds the current intent',async t=>{
+ const f=fixture(t),record=f.record(),frontend={pid:301,parentPid:201,name:'codex.exe',startedAt:'2026-11-03T01:00:02.000Z'},hook={pid:401,parentPid:301,name:'node.exe',startedAt:'2026-11-03T01:00:03.000Z'};record.proof.frontend=frontend;
+ const create=()=>{const d=createLaunch(f.root,defaultConfig(),path.dirname(record.proof.origin.hostDir),path.join(f.root,'config.json'));updateLaunch(d.file,v=>{v.host={recordFile:record.file,proof:record.proof,phase:'opening'};});return d;},first=create(),replacement=create();record.launchFile=first.file;fs.writeFileSync(record.file,JSON.stringify(record));
+ const release=await acquireStartupLock(path.join(record.proof.origin.hostDir,'.locks',record.id));assert.ok(release);t.after(release);let queries=0;
+ const dependencies={...f.dependencies,pid:401,processes:()=>{if(++queries===1){const current=api.readHost(record.file);current.launchFile=replacement.file;fs.writeFileSync(current.file,JSON.stringify(current));}return [f.proof.owner,f.proof.server,frontend,hook];}};
+ const result=await api.bindHostSession(record,'replacement-thread',path.join(f.root,'replacement.jsonl'),{role:'hook',config:defaultConfig(),dependencies});assert.equal(result.launchFile,replacement.file);assert.equal(readLaunch(replacement.file).sessionId,'replacement-thread');assert.equal(readLaunch(first.file).sessionId,undefined);assert.equal(queries,2);
+});
+
 test('a lost split response stays uncertain and cannot create a duplicate on retry',async t=>{
  assert.equal(typeof api.ensureHostDisplay,'function','display intents are missing');
  const f=fixture(t),record=f.record();f.state.uncertain=true;
@@ -88,14 +125,18 @@ test('cold viewer startup can finish its bounded process proof before acknowledg
  const result=await api.ensureHostDisplay(record,defaultConfig(),{dependencies:f.dependencies});assert.equal(result.status,'opened');assert.equal(f.state.splits,1);
 });
 test('a returned pane that definitively disappeared can recover while a lost response stays uncertain',async t=>{
- const f=fixture(t),record=f.record(),original=f.dependencies.run;let first=true;
+ const f=fixture(t),record=f.record(),original=f.dependencies.run;let first=true,absentConfirmed=false;
  f.dependencies.run=args=>{
-  if(args[2]==='list-panes')return 'codex\t@1\t%1\t201\t120\t40\t101';
+  if(args[2]==='list-panes'){absentConfirmed=true;return 'codex\t@1\t%1\t201\t120\t40\t101';}
+  if(absentConfirmed&&args[2]==='display-message'&&args.includes('%1'))assert.notEqual(readLaunch(api.readHost(record.file).launchFile).state,'exited','keep the old intent bindable until replacement publication');
   if(args[2]==='split-window'&&first){first=false;f.state.splits++;return '%7';}return original(args);
  };
- await assert.rejects(()=>api.ensureHostDisplay(record,defaultConfig(),f.options),/uncertain|timed out/i);
+ const transcript=path.join(f.root,'bound-before-recovery.jsonl');await assert.rejects(()=>api.ensureHostDisplay(record,defaultConfig(),{...f.options,binding:{id:'bound-before-recovery',transcript}}),/uncertain|timed out/i);
  const old=api.readHost(record.file),d=readLaunch(old.launchFile);assert.equal(d.host.reportedPane,'%7');
+ const frontend={pid:301,parentPid:201,name:'node.exe',startedAt:'2026-11-03T01:00:02.000Z'};let registered=false;
+ f.dependencies.processes=()=>{if(!registered){registered=true;const latest=api.readHost(record.file);latest.proof.frontend=frontend;fs.writeFileSync(latest.file,JSON.stringify(latest));}return [f.proof.owner,f.proof.server,frontend,...f.state.viewers];};
  const recovered=await api.ensureHostDisplay(old,defaultConfig(),f.options);assert.equal(recovered.status,'opened');assert.notEqual(recovered.launchFile,old.launchFile);assert.equal(f.state.splits,2);
+ assert.equal(readLaunch(recovered.launchFile).sessionId,'bound-before-recovery');assert.equal(readLaunch(recovered.launchFile).transcriptPath,transcript);assert.deepEqual(api.readHost(record.file).proof.frontend,frontend,'recovery must preserve a concurrent frontend registration');
 });
 test('reported-pane recovery refuses a live pane, a failed query or a different server',async t=>{
  for(const mode of ['present','offline','wrong-server']){

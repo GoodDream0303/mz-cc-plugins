@@ -10,9 +10,9 @@ test('canonical completion preserves an agent task target previously obtained fr
  const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'abc'})+record('response_item',{type:'function_call',call_id:'spawn-1',name:'spawn_agent',arguments:JSON.stringify({task_name:'hud_live_check',message:'SECRET PROMPT'})})+record('event_msg',{type:'item_completed',started_at_ms:1000,completed_at_ms:2500,item:{type:'Extension',id:'spawn-1',kind:'spawn_agent',status:'completed',duration_ms:900}}));
  const s=await new SessionReader(file,'abc').read();assert.equal(s.tools.length,1);assert.equal(s.tools[0].status,'done');assert.deepEqual(s.tools[0].action,{kind:'agentSpawn',target:'hud_live_check'});assert.equal(s.tools[0].durationMs,900);assert.ok(!JSON.stringify(s).includes('SECRET'));
 });
-test('MCP invocation identity and timing survive canonical updates and completion without payload retention',async t=>{
+test('native MCP tool events retain general activity names and timing without payload retention',async t=>{
  const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'abc'})+record('response_item',{type:'function_call',call_id:'mcp-1',name:'mcp__docs__query',arguments:'{"token":"SECRET"}'})+record('event_msg',{type:'item_started',started_at_ms:1000,item:{type:'McpToolCall',id:'mcp-1',server:'docs',tool:'query',status:'in_progress',arguments:{token:'SECRET'}}}));
- const reader=new SessionReader(file,'abc'),before=await reader.read();assert.deepEqual(before.tools[0].mcp,{server:'docs',tool:'query'});assert.equal(before.tools[0].startedAt,1000);
+ const reader=new SessionReader(file,'abc'),before=await reader.read();assert.equal(before.tools[0].name,'mcp__docs__query');assert.equal(before.tools[0].startedAt,1000);
  fs.appendFileSync(file,record('event_msg',{type:'item_completed',started_at_ms:1000,completed_at_ms:2500,item:{type:'McpToolCall',id:'mcp-1',server:'docs',tool:'query',status:'completed',duration_ms:1500,result:{content:'SECRET RESULT'}}})+record('response_item',{type:'function_call_output',call_id:'mcp-1',output:'SECRET RESULT'}));
  const after=await reader.read();assert.equal(after.tools.length,1);assert.equal(after.tools[0].status,'done');assert.equal(after.tools[0].startedAt,1000);assert.equal(after.tools[0].finishedAt,2500);assert.equal(after.tools[0].durationMs,1500);assert.ok(!JSON.stringify(after).includes('SECRET'));
 });
@@ -20,28 +20,28 @@ test('structured ordinary command actions expose safe labels rather than scripts
  const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'abc'})+record('event_msg',{type:'item_started',started_at_ms:1000,item:{type:'CommandExecution',id:'read-1',command:['SECRET COMMAND'],command_actions:[{type:'read',path:'C:/private/source/render.ts'}],status:'in_progress'}}));
  const s=await new SessionReader(file,'abc').read();assert.deepEqual(s.tools[0].action,{kind:'read',target:'render.ts'});assert.equal(s.tools[0].startedAt,1000);assert.ok(!JSON.stringify(s).includes('SECRET'));assert.ok(!JSON.stringify(s).includes('C:/private'));
 });
-test('aborting a turn clears active MCP calls while keeping their server identities',async t=>{
+test('aborting a turn cancels native MCP tool activity',async t=>{
  const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'abc'})+record('response_item',{type:'function_call',call_id:'mcp-1',name:'mcp__docs__query',arguments:'{}'})+record('event_msg',{type:'turn_aborted'}));
- const s=await new SessionReader(file,'abc').read();assert.equal(s.tools[0].status,'cancelled');assert.deepEqual(s.tools[0].mcp,{server:'docs',tool:'query'});assert.deepEqual(s.mcpUsed,['docs']);
+ const s=await new SessionReader(file,'abc').read();assert.equal(s.tools[0].status,'cancelled');assert.equal(s.tools[0].name,'mcp__docs__query');
 });
-test('recognized function-prefixed MCP calls retain their connection name after completion',async t=>{
+test('function-prefixed MCP tools retain their raw activity name after completion',async t=>{
  const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'abc'})+record('response_item',{type:'function_call',call_id:'mcp-1',name:'functions.mcp__docs__query',arguments:'{}'})+record('response_item',{type:'function_call_output',call_id:'mcp-1',output:'{}'}));
- const s=await new SessionReader(file,'abc').read();assert.deepEqual(s.mcpUsed,['docs']);assert.equal(s.tools[0].status,'done');assert.deepEqual(s.tools[0].mcp,{server:'docs',tool:'query'});
+ const s=await new SessionReader(file,'abc').read();assert.equal(s.tools[0].status,'done');assert.equal(s.tools[0].name,'functions.mcp__docs__query');
 });
-test('canonical MCP server and tool boundaries are retained even when either contains double underscores',async t=>{
+test('canonical tool events retain their full names including double underscores',async t=>{
  const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'abc'})+record('event_msg',{type:'item_started',item:{type:'McpToolCall',id:'a',server:'codex_apps__custom',tool:'lookup__detail',status:'in_progress'}})+record('event_msg',{type:'item_started',item:{type:'McpToolCall',id:'b',server:'team__docs',tool:'lookup',status:'in_progress'}}));
- const s=await new SessionReader(file,'abc').read();assert.deepEqual(s.tools.map(t=>t.mcp),[{server:'codex_apps__custom',tool:'lookup__detail'},{server:'team__docs',tool:'lookup'}]);assert.deepEqual(s.mcpUsed,['codex_apps__custom','team__docs']);
+ const s=await new SessionReader(file,'abc').read();assert.deepEqual(s.tools.map(t=>t.name),['mcp__codex_apps__custom__lookup__detail','mcp__team__docs__lookup']);
 });
-test('canonical MCP identity corrects a provisional flattened name without retaining a phantom connection',async t=>{
+test('canonical tool events deduplicate a provisional function call',async t=>{
  const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'abc'})+record('response_item',{type:'function_call',call_id:'a',name:'mcp__team__docs__lookup',arguments:'{}'})+record('event_msg',{type:'item_started',item:{type:'McpToolCall',id:'a',server:'team__docs',tool:'lookup',status:'in_progress'}}));
- const s=await new SessionReader(file,'abc').read();assert.deepEqual(s.tools[0].mcp,{server:'team__docs',tool:'lookup'});assert.deepEqual(s.mcpUsed,['team__docs']);
+ const s=await new SessionReader(file,'abc').read();assert.equal(s.tools[0].name,'mcp__team__docs__lookup');assert.equal(s.tools.length,1);
 });
-test('confirmed MCP names survive recent tool eviction but do not survive a rewritten log',async t=>{
+test('recent tool activity is evicted and rebuilt after a rewritten log',async t=>{
  const {file}=fixture(t),legacy=record('response_item',{type:'function_call',call_id:'a',name:'mcp__team__docs__lookup',arguments:'{}'}),canonical=record('event_msg',{type:'item_started',item:{type:'McpToolCall',id:'a',server:'team__docs',tool:'lookup',status:'in_progress'}});
  fs.writeFileSync(file,record('session_meta',{id:'abc'})+record('event_msg',{type:'item_completed',item:{type:'McpToolCall',id:'old',server:'team',tool:'lookup',status:'completed'}}));
  for(let i=0;i<65;i++)fs.appendFileSync(file,record('event_msg',{type:'item_completed',item:{type:'CommandExecution',id:'command-'+i,status:'completed'}}));
- fs.appendFileSync(file,legacy+canonical);const reader=new SessionReader(file,'abc'),before=await reader.read();assert.ok(!before.tools.some(t=>t.id==='old'));assert.deepEqual(before.mcpUsed,['team','team__docs']);
- fs.writeFileSync(file,record('session_meta',{id:'abc'})+legacy+canonical);assert.deepEqual((await reader.read()).mcpUsed,['team__docs']);
+ fs.appendFileSync(file,legacy+canonical);const reader=new SessionReader(file,'abc'),before=await reader.read();assert.ok(!before.tools.some(t=>t.id==='old'));
+ fs.writeFileSync(file,record('session_meta',{id:'abc'})+legacy+canonical);assert.equal((await reader.read()).tools.length,1);assert.equal((await reader.read()).tools[0].name,'mcp__team__docs__lookup');
 });
 test('reader uses latest context, absolute totals and the actual weekly-only quota window',async t=>{
  const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'abc',cwd:'C:/项目',cli_version:'0.166.0'})+record('turn_context',{model:'model-a',effort:'high',cwd:'C:/项目'})+record('event_msg',{type:'token_count',info:{last_token_usage:{input_tokens:25,cached_input_tokens:20,output_tokens:5,total_tokens:30},total_token_usage:{input_tokens:100,cached_input_tokens:80,output_tokens:20,total_tokens:120},model_context_window:200},rate_limits:{primary:{used_percent:15,window_minutes:10080,resets_at:2000000000},secondary:null}}));
@@ -58,7 +58,7 @@ test('reader rejects a replaced file belonging to another session',async t=>{
 });
 test('reader pairs tools by call ID, extracts structured plans and never retains conversation text',async t=>{
  const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'abc'})+record('response_item',{type:'message',content:[{text:'SECRET BODY'}]})+record('response_item',{type:'function_call',call_id:'one',name:'update_plan',arguments:JSON.stringify({plan:[{step:'验证驱动',status:'in_progress'},{step:'测试',status:'pending'}]})})+record('response_item',{type:'function_call_output',call_id:'one',output:'ok'})+record('response_item',{type:'function_call',call_id:'two',name:'mcp__server__search',arguments:'SECRET ARGUMENTS'}));
- const s=await new SessionReader(file,'abc').read();assert.equal(s.todos.length,2);assert.equal(s.todos[0].status,'in_progress');assert.equal(s.tools.find(x=>x.id==='one').status,'done');assert.equal(s.tools.find(x=>x.id==='two').status,'running');assert.deepEqual(s.mcpUsed,['server']);assert.ok(!JSON.stringify(s).includes('SECRET'));
+ const s=await new SessionReader(file,'abc').read();assert.equal(s.todos.length,2);assert.equal(s.todos[0].status,'in_progress');assert.equal(s.tools.find(x=>x.id==='one').status,'done');assert.equal(s.tools.find(x=>x.id==='two').status,'running');assert.ok(!JSON.stringify(s).includes('SECRET'));
 });
 test('session discovery reads metadata and requires exact or unique session IDs',async t=>{
  const {dir,file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'abc-one',cwd:'C:/相同'}));fs.writeFileSync(path.join(dir,'rollout-b.jsonl'),record('session_meta',{id:'abc-two',cwd:'C:/相同'}));const list=await listSessions(dir);assert.equal(list.length,2);assert.equal((await findSession(dir,'abc-one')).id,'abc-one');await assert.rejects(()=>findSession(dir,'abc'),/ambiguous/i);
@@ -68,11 +68,11 @@ test('reader preserves a supplied session title and recognizes nonzero tool exit
 });
 test('reader handles canonical MCP and command events, deduplicates calls and retains no payload text',async t=>{
  const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'abc'})+record('response_item',{type:'function_call',call_id:'mcp-one',name:'mcp__docs__search',arguments:'SECRET ARGS'})+record('event_msg',{type:'item_completed',item:{type:'McpToolCall',id:'mcp-one',server:'docs',tool:'search',status:'completed',arguments:{query:'SECRET QUERY'},result:{content:'SECRET RESULT'}}})+record('event_msg',{type:'item_completed',item:{type:'CommandExecution',id:'cmd-one',command:['SECRET COMMAND'],status:'completed',aggregated_output:'SECRET OUTPUT',exit_code:2}})+record('event_msg',{type:'item_completed',item:{type:'McpToolCall',id:'mcp-two',server:'other',tool:'check',status:'failed',error:{message:'SECRET ERROR'}}}));
- const s=await new SessionReader(file,'abc').read();assert.deepEqual(s.mcpUsed,['docs','other']);assert.equal(s.tools.filter(t=>t.id==='mcp-one').length,1);assert.equal(s.tools.find(t=>t.id==='mcp-one').status,'done');assert.equal(s.tools.find(t=>t.id==='cmd-one').status,'failed');assert.equal(s.tools.find(t=>t.id==='mcp-two').status,'failed');assert.ok(!JSON.stringify(s).includes('SECRET'));
+ const s=await new SessionReader(file,'abc').read();assert.equal(s.tools.filter(t=>t.id==='mcp-one').length,1);assert.equal(s.tools.find(t=>t.id==='mcp-one').status,'done');assert.equal(s.tools.find(t=>t.id==='cmd-one').status,'failed');assert.equal(s.tools.find(t=>t.id==='mcp-two').status,'failed');assert.ok(!JSON.stringify(s).includes('SECRET'));
 });
 test('canonical completion stays authoritative when duplicate response records arrive later',async t=>{
  const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'abc'})+record('event_msg',{type:'item_started',item:{type:'McpToolCall',id:'one',server:'docs',tool:'search',status:'in_progress'}}));const reader=new SessionReader(file,'abc');assert.equal((await reader.read()).tools[0]?.status,'running');
- fs.appendFileSync(file,record('event_msg',{type:'item_completed',item:{type:'McpToolCall',id:'one',server:'docs',tool:'search',status:'failed',error:{message:'not retained'}}})+record('response_item',{type:'function_call',call_id:'one',name:'mcp__docs__search',arguments:'{}'})+record('response_item',{type:'function_call_output',call_id:'one',output:'{}'}));const s=await reader.read();assert.equal(s.tools.length,1);assert.equal(s.tools[0].status,'failed');assert.deepEqual(s.mcpUsed,['docs']);
+ fs.appendFileSync(file,record('event_msg',{type:'item_completed',item:{type:'McpToolCall',id:'one',server:'docs',tool:'search',status:'failed',error:{message:'not retained'}}})+record('response_item',{type:'function_call',call_id:'one',name:'mcp__docs__search',arguments:'{}'})+record('response_item',{type:'function_call_output',call_id:'one',output:'{}'}));const s=await reader.read();assert.equal(s.tools.length,1);assert.equal(s.tools[0].status,'failed');
 });
 test('reader rechecks session identity after an in-place rewrite grows past the old offset',async t=>{
  const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'abc'})+record('turn_context',{model:'ours'}));const reader=new SessionReader(file,'abc');await reader.read();

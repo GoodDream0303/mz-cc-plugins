@@ -39,9 +39,7 @@ export function commandDetails(command:unknown,actions?:unknown):ToolAction|unde
  if(executable==='bash'||executable==='sh')return {kind:'shell'};
 }
 
-export function toolDetails(name:string,args?:any):Pick<Tool,'mcp'|'action'> {
- const mcp=/^(?:functions\.)?mcp__(.+?)__(.+)$/.exec(name);
- if(mcp)return {mcp:{server:mcp[1].slice(0,200),tool:mcp[2].slice(0,200)}};
+export function toolDetails(name:string,args?:any):Pick<Tool,'action'> {
  const operation=agentOperations.get(name.replace(/^collaboration\./,''));
  if(operation){
   const value=operation==='agentSpawn'?args?.task_name??args?.agent_type:args?.target??args?.agent_id??args?.id;

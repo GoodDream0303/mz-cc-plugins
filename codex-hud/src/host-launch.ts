@@ -97,13 +97,16 @@ export async function runHostOwner(invocation:CodexInvocation,configFile=configP
  };
  let exitCode=1;
  try{
-  if(get(config,'host.runtime')==='localAppServer')process.stderr.write('Codex HUD: the 0.7.9 automatic App Server mode is retired for compatibility; using ordinary CLI.\n');
+  const command=resolveOfficial(invocation.command),entry=fileURLToPath(new URL('../bin/hud.mjs',import.meta.url)),encoded=Buffer.from(JSON.stringify(invocation)).toString('base64'),startup=new AbortController();
+  let frontend:Promise<{code:number}|{error:unknown}>|undefined;
+  const startFrontend=()=>{
+   frontend??=foreground(command.prefix.length?command.file:process.execPath,[entry,'host-frontend','--invocation64',encoded],{...process.env,MZ_HUD_CONFIG_FILE:path.resolve(configFile)}).then(code=>{startup.abort();return {code};},error=>{startup.abort();return {error};});
+  };
   if(startupEnabled(config)){
    // A retry still verifies the exact slot: only an acknowledged viewer or a
    // successfully queried, definitively absent reported pane can be reused.
-   for(let attempt=0;attempt<2;attempt++)try{await ensureHostDisplay(readHost(record.file),config,{configFile,dependencies:{processes}});break;}catch{if(attempt===1)process.stderr.write('Codex HUD is not ready; inspect this host with hud doctor.\n');}
+   for(let attempt=0;attempt<2;attempt++)try{await ensureHostDisplay(readHost(record.file),config,{configFile,dependencies:{processes},onPublished:startFrontend,signal:startup.signal});break;}catch{if(startup.signal.aborted)break;if(attempt===1)process.stderr.write('Codex HUD is not ready; inspect this host with hud doctor.\n');}
   }
-  const command=resolveOfficial(invocation.command),entry=fileURLToPath(new URL('../bin/hud.mjs',import.meta.url)),encoded=Buffer.from(JSON.stringify(invocation)).toString('base64');
-  exitCode=await foreground(command.prefix.length?command.file:process.execPath,[entry,'host-frontend','--invocation64',encoded],{...process.env,MZ_HUD_CONFIG_FILE:path.resolve(configFile)});return exitCode;
+  startFrontend();const result=await frontend!;if('error'in result)throw result.error;exitCode=result.code;return exitCode;
  }finally{closeHost(readHost(record.file),exitCode);}
 }

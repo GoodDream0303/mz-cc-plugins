@@ -23,11 +23,10 @@ export class SessionReader {
  private snapshot:HudSnapshot;private agents:AgentTracker;private mismatch=false;private absolute=false;private discard=false;private canonicalCompleted=new Set<string>();
  private prefix?:Checkpoint;private checkpoint?:Checkpoint;
  private canonicalTools=new Set<string>();private processTools=new Map<string,string>();private pollTargets=new Map<string,string>();
- private confirmedMcpServers=new Set<string>();
  constructor(public readonly file:string,public readonly sessionId:string){this.snapshot=emptySnapshot(sessionId);this.agents=new AgentTracker(this.snapshot.agents,sessionId);}
  agentActivityAt(id:string):number|undefined{return this.agents.activityAt(id);}
  agentTiming(id:string):{startedAt?:number;endedAt?:number}{return this.agents.timing(id);}
- private reset(){this.offset=0;this.carry='';this.decoder=new StringDecoder('utf8');this.snapshot=emptySnapshot(this.sessionId);this.agents=new AgentTracker(this.snapshot.agents,this.sessionId);this.mismatch=false;this.absolute=false;this.discard=false;this.canonicalCompleted.clear();this.canonicalTools.clear();this.processTools.clear();this.pollTargets.clear();this.confirmedMcpServers.clear();this.prefix=undefined;this.checkpoint=undefined;}
+ private reset(){this.offset=0;this.carry='';this.decoder=new StringDecoder('utf8');this.snapshot=emptySnapshot(this.sessionId);this.agents=new AgentTracker(this.snapshot.agents,this.sessionId);this.mismatch=false;this.absolute=false;this.discard=false;this.canonicalCompleted.clear();this.canonicalTools.clear();this.processTools.clear();this.pollTargets.clear();this.prefix=undefined;this.checkpoint=undefined;}
  private async unchanged(handle:FileHandle):Promise<boolean>{
   for(const point of [this.prefix,this.checkpoint])if(point&&await fingerprint(handle,point.start,point.length)!==point.digest)return false;
   return true;
@@ -118,11 +117,10 @@ export class SessionReader {
   while(this.pollTargets.size>128)this.pollTargets.delete(this.pollTargets.keys().next().value!);
   return accepted?row:undefined;
  }
- private annotate(row:Tool|undefined,details:Pick<Tool,'mcp'|'action'>,start?:unknown,duration?:unknown,end?:unknown):void {
+ private annotate(row:Tool|undefined,details:Pick<Tool,'action'>,start?:unknown,duration?:unknown,end?:unknown):void {
   if(!row)return;
   if(isAgentAction(details.action)&&details.action!.kind===row.action?.kind&&details.action!.target===undefined&&row.action.target)details={...details,action:{...details.action!,target:row.action.target}};
   Object.assign(row,details);
-  if(row.mcp&&!this.snapshot.mcpUsed.includes(row.mcp.server)){this.snapshot.mcpUsed.push(row.mcp.server);if(this.snapshot.mcpUsed.length>64)this.confirmedMcpServers.delete(this.snapshot.mcpUsed.shift()!);}
   if(typeof start==='number'&&Number.isFinite(start)&&start>=0)row.startedAt=start;
   if(row.status!=='running'&&typeof end==='number'&&Number.isFinite(end)&&end>=0)row.finishedAt=end;
   if(typeof duration==='number'&&Number.isFinite(duration)&&duration>=0)row.durationMs=duration;
@@ -134,14 +132,12 @@ export class SessionReader {
   if(p.type==='McpToolCall'||p.type==='CommandExecution'||p.type==='Extension'){
    let id=text(p.id??p.call_id);if(!id)return;
    let name=p.type==='Extension'?text(p.kind):'exec_command';if(!name)return;
-   let mcp:Tool['mcp'];if(p.type==='McpToolCall'){const server=text(p.server),tool=text(p.tool);if(!server||!tool)return;mcp={server,tool};name='mcp__'+server+'__'+tool;}
+   if(p.type==='McpToolCall'){const server=text(p.server),tool=text(p.tool);if(!server||!tool)return;name='mcp__'+server+'__'+tool;}
    if(p.type==='CommandExecution'&&p.process_id!==undefined&&p.process_id!==null){const key='session:'+String(p.process_id);if(p.source!=='unified_exec_startup')id=this.processTools.get(key)??id;this.processTools.set(key,id);}
    const failed=p.status==='failed'||!!p.error||typeof p.exit_code==='number'&&p.exit_code!==0,cancelled=['cancelled','aborted','interrupted','declined'].includes(p.status),running=['in_progress','inProgress','running'].includes(p.status);
    const row=this.tool(id,name,cancelled?'cancelled':failed?'failed':running?'running':completed||p.status==='completed'?'done':'running',true,timestamp);
    const action=p.type==='CommandExecution'?commandDetails(p.command,p.command_actions??p.commandActions):undefined;
-   const previous=row?.mcp?.server;
-   this.annotate(row,{...(mcp?{mcp}:toolDetails(name)),...(action?{action}:{})},startedAt??p.started_at_ms,p.duration_ms??p.durationMs,completedAt??p.completed_at_ms);
-   if(row&&mcp){this.confirmedMcpServers.add(mcp.server);if(previous&&previous!==mcp.server&&!this.confirmedMcpServers.has(previous)&&!this.snapshot.tools.some(t=>t.mcp?.server===previous))this.snapshot.mcpUsed=this.snapshot.mcpUsed.filter(name=>name!==previous);}
+   this.annotate(row,{...toolDetails(name),...(action?{action}:{})},startedAt??p.started_at_ms,p.duration_ms??p.durationMs,completedAt??p.completed_at_ms);
    return;
   }
   if(['function_call','custom_tool_call'].includes(p.type)){

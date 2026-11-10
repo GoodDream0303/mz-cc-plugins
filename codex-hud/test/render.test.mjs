@@ -1,38 +1,12 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {render} from '../dist/render.js';import {displayWidth,sanitize,wrapAnsi} from '../dist/terminal-text.js';import {defaultConfig,set,importClaude,preset} from '../dist/config.js';import {emptySnapshot} from '../dist/types.js';
-function sample(){return {...emptySnapshot('abc-session'),model:'gpt-example',effort:'high',cwd:'C:/项目/固件😀',context:{used:30,window:200},totals:{input:100,cached:80,output:20,reasoning:5,total:120},latest:{input:25,cached:20,output:5,reasoning:1,total:30},quotas:[{id:'codex:primary',minutes:10080,usedPercent:15,resetsAt:2000000000}],mcpUsed:['docs'],agents:[{id:'a',name:'分析',status:'unknown'}],todos:[{step:'验证驱动',status:'in_progress'}],tools:[{id:'t',name:'secret-tool',status:'running'}]};}
+function sample(){return {...emptySnapshot('abc-session'),model:'gpt-example',effort:'high',cwd:'C:/项目/固件😀',context:{used:30,window:200},totals:{input:100,cached:80,output:20,reasoning:5,total:120},latest:{input:25,cached:20,output:5,reasoning:1,total:30},quotas:[{id:'codex:primary',minutes:10080,usedPercent:15,resetsAt:2000000000}],agents:[{id:'a',name:'分析',status:'unknown'}],todos:[{step:'验证驱动',status:'in_progress'}],tools:[{id:'t',name:'secret-tool',status:'running'}]};}
 
-test('default connections follow context and quotas and precede ordinary and MCP calls',()=>{
- let c=defaultConfig();for(const [k,v]of [['display.showMcp',true],['display.showTools',true],['display.showUsage',true],['display.sevenDayThreshold',0],['display.mergeGroups',[]]])c=set(c,k,v);
- const s=sample();s.tools.push({id:'m',name:'mcp__docs__query',status:'running'});
- const text=render(s,c,{width:200,height:40,color:false}).lines.join('\n');
- const positions=['Context','7d:','MCP connections:','Current:','MCP calls:'].map(label=>text.indexOf(label));
- assert.ok(positions.every(p=>p>=0));assert.deepEqual(positions,[...positions].sort((a,b)=>a-b));
-});
 
-test('pinned connections retain document order on the first page after context and quotas',()=>{
- let c=defaultConfig();for(const [k,v]of [['display.showMcp',true],['display.showTools',true],['display.showUsage',true],['display.sevenDayThreshold',0],['display.mergeGroups',[]],['display.toolsMaxVisible',0]])c=set(c,k,v);
- const s=sample();s.tools=Array.from({length:40},(_,i)=>({id:String(i),name:'task_'+i,status:'running'}));
- const first=render(s,c,{width:180,height:6,color:false});assert.ok(first.pages>1);
- const text=first.lines.join('\n');assert.ok(text.indexOf('Context')>=0&&text.indexOf('Context')<text.indexOf('MCP connections:'));assert.ok(text.indexOf('7d:')>=0&&text.indexOf('7d:')<text.indexOf('MCP connections:'));
- for(let page=0;page<first.pages;page++)assert.match(render(s,c,{width:180,height:6,page,color:false}).lines.join('\n'),/docs.*Unknown/);
-});
 
-test('fresh MCP states use distinct foreground colors and stale or NO_COLOR output never implies connected',()=>{
- const previous=process.env.NO_COLOR;delete process.env.NO_COLOR;
- try{
-  const c=set(set(defaultConfig(),'display.showMcp',true),'display.showContextBar',false);
-  const s={...emptySnapshot('thread-a'),mcpNames:['docs','boot','broken'],mcpRuntime:{sessionId:'thread-a',checkedAt:1000,complete:true,servers:[{name:'docs',status:'connected'},{name:'boot',status:'starting'},{name:'broken',status:'failed'}]}};
-  for(const [lang,connected,starting,failed]of [['en','Connected','Starting','Failed'],['zh-Hans','已连接','启动中','失败'],['zh-Hant','已連線','啟動中','失敗']]){
-   const config=set(c,'language',lang),text=render(s,config,{width:200,height:30,color:true,now:2000}).lines.join('\n');
-   assert.ok(text.includes('\x1b[32m● '+connected));assert.ok(text.includes('\x1b[33m◐ '+starting));assert.ok(text.includes('\x1b[31m! '+failed));
-   assert.doesNotMatch(text,/\x1b\[(?:1|7|4[0-9]|48)[;m]/);
-   const narrow=render(s,config,{width:72,height:30,color:true,now:2000}).lines;assert.ok(narrow.every(line=>displayWidth(line)<=68));assert.deepEqual(narrow.map(sanitize),render(s,config,{width:72,height:30,color:false,now:2000}).lines);
-   const stale=render(s,config,{width:100,height:30,color:true,now:15000}).lines.join('\n');assert.ok(!stale.includes(connected)&&!stale.includes('\x1b[32m'));
-  }
-  process.env.NO_COLOR='1';assert.ok(!render(s,c,{width:120,height:30,color:true,now:2000}).lines.join('\n').includes('\x1b'));
- }finally{if(previous===undefined)delete process.env.NO_COLOR;else process.env.NO_COLOR=previous;}
-});
+
+
+
 
 for(const [language,expected]of [
  ['en',['Run command','Run script','Follow up on task','Ask user','Wait']],
@@ -49,15 +23,10 @@ test('only recognized core namespaces receive action labels while unknown tools 
  const names=['functions.exec_command','functions.exec','collaboration.followup_task','functions.request_user_input_async','clock.sleep','mcp__example__exec','other.exec','constructor'];
  const c=set(set(defaultConfig(),'display.showTools',true),'display.toolsMaxVisible',0),s={...emptySnapshot('parent'),tools:names.map((name,i)=>({id:String(i),name,status:'done'}))};
  const text=render(s,c,{width:240,height:30,color:false}).lines.join('\n');
- for(const name of ['Run command','Run script','Follow up on task','Ask user','Wait','other.exec','constructor'])assert.ok(text.includes('✓ '+name+' ×1'),name);assert.ok(!text.includes('mcp__example__exec'));
+ for(const name of ['Run command','Run script','Follow up on task','Ask user','Wait','mcp__example__exec','other.exec','constructor'])assert.ok(text.includes('✓ '+name+' ×1'),name);
 });
 
-test('MCP connections persist without active calls and active invocations are separate from ordinary tools',()=>{
- const config=set(set(set(defaultConfig(),'display.showTools',true),'display.showMcp',true),'display.showContextBar',false);
- const s={...emptySnapshot('parent'),environment:{mcp:[{name:'docs',enabled:true}],errors:[]},tools:[{id:'cmd',name:'exec_command',action:{kind:'nodeTest'},startedAt:1000,status:'running'},{id:'mcp',name:'mcp__docs__query',mcp:{server:'docs',tool:'query'},startedAt:2000,status:'running'}]};
- let text=render(s,config,{width:120,height:30,color:false,now:4400}).lines.join('\n');assert.match(text,/MCP connections:/);assert.match(text,/docs.*Unknown/);assert.match(text,/Node tests.*3\.4s/);assert.match(text,/MCP calls:.*docs \/ query.*2\.4s/);assert.doesNotMatch(text,/mcp__docs|query ×/);
- s.tools[1].status='done';s.tools[1].finishedAt=4300;text=render(s,config,{width:120,height:30,color:false,now:4400}).lines.join('\n');assert.match(text,/docs.*Unknown/);assert.doesNotMatch(text,/MCP calls:|query|Recent:/);
-});
+
 
 test('ordinary actions retain timing but do not expose file or directory targets',()=>{
  const config=set(set(set(defaultConfig(),'display.showTools',true),'display.showContextBar',false),'display.toolsMaxVisible',0);
@@ -71,38 +40,13 @@ test('only agent operations show task targets while Git subcommands remain visib
  const text=render(s,config,{width:200,height:30,color:false,now:3000}).lines.join('\n');assert.match(text,/Start agent · hud_live_check.*1\.5s/);assert.match(text,/Follow up on task · 检查发布包.*2s/);assert.match(text,/Git status.*500ms/);assert.doesNotMatch(text,/child-id|private\.ts|Git · status/);
 });
 
-test('nonofficial MCP connection names stay visible on every activity page alongside critical warnings',()=>{
- const config=set(set(set(set(defaultConfig(),'display.showMcp',true),'display.showTools',true),'display.showContextBar',false),'display.toolsMaxVisible',0);
- const s={...emptySnapshot('parent'),errors:['critical warning'],environment:{mcp:[{name:'docs',enabled:true}],errors:[]},tools:Array.from({length:18},(_,i)=>({id:String(i),name:'task_'+i,status:'running'}))};
- const first=render(s,config,{width:80,height:5,color:false});assert.ok(first.pages>1);
- const pages=Array.from({length:first.pages},(_,page)=>render(s,config,{width:80,height:5,color:false,page}).lines.join('\n'));
- for(const page of pages){assert.match(page,/critical warning/);assert.match(page,/docs.*Unknown/);assert.ok(page.split('\n').length<=5);}
- const text=pages.join('\n');for(let i=0;i<18;i++)assert.ok(text.includes('task_'+i),'task_'+i);
-});
 
-test('MCP summary stays on one physical line when it fits and wraps naturally when narrow',()=>{
- const config=set(set(set(defaultConfig(),'display.showMcp',true),'display.showContextBar',false),'display.showTokenBreakdown',false),s={...emptySnapshot('parent'),mcpUsed:['docs','debug']};
- const wide=render(s,config,{width:120,height:20,color:false}),narrow=render(s,config,{width:36,height:20,color:false});assert.equal(wide.lines.length,1);assert.match(wide.lines[0],/Official.*docs.*debug/);assert.ok(narrow.lines.length>1);assert.ok(narrow.lines.every(line=>displayWidth(line)<=32));assert.match(narrow.lines.join(' '),/docs.*debug/);
-});
 
-test('narrow short MCP layouts preserve overflow content and critical warning priority',()=>{
- const config=set(set(set(defaultConfig(),'display.showMcp',true),'display.showTools',true),'display.showContextBar',false);
- const s={...emptySnapshot('parent'),errors:['critical warning'],mcpUsed:['one','two','three'],tools:[{id:'a',name:'mcp__one__query',status:'running',startedAt:1000}]};
- for(const height of [1,2,3,4,7]){
-  const first=render(s,config,{width:32,height,color:false,now:2000});const pages=Array.from({length:first.pages},(_,page)=>render(s,config,{width:32,height,color:false,now:2000,page}));
-  for(const page of pages){assert.match(page.lines[0],/critical warning/);assert.ok(page.lines.length<=height);assert.ok(page.lines.every(line=>displayWidth(line)<=28));}
-  if(height>1){const text=pages.flatMap(p=>p.lines).join('\n');for(const name of ['one','two','three','query'])assert.ok(text.includes(name),height+': '+name);}
- }
-});
 
-test('connection and active-call areas localize and preserve foreground-only coloring and no-color output',()=>{
- const base=set(set(set(defaultConfig(),'display.showMcp',true),'display.showTools',true),'display.showContextBar',false);
- const s={...emptySnapshot('parent'),mcpUsed:['docs'],tools:[{id:'a',name:'mcp__docs__query',status:'running',startedAt:1000}]};
- const previous=process.env.NO_COLOR;delete process.env.NO_COLOR;try{for(const [lang,connection,call]of [['en','MCP connections:','MCP calls:'],['zh-Hans','MCP连接:','MCP调用:'],['zh-Hant','MCP連線:','MCP呼叫:']]){
-  const c=set(base,'language',lang),plain=render(s,c,{width:120,height:20,color:false,now:2000}).lines.join('\n');assert.ok(plain.includes(connection));assert.ok(plain.includes(call));assert.ok(!plain.includes('\u001b'));
-  const colored=render(s,c,{width:120,height:20,color:true,now:2000}).lines.join('\n');assert.match(colored,/\x1b\[38;2;242;242;242m/);assert.doesNotMatch(colored,/\x1b\[(?:1|7|4[0-9]|48)[;m]/);
- }process.env.NO_COLOR='1';assert.ok(!render(s,base,{width:120,height:20,color:true,now:2000}).lines.join('\n').includes('\u001b'));}finally{if(previous===undefined)delete process.env.NO_COLOR;else process.env.NO_COLOR=previous;}
-});
+
+
+
+
 test('friendly labels preserve raw identities, per-status counts and caller-owned metadata',()=>{
  const c=set(set(defaultConfig(),'display.showTools',true),'display.toolsMaxVisible',0),s={...emptySnapshot('parent'),tools:[{id:'a',name:'exec',status:'done'},{id:'b',name:'exec',status:'done'},{id:'c',name:'functions.exec',status:'done'},{id:'d',name:'exec',status:'failed'},{id:'e',name:'exec',status:'cancelled'}]},before=structuredClone(s);
  const text=render(s,c,{width:240,height:30,color:false}).lines.join('\n');
@@ -173,7 +117,7 @@ test('merged telemetry keeps a quota field together without dangling separators'
  assert.ok(out.every(line=>!/^\s*\||\|\s*$/.test(line)));
 });
 test('empty activity groups use no rows and completed plans have clear text',()=>{
- let config=defaultConfig();for(const key of ['showMcp','showAgents','showTodos'])config=set(config,'display.'+key,true);
+ let config=defaultConfig();for(const key of ['showAgents','showTodos'])config=set(config,'display.'+key,true);
  const empty=render(emptySnapshot('abc-session'),config,{width:100,height:30,color:false}).lines.join('\n');
  assert.doesNotMatch(empty,/MCP:|Agents:|Todo:/);
  const snapshot=emptySnapshot('abc-session');snapshot.todos=[{step:'Finished',status:'completed'}];
@@ -194,7 +138,7 @@ test('optional session name never falls back to displaying a session ID',()=>{
 });
 test('renderer respects imported activity preferences and weekly-only quota labels',()=>{
  const {config}=importClaude({display:{showTools:false,showAgents:true,showTodos:true,showMcp:true,showSessionTokens:true,sevenDayThreshold:0}});const text=render(sample(),config,{width:140,height:50,color:false}).lines.join('\n');
- assert.ok(!text.includes('secret-tool'));assert.match(text,/MCP/);assert.match(text,/分析/);assert.match(text,/验证驱动/);assert.match(text,/7d/);assert.doesNotMatch(text,/5h:/);assert.match(text,/120/);assert.ok(!text.includes('200 Token'));
+ assert.ok(!text.includes('secret-tool'));assert.doesNotMatch(text,/MCP/);assert.match(text,/分析/);assert.match(text,/验证驱动/);assert.match(text,/7d/);assert.doesNotMatch(text,/5h:/);assert.match(text,/120/);assert.ok(!text.includes('200 Token'));
 });
 test('renderer uses latest context and cannot inflate it with cumulative counters',()=>{
  const text=render(sample(),defaultConfig(),{width:120,height:50,color:false}).lines.join('\n');assert.match(text,/15%/);assert.ok(!text.includes('60%'));
@@ -208,7 +152,7 @@ test('renderer preserves narrow Unicode display widths and advertises overflow p
  assert.equal(displayWidth('中😀e\u0301'),5);assert.equal(sanitize('\x1b]0;bad\x07\x1b[31mhello\x1b[0m\n'),'hello');
 });
 test('renderer reports unknown data and leaves no rows for disabled activity',()=>{
- let config=set(defaultConfig(),'display.showMcp',true);const output=render(emptySnapshot('abc'),config,{width:100,height:30,color:false}).lines;assert.ok(output.every(Boolean));assert.match(output.join('\n'),/未知|unknown/);assert.ok(!output.join('\n').includes('Tools'));
+ const config=defaultConfig();const output=render(emptySnapshot('abc'),config,{width:100,height:30,color:false}).lines;assert.ok(output.every(Boolean));assert.match(output.join('\n'),/未知|unknown/);assert.ok(!output.join('\n').includes('Tools'));
 });
 test('renderer supports semantic reordering, compact mode, merged groups and hostile text',()=>{
  let config=set(preset('minimal'),'display.showModel',true);config=set(config,'display.customLine','\x1b[2Jhello');config=set(config,'display.customLinePosition','first');config=set(config,'lineLayout','compact');const s=sample();s.model='\x1b]2;inject\x07safe';const out=render(s,config,{width:200,height:30,color:false}).lines.join('\n');assert.ok(out.startsWith('hello'));assert.ok(!out.includes('\x1b'));assert.match(out,/safe/);

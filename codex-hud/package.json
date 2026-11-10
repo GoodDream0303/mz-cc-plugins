@@ -1,6 +1,6 @@
 {
   "name": "mz-codex-hud",
-  "version": "0.7.11",
+  "version": "0.7.12",
   "private": true,
   "description": "Configurable native Windows Terminal HUD for Codex",
   "type": "module",
@@ -11,16 +11,11 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "node scripts/clean-dist.mjs && tsc && node scripts/package-runtime.mjs",
+    "build": "node scripts/clean-dist.mjs && tsc",
     "test": "npm run build && node scripts/test.mjs"
-  },
-  "dependencies": {
-    "smol-toml": "1.9.1",
-    "ws": "8.22.2"
   },
   "devDependencies": {
     "@types/node": "24.10.1",
-    "@types/ws": "8.18.2",
     "typescript": "7.0.2"
   }
 }

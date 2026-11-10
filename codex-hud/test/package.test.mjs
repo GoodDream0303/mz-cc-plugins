@@ -8,9 +8,7 @@ test('marketplace package runs offline without node_modules or a build step',t=>
  const env=cleanEnvironment(tmp);
  const cli=spawnSync(process.execPath,['bin/hud.mjs','doctor','--config',config],{cwd:installed,env,encoding:'utf8'});assert.equal(cli.status,0,cli.stderr);assert.equal(JSON.parse(cli.stdout).configuration.status,'valid');
  const hook=spawnSync(process.execPath,['hooks/session-start.mjs'],{cwd:installed,env,input:JSON.stringify({hook_event_name:'SessionStart',source:'compact'}),encoding:'utf8'});assert.equal(hook.status,0,hook.stderr);assert.equal(hook.stdout,'');assert.equal(hook.stderr,'');
- assert.ok(fs.statSync(path.join(installed,'dist','vendor','smol-toml','LICENSE')).isFile());
- const runtime=spawnSync(process.execPath,['--input-type=module','-e',"import {McpRuntimeClient} from './dist/mcp-runtime.js';new McpRuntimeClient('ws://127.0.0.1:1','x'.repeat(43)).close();console.log('offline-mcp-ready')"],{cwd:installed,env,encoding:'utf8'});
- assert.equal(runtime.status,0,runtime.stderr);assert.equal(runtime.stdout.trim(),'offline-mcp-ready');assert.ok(fs.statSync(path.join(installed,'dist','vendor','ws','LICENSE')).isFile());
+ for(const obsolete of ['mcp-runtime.js','mcp-display.js','vendor/ws/wrapper.mjs','vendor/smol-toml/index.js'])assert.equal(fs.existsSync(path.join(installed,'dist',obsolete)),false,obsolete);
 });
 test('CLI help exposes commands on separate readable lines',()=>{
  const result=spawnSync(process.execPath,['bin/hud.mjs','help'],{cwd:root,encoding:'utf8'});assert.equal(result.status,0);assert.match(result.stdout,/\n  start /);assert.match(result.stdout,/\n  configure\n/);

@@ -56,7 +56,7 @@ const flags = {
     showTokenBreakdown: ['Token 明细', 'Token 明細', 'in:42k cache:30k out:3k'], showUsage: ['额度', '額度', '5h: 25%'],
     usageBarEnabled: ['额度进度条', '額度進度條', ''], showResetLabel: ['重置标签', '重設標籤', ''], usageCompact: ['紧凑额度', '緊湊額度', ''],
     showModelScopedUsage: ['按模型统计额度', '按模型統計額度', ''], showTools: ['工具活动', '工具活動', '✓ exec_command'], showSkills: ['技能活动', '技能活動', ''],
-    showMcp: ['MCP 信息', 'MCP 資訊', 'MCP: configured docs'], showAgents: ['子代理', '子代理', 'Agents: reviewer [running] (gpt-example)'],
+    showAgents: ['子代理', '子代理', 'Agents: reviewer [running] (gpt-example)'],
     showTodos: ['待办进度', '待辦進度', 'Todo: Verify configuration (0/1)'], showSessionName: ['会话名称', '會話名稱', 'Session: Task name'],
     showAuth: ['订阅类型', '訂閱類型', 'pro'], showAuthUser: ['登录用户', '登入使用者', ''], showCodexVersion: ['Codex 版本', 'Codex 版本', 'Codex 0.166.0'],
     showEffortLevel: ['推理强度', '推理強度', '◕ high'], showMemoryUsage: ['内存占用', '記憶體用量', ''], showPromptCache: ['提示缓存', '提示快取', ''],
@@ -70,7 +70,7 @@ const samples = {
     showSessionName: text('Session: Task name', '会话：Task name', '會話：Task name'), showAgents: text('Agents: reviewer [running] (gpt-example)', '子代理：reviewer [运行中] (gpt-example)', '子代理：reviewer [執行中] (gpt-example)'),
     showSessionTokens: text('Session tokens 130k', '会话 Token 130k', '會話 Token 130k'),
     showSessionStartDate: text('Started 20m ago', '开始 20m前', '開始 20m前'), showLastResponseAt: text('Last response 1m ago', '最后响应 1m前', '最後回應 1m前'),
-    showCompactions: text('Compactions: 2', '压缩：2', '壓縮：2'), showMcp: text('MCP: configured docs', 'MCP：配置 docs')
+    showCompactions: text('Compactions: 2', '压缩：2', '壓縮：2')
 };
 for (const [key, [zh, tw, sample]] of Object.entries(flags)) {
     const example = samples[key] ?? text(sample, sample);
@@ -110,7 +110,6 @@ const colors = { context: ['上下文颜色', '上下文色彩'], usage: ['额�
 for (const [key, [zh, tw]] of Object.entries(colors))
     add('colors.' + key, zh, tw, '#66ccff', 'Light blue; also accepts named colors or ANSI indices 0-255.', '浅蓝色；也支持预设颜色名或 0–255 的 ANSI 色号。', '淺藍色；也支援預設色彩名稱或 0–255 的 ANSI 色號。');
 add('colors.active', '活跃条目文字颜色', '活躍項目文字色彩', '#f2f2f2', 'Bright text for current tools and starting/running agents; background and font weight stay unchanged.', '当前工具及启动中、运行中代理的明亮文字；背景和字重不变。', '目前工具及啟動中、執行中代理的明亮文字；背景與字重不變。');
-add('colors.mcpConnected', 'MCP 已连接状态颜色', 'MCP 已連線狀態色彩', 'green', 'Foreground color for fresh Connected MCP states; stale or unavailable states remain Unknown.', '有实时依据的 MCP 已连接状态文字颜色；过期或不可用的状态仍显示未知。', '有即時依據的 MCP 已連線狀態文字色彩；過期或不可用的狀態仍顯示未知。');
 add('colors.inactive', '近期及非活跃条目文字颜色', '近期及非活躍項目文字色彩', '#9a9a9a', 'Gray text for recent tools and inactive agents; tool failures retain the critical color.', '近期工具及非活跃代理的灰色文字；工具失败保留严重告警颜色。', '近期工具及非活躍代理的灰色文字；工具失敗保留嚴重警示色彩。');
 add('colors.git', 'Git 颜色', 'Git 色彩', '#66ccff', 'Preserved setting; the current branch renderer uses colors.gitBranch.', '保留项；当前分支显示使用 colors.gitBranch。', '保留項；目前分支顯示使用 colors.gitBranch。');
 add('colors.usageWarning', '额度警告颜色', '額度警告色彩', '#66ccff', 'Preserved setting; quota currently uses usage or critical colors.', '保留项；当前额度使用 usage 或 critical 颜色。', '保留項；目前額度使用 usage 或 critical 色彩。');
@@ -126,7 +125,6 @@ add('startup.enabled', '旧版自动启动', '舊版自動啟動', false, 'Keep 
 add('startup.window', '旧版目标窗口', '舊版目標視窗', 'last', 'Compatibility only; attachment uses the verified source pane.', '仅用于兼容；附着使用已验证的来源面板。', '僅用於相容；附著使用已驗證的來源面板。');
 add('host.psmuxPath', '便携 psmux 路径', '可攜式 psmux 路徑', 'C:/tools/psmux/psmux.exe', 'Use an existing verified portable executable at this absolute path; no installation is performed.', '使用此绝对路径下已存在并核验的便携程序；设置路径不会安装程序。', '使用此絕對路徑下已存在並核驗的可攜式程式；設定路徑不會安裝程式。');
 add('host.autoStart', '精确宿主自动启动', '精確宿主自動啟動', 'enabled', 'enabled: exact-host startup on; disabled: off; inherit: follow the legacy enabled preference.', 'enabled：启用精确宿主启动；disabled：关闭；inherit：遵循旧版 enabled 偏好。', 'enabled：啟用精確宿主啟動；disabled：關閉；inherit：遵循舊版 enabled 偏好。');
-add('host.runtime', 'Codex 运行方式', 'Codex 執行方式', 'cli', 'cli: ordinary startup; localAppServer: opt into an isolated local server on the next start for live MCP status.', 'cli：普通启动；localAppServer：下次启动使用独立本机服务，提供实时 MCP 状态。', 'cli：一般啟動；localAppServer：下次啟動使用獨立本機服務，提供即時 MCP 狀態。');
 const reasons = {
     forceMaxWidth: text('Rendering respects actual viewport width.', '渲染遵守实际窗口宽度。', '呈現遵守實際視窗寬度。'),
     'display.showSkills': text('Reliable active-Skill events are unavailable.', '没有可靠的活跃技能事件。', '沒有可靠的活躍技能事件。'),
@@ -148,7 +146,6 @@ reasons['display.advisorOverride'] = reasons['display.showAdvisor'];
 for (const key of ['externalUsagePath', 'externalUsageWritePath'])
     reasons['display.' + key] = text('Preserved only; external path I/O is disabled.', '仅保留配置；已禁用外部路径读写。', '僅保留設定；已停用外部路徑讀寫。');
 const choices = {
-    cli: text('Ordinary CLI', '普通 CLI', '一般 CLI'), localAppServer: text('Local App Server (experimental)', '本机 App Server（实验性）', '本機 App Server（實驗性）'),
     en: text('English', '英文', '英文'), 'zh-Hans': text('Simplified Chinese', '简体中文', '簡體中文'), 'zh-Hant': text('Traditional Chinese', '繁体中文', '繁體中文'),
     expanded: text('Separate groups', '按组分行', '按組分行'), compact: text('Compact format', '紧凑格式', '緊湊格式'), full: text('Full value or path', '完整值或完整路径', '完整值或完整路徑'), short: text('Short model name', '简短模型名', '簡短模型名稱'),
     truncate: text('Truncate', '截短', '截短'), wrap: text('Wrap', '换行', '換行'), percent: text('Used percentage', '已用百分比', '已用百分比'), tokens: text('Token counts', 'Token 数量', 'Token 數量'), remaining: text('Remaining amount', '剩余量', '剩餘量'), both: text('Both formats', '同时显示两种格式', '同時顯示兩種格式'),

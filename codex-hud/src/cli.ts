@@ -14,8 +14,8 @@ import {readEnvironment} from './environment.js';
 import {sanitize} from './terminal-text.js';
 import {emptySnapshot,type HudSnapshot} from './types.js';
 import {buildTerminalArgs,checkRuntime,createLaunch,readLaunch,requestStop,runtimeRoot,selectSessionId,updateLaunch,type LaunchDescriptor} from './runtime.js';
-import {loadCurrentHost,ensureHostDisplay,bindHostSession,acknowledgeViewer,readHost,verifyRuntimeHost} from './host-session.js';
-import {readProcessIdentities,hostProcessIds} from './psmux.js';
+import {loadCurrentHost,ensureHostDisplay,bindHostSession,acknowledgeViewer,readHost} from './host-session.js';
+import {readProcessIdentities} from './psmux.js';
 import {decodeInvocation,launchHostedCodex,runHostOwner,runHostFrontend} from './host-launch.js';
 import {profileChange,applyProfileChange,stableEntryPlan,applyStableEntry} from './profile-setup.js';
 import {fileURLToPath} from 'node:url';
@@ -24,13 +24,12 @@ import {inspectSetup} from './setup-readiness.js';
 import {sessionMetadata,isMainSession} from './autostart.js';
 import {DynamicHeightController} from './dynamic-height.js';
 import {AgentSessionTracker} from './agent-sessions.js';
-import {McpRuntimeClient,McpRuntimePoller} from './mcp-runtime.js';
 
 function option(args:string[],key:string):string|undefined{const i=args.indexOf(key);return i>=0?args[i+1]:args.find(v=>v.startsWith(key+'='))?.slice(key.length+1);}
 function launchFile(args:string[]):string|undefined{const encoded=option(args,'--launch64');return encoded?Buffer.from(encoded,'base64').toString('utf8'):option(args,'--launch');}
 function configFile(args:string[]):string{return option(args,'--config')??configPath();}
 function preview(config:Config):string[]{
- return render({...emptySnapshot('preview'),model:'Codex Demo',effort:'high',cwd:'C:/projects/firmware',context:{used:45000,window:200000},latest:{input:42000,cached:30000,output:3000,reasoning:1000,total:45000},totals:{input:120000,cached:90000,output:10000,reasoning:3000,total:130000},quotas:[{id:'demo:5h',minutes:300,usedPercent:25,resetsAt:Math.floor(Date.now()/1000)+3600},{id:'demo:7d',minutes:10080,usedPercent:35,resetsAt:Math.floor(Date.now()/1000)+86400}],agents:[{id:'demo',name:'reviewer',status:'running'}],todos:[{step:'Validate firmware',status:'in_progress'}],mcpUsed:['docs']},config,{width:process.stdout.columns??100,height:100,color:!!process.stdout.isTTY}).lines;
+ return render({...emptySnapshot('preview'),model:'Codex Demo',effort:'high',cwd:'C:/projects/firmware',context:{used:45000,window:200000},latest:{input:42000,cached:30000,output:3000,reasoning:1000,total:45000},totals:{input:120000,cached:90000,output:10000,reasoning:3000,total:130000},quotas:[{id:'demo:5h',minutes:300,usedPercent:25,resetsAt:Math.floor(Date.now()/1000)+3600},{id:'demo:7d',minutes:10080,usedPercent:35,resetsAt:Math.floor(Date.now()/1000)+86400}],agents:[{id:'demo',name:'reviewer',status:'running'}],todos:[{step:'Validate firmware',status:'in_progress'}]},config,{width:process.stdout.columns??100,height:100,color:!!process.stdout.isTTY}).lines;
 }
 async function chooseSession(root:string):Promise<string>{
  const sessions=(await listSessions(root)).filter(s=>!s.parentId).slice(0,20);if(!sessions.length)throw new Error('No sessions found');
@@ -51,8 +50,6 @@ async function watch(args:string[],once=false):Promise<void>{
  const interactive=!once&&!!process.stdin.isTTY;
  const dynamicHeight=new DynamicHeightController();
  const agentSessions=new AgentSessionTracker(root);
- let mcpPoller:McpRuntimePoller|undefined,mcpKey='',mcpVerified=false,mcpMessage='';
- const closeMcp=()=>{mcpPoller?.close();mcpPoller=undefined;mcpKey='';mcpVerified=false;};
  if(interactive){emitKeypressEvents(process.stdin);process.stdin.setRawMode(true);process.stdin.on('keypress',onKey);process.stdin.resume();}
  if(!once&&process.stdout.isTTY)process.stdout.write('\x1b[?1049h\x1b[?25l');
  if(descriptor&&!descriptor.demo)updateLaunch(ownedFile!,d=>{d.state='running';d.pid=process.pid;d.heartbeat=Date.now();});
@@ -66,23 +63,16 @@ async function watch(args:string[],once=false):Promise<void>{
      try{
      const registered=readHost(descriptor.host.recordFile);if(registered.state==='closed'){exitReason='source-closed';break;}
      if(Date.now()>=nextOwnerCheck){
-      const expected=descriptor.host.proof.owner,wantsMcp=!!descriptor.host.proof.appServer&&!!selected&&!!get(config,'display.showMcp');
-      const values=readProcessIdentities(wantsMcp?hostProcessIds(registered.proof,[expected.pid,process.pid]):[expected.pid]),actual=values.find(p=>p.pid===expected.pid);nextOwnerCheck=Date.now()+5000;
+      const expected=descriptor.host.proof.owner;
+      const values=readProcessIdentities([expected.pid]),actual=values.find(p=>p.pid===expected.pid);nextOwnerCheck=Date.now()+5000;
       if(!actual||actual.startedAt!==expected.startedAt){exitReason='owner-exited';break;}
       sourceVerified=true;sourceMessage='';
-      if(wantsMcp){
-       try{
-        const verified=verifyRuntimeHost(descriptor,{processes:()=>values}),runtime=verified.proof.appServer!,key=JSON.stringify([verified.id,runtime]);
-        if(mcpKey!==key){closeMcp();mcpPoller=new McpRuntimePoller(new McpRuntimeClient(runtime.endpoint,process.env.MZ_HUD_APP_SERVER_TOKEN??''));mcpKey=key;}
-        mcpVerified=true;mcpMessage='';
-       }catch{closeMcp();mcpMessage='Live MCP state unavailable; source identity could not be verified';}
-      }else{closeMcp();mcpMessage='';}
+
      }
-     }catch{sourceVerified=false;closeMcp();mcpMessage='';sourceMessage='Source identity unavailable; keeping HUD open and retrying';nextOwnerCheck=Date.now()+5000;}
+     }catch{sourceVerified=false;sourceMessage='Source identity unavailable; keeping HUD open and retrying';nextOwnerCheck=Date.now()+5000;}
     }
    }
    try{config=loadConfig(cfgFile);statusMessage='';}catch(e){statusMessage='Configuration reload failed: '+(e as Error).message;}
-   if(!selected||!get(config,'display.showMcp')){closeMcp();mcpMessage='';}
    let snapshot=emptySnapshot(selected??'pending');
    if(selected){
     if(descriptor?.transcriptPath){if(!reader||knownPath!==descriptor.transcriptPath){knownPath=descriptor.transcriptPath;reader=new SessionReader(knownPath,selected);}}
@@ -94,9 +84,7 @@ async function watch(args:string[],once=false):Promise<void>{
     else snapshot.errors.push('Waiting for the selected session log');
    }else snapshot.errors.push(descriptor?.host?'Waiting for this Codex conversation':'Select the existing Codex session to display');
    if(reader)await agentSessions.refresh(snapshot,reader);
-   if(snapshot.cwd)snapshot.environment=readEnvironment(snapshot.cwd,home);
-   if(mcpVerified&&mcpPoller&&selected){mcpPoller.refresh(selected);snapshot.mcpRuntime=mcpPoller.snapshot(selected);snapshot.mcpNames=mcpPoller.knownServers(selected);}
-   if(mcpMessage)snapshot.errors.push(mcpMessage);
+   if(snapshot.cwd)snapshot.environment=readEnvironment(snapshot.cwd);
    if(statusMessage)snapshot.errors.push(statusMessage);
    if(sourceMessage)snapshot.errors.push(sourceMessage);
    const width=Number(option(args,'--width'))||process.stdout.columns||100,color=!args.includes('--no-color')&&!!process.stdout.isTTY;
@@ -117,7 +105,6 @@ async function watch(args:string[],once=false):Promise<void>{
  }catch(error){bodyFailed=true;recordFailure(error);throw error;}finally{
   let cleanupFailed=false,cleanupError:unknown;
   const cleanup=(action:()=>void)=>{try{action();}catch(error){if(!cleanupFailed){cleanupFailed=true;cleanupError=error;}}};
-  cleanup(closeMcp);
   if(interactive){cleanup(()=>{process.stdin.off('keypress',onKey);});cleanup(()=>process.stdin.setRawMode(false));cleanup(()=>process.stdin.pause());}
   if(!once&&process.stdout.isTTY)cleanup(()=>{process.stdout.write('\x1b[0m\x1b[?25h\x1b[?1049l');});
   if(cleanupFailed&&!bodyFailed)recordFailure(cleanupError);

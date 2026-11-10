@@ -33,7 +33,8 @@ global npm link or build a published package.
 
 Keep legacy `startup.enabled=false` when old unsafe 0.3.4 sessions may coexist;
 explicit `host.autoStart=enabled` controls exact-host opening. PS5/PS7 profiles
-are separate. `host.runtime=cli` remains the default. Automatic localAppServer startup from
-0.7.9 is retired for compatibility; do not enable it or change the CLI backend. Normal upgrades of the stable loader do not need repeated setup.
+are separate. Dedicated MCP display and connection queries have been removed;
+legacy `host.runtime` settings are ignored and ordinary Codex startup is retained.
+Normal upgrades of the stable loader do not need repeated setup.
 Older version-bound/0.5.1 bootstrap installations need the previously documented
 one-time loader refresh, not a second initialization on every upgrade.

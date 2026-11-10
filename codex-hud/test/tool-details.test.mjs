@@ -1,10 +1,10 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 const api=await import('../dist/tool-details.js').catch(()=>({}));
 
-test('MCP identities are parsed only from the actual MCP namespace without inspecting arguments',()=>{
+test('MCP tool names do not gain special metadata or expose their arguments',()=>{
  assert.equal(typeof api.toolDetails,'function');
- assert.deepEqual(api.toolDetails('mcp__my_docs__query_docs',{token:'SECRET'}),{mcp:{server:'my_docs',tool:'query_docs'}});
- assert.deepEqual(api.toolDetails('functions.mcp__codex_apps__context7_query',{token:'SECRET'}),{mcp:{server:'codex_apps',tool:'context7_query'}});
+ assert.deepEqual(api.toolDetails('mcp__my_docs__query_docs',{token:'SECRET'}),{});
+ assert.deepEqual(api.toolDetails('functions.mcp__codex_apps__context7_query',{token:'SECRET'}),{});
  assert.deepEqual(api.toolDetails('other.mcp__docs__query',{}),{});
  assert.deepEqual(api.toolDetails('exec',{input:'await tools.mcp__docs__query({token:"SECRET"})'}),{});
 });

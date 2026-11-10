@@ -5,18 +5,32 @@ WT tabs or separate PowerShell windows. The official CLI and native statusline
 remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
 task names retain their original language.
 
-## Version 0.7.11: connection layout and startup
+## Version 0.7.12: foreground-first startup
 
-The default connection summary follows context/token and usage rows, before
-ordinary tools and MCP calls. Pagination retains that order while keeping
-nonofficial connections visible on activity pages. Existing custom element
-orders remain authoritative; move `mcp` before `tools` in `elementOrder` to apply
-the same order to saved settings.
+The host publishes its exact HUD intent and starts the official frontend before
+waiting for the viewer acknowledgement. HUD process/pane verification continues
+in parallel; acknowledgement still requires fresh process facts. If the frontend
+exits or cannot start, the acknowledgement wait is cancelled and only that host's
+HUD is asked to stop. Ordinary arguments, exit status and runtime choice are kept.
 
-Fresh Connected states are green (`colors.mcpConnected`); starting, authentication
-and mixed states use the warning color, failed states use the critical color,
-and unknown/inactive states stay gray. Only foreground colors change; NO_COLOR
-and uncolored output remain available. Stale facts still become Unknown.
+A proven SessionStart hook can bind the published intent while the owner is still
+opening its HUD, without creating another pane. Regression tests prove startup
+ordering and binding, not an end-to-end improvement in real UI launch time.
+
+## Dedicated MCP features removed in 0.7.12
+
+MCP connection summaries, dedicated scheduling/call rows and their settings have
+been removed. Tool calls, including MCP calls, use the normal Current/Recent
+activity display. HUD no longer reads MCP configuration or queries live MCP
+connections. The WebSocket/TOML dependencies and vendored runtimes are removed.
+Old `display.showMcp`, `colors.mcpConnected`, `mcp`/`mcpCalls` order entries and
+`host.runtime` settings may remain in saved files, but do not enable these features.
+
+The foreground-first startup improvement above is retained. Existing legacy
+remote sessions keep their exact source/ancestry compatibility checks solely for
+HUD attachment; HUD does not start, stop or switch their App Server.
+
+## Startup proof reuse
 
 New host startup reuses its just-read owner snapshot for the immediate display
 check, saving one repeated process query. Reuse is limited to the same bootstrap,
@@ -39,31 +53,10 @@ its existing physical host/ancestry checks, so affected existing conversations
 can reopen their HUD. IDE clients, subagents and unproven hosts stay excluded.
 No other plugin's files or configuration are modified.
 
-The MCP connection summary keeps one logical row and wraps at terminal width.
-The call area is unchanged. When the existing host supplies no authoritative
-runtime state, connections remain Unknown. The plugin does not change Codex's
-backend or invent connectivity to avoid that label.
-
 Version 0.7.8 refines tool labels: only agent operations display a task target.
 Ordinary tools show their action and recorded duration without file names,
 directories or other object summaries. Git subcommands remain part of the action
-label. MCP connection and call presentation is unchanged by this refinement.
-
-Version 0.7.7 separates MCP connections from active calls. With MCP
-display enabled, nonofficial server names remain visible while idle; the official
-`codex_apps` and `codex_tui` servers are summarized without inventory details.
-Configuration and past calls identify names, not live connectivity: this scoped
-interface update reports Unknown rather than inferring Connected. Explicitly
-disabled settings are labeled as configuration facts. The current standalone
-CLI exposes no accessible control socket for live state integration.
-
-With tool activity enabled, active MCP calls show individual server/tool names
-and elapsed time when recorded. The call area disappears when no MCP calls are
-active, and MCP calls do not duplicate ordinary Current/Recent counts. Ordinary
-commands use safe categories and file basenames where available; raw command
-arguments, scripts, results and progress messages are not displayed or retained.
-During pagination, nonofficial connection information stays visible where space
-permits, with critical warnings taking priority in very short panes.
+label.
 
 > Version 0.7.6 reduces periodic process-query overhead, rechecks stable automatic
 > height at most once per five seconds, and reads session metadata in small chunks.
@@ -150,7 +143,8 @@ unique psmux host inside that same tab/window and executes the verified official
 npm JavaScript entry or native executable once, preserving the original argv.
 Help, maintenance commands and non-TTY pipelines run without the terminal host.
 
-Each source bootstrap opens its own waiting HUD before the first model turn.
+Each source bootstrap publishes its own waiting HUD intent, then starts the
+official frontend while its HUD finishes opening.
 Native SessionStart later binds that source's main CLI metadata. The hook verifies
 the actual launched entry process incarnation, Codex ancestry, server/session,
 source pane and viewer pane; thread ID or `%1` alone never establishes ownership.
@@ -307,7 +301,7 @@ initialization. A plain PowerShell outside a registered host cannot guess which
 open conversation to control.
 
 Transient source-identity queries keep the viewer visible with a warning, stop
-live MCP facts and avoid unverified resizing until the source is revalidated.
+unverified resizing until the source is revalidated.
 Launch metadata records a safe `exitReason`/exit code, and a safe error code for
 fatal errors; it never stores raw error messages or command/transcript content.
 Earlier 0.7.9 exit records lack a reason and cannot establish the cause of a past
@@ -385,7 +379,6 @@ Daily changes are not automatically published or applied to user profiles.
 ```powershell
 mz-codex-hud.cmd configure
 mz-codex-hud.cmd config show
-mz-codex-hud.cmd config set display.showMcp true
 mz-codex-hud.cmd config set display.showModel true
 mz-codex-hud.cmd import-claude
 mz-codex-hud.cmd import-claude --yes
@@ -401,8 +394,8 @@ explicit file. Saves are validated, backed up and atomic. Valid edits hot-reload
 Use Left/Right or p/n for overflow pages; drag the pane divider to resize.
 
 Context uses latest telemetry; cumulative/cache token counts remain distinct.
-Quota labels use actual window durations. MCP reports configured/called/unknown
-facts. Unavailable cost, speed, cache expiry and Skills data is never invented.
+Quota labels use actual window durations. Unavailable cost, speed, cache expiry
+and Skills data is never invented.
 Agent entries correlate spawn calls with actual thread IDs or task paths and
 follow reported start, run, interrupt, complete, fail, close and resume events.
 The Agents heading occupies its own line; entries and wrapped continuations share
