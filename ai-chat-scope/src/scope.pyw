@@ -30,7 +30,7 @@ import tkinter.font as tkfont
 from tkinter import messagebox
 from runtime_paths import runtime_root, claude_home, load_window_config, save_window_config
 from monitor import Monitor, create_sources, row_signature, row_action, gui_rows
-from win32_support import claim_single_instance
+from win32_support import claim_single_instance, ensure_topmost
 from claude_source import registry_matches
 
 HOME = os.path.expanduser("~")
@@ -409,6 +409,8 @@ class Scope:
                 self._sig = sig
                 self.sessions = sessions
                 self.draw()
+            if self.pinned:
+                ensure_topmost(self.root.winfo_id())
         except Exception:
             log_error("poll")   # 记录但不中断:下一轮继续
         finally:

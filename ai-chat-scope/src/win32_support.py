@@ -5,6 +5,70 @@ import sys
 import hashlib
 import os
 from pathlib import Path
+from functools import lru_cache
+
+
+@lru_cache(maxsize=1)
+def _window_api():
+    user32 = ctypes.WinDLL('user32', use_last_error=True)
+    user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+    user32.GetAncestor.restype = wintypes.HWND
+    user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    user32.IsIconic.argtypes = [wintypes.HWND]
+    user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
+    user32.GetWindowLongW.restype = ctypes.c_long
+    user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    callback = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    user32.EnumWindows.argtypes = [callback, wintypes.LPARAM]
+    user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int,
+                                   ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT]
+    return user32
+
+
+def ensure_topmost(hwnd):
+    """Repair own mapped window only when topmost state/order has been lost."""
+    if sys.platform != 'win32':
+        return False
+    user32 = _window_api()
+    hwnd = user32.GetAncestor(hwnd, 2)  # GA_ROOT: Tk's native wrapper, not its child.
+    if not hwnd or not user32.IsWindowVisible(hwnd) or user32.IsIconic(hwnd):
+        return False
+    needs_repair = not (user32.GetWindowLongW(hwnd, -20) & 8)  # WS_EX_TOPMOST
+    if not needs_repair:
+        rect = wintypes.RECT()
+        if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        if rect.right <= rect.left or rect.bottom <= rect.top:
+            return False
+        stopped = False
+
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def check_above(other, _):
+            nonlocal needs_repair, stopped
+            if other == hwnd:
+                stopped = True
+                return False
+            if (not user32.IsWindowVisible(other) or user32.IsIconic(other)
+                    or user32.GetWindowLongW(other, -20) & 8):
+                return True
+            other_rect = wintypes.RECT()
+            if (user32.GetWindowRect(other, ctypes.byref(other_rect))
+                    and other_rect.right > other_rect.left and other_rect.bottom > other_rect.top
+                    and other_rect.left < rect.right and other_rect.right > rect.left
+                    and other_rect.top < rect.bottom and other_rect.bottom > rect.top):
+                needs_repair = stopped = True
+                return False
+            return True
+
+        ctypes.set_last_error(0)
+        if not user32.EnumWindows(check_above, 0) and not stopped:
+            raise ctypes.WinError(ctypes.get_last_error())
+    if needs_repair:
+        # HWND_TOPMOST; keep focus, position and size. Do not repeatedly raise a
+        # healthy window above other topmost apps, menus or dialogs.
+        if not user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0013):
+            raise ctypes.WinError(ctypes.get_last_error())
+    return needs_repair
 
 
 def probe_writer_lock(path):
