@@ -38,19 +38,21 @@ export class DynamicHeightController {
             return;
         }
         this.stable = undefined;
-        const client = new PsmuxClient(host.proof.origin, this.dependencies), panes = (await client.panesAsync(signal)).filter(p => p.window === host.proof.window);
+        const inspect = (all) => {
+            const panes = all.filter(p => p.window === host.proof.window), owner = panes.find(p => p.pane === host.proof.origin.pane), hud = panes.find(p => p.pane === host.hudPane);
+            if (panes.length !== 2 || !owner || !hud || owner.pid !== host.proof.owner.pid || hud.pid !== pid || owner.pane === hud.pane)
+                throw new Error('Source/HUD panes no longer form the registered scope');
+            const total = owner.height + hud.height, cap = Math.min(total - 10, Math.floor(total * get(config, 'terminal.paneSize')));
+            return { owner, hud, cap, target: Math.max(1, Math.min(contentRows, cap)) };
+        };
+        const client = new PsmuxClient(host.proof.origin, this.dependencies), { owner, hud, cap, target } = inspect(await client.panesAsync(signal));
         if (!current())
             return;
-        const owner = panes.find(p => p.pane === host.proof.origin.pane), hud = panes.find(p => p.pane === host.hudPane);
-        if (panes.length !== 2 || !owner || !hud || owner.pid !== host.proof.owner.pid || hud.pid !== pid || owner.pane === hud.pane)
-            throw new Error('Source/HUD panes no longer form the registered scope');
-        const total = owner.height + hud.height, cap = Math.min(total - 10, Math.floor(total * get(config, 'terminal.paneSize')));
         if (cap < 1) {
             this.candidate = undefined;
             this.nextCheckAt = now + 5000;
             return;
         }
-        const target = Math.max(1, Math.min(contentRows, cap));
         if (target === hud.height) {
             this.candidate = undefined;
             this.stable = { key, at: now };
@@ -71,10 +73,23 @@ export class DynamicHeightController {
             return;
         if (!actual || actual.startedAt !== viewer.startedAt || actual.parentPid !== viewer.parentPid || actual.name !== viewer.name)
             throw new Error('HUD viewer process incarnation changed');
-        const physical = await client.paneAsync(host.proof.origin.pane, signal);
+        const fresh = inspect(await client.panesAsync(signal));
         if (!current())
             return;
-        verifyHost(host.proof, 'viewer', { ...this.dependencies, processes: () => values }, physical);
+        if (fresh.cap < 1 || fresh.target === fresh.hud.height) {
+            this.candidate = undefined;
+            this.growing = false;
+            this.nextCheckAt = now + 5000;
+            return;
+        }
+        if (fresh.target !== target) {
+            this.candidate = fresh.target;
+            this.since = now;
+            this.growing = fresh.target > fresh.hud.height;
+            this.nextCheckAt = now + (this.growing ? 50 : 2000);
+            return;
+        }
+        verifyHost(host.proof, 'viewer', { ...this.dependencies, processes: () => values }, fresh.owner);
         registered();
         if (!current())
             return;

@@ -35,3 +35,15 @@ test('watch failure wakes the source and a later reconcile retries without spinn
  events.watch(path.resolve('config.json'),'config');assert.equal((await events.wait(Date.now()+1000)).has('config'),true);assert.equal(calls,1);
  events.reconcile();assert.equal(calls,2);handle.emit('error',Error('lost'));assert.equal((await events.wait(Date.now()+1000)).has('config'),true);events.close();
 });
+test('a validated heartbeat-only hint can be discarded without waking the worker',async()=>{
+ const events=create(undefined,reason=>reason==='heartbeat'?false:undefined);
+ try{events.request('heartbeat');assert.equal((await events.wait(Date.now()+40)).size,0);events.request('changed');assert.equal((await events.wait(Date.now()+1000)).has('changed'),true);}finally{events.close();}
+});
+test('replacing an attached directory retires the old handle and subscribes to the new directory',async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'hud-directory-replace-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ const dir=path.join(root,'current');fs.mkdirSync(dir);const handles=[];
+ const events=create((_dir,_options,listener)=>{const h=new EventEmitter();h.close=()=>{h.closed=true;};handles.push({h,listener});return h;});t.after(()=>events.close());
+ events.watch(path.join(dir,'config.json'),'config');fs.renameSync(dir,path.join(root,'old'));fs.mkdirSync(dir);events.reconcile();
+ assert.equal(handles.length,2);assert.equal(handles[0].h.closed,true);await events.wait(Date.now()+40);
+ handles[1].listener('change','config.json');assert.equal((await events.wait(Date.now()+1000)).has('config'),true);
+});

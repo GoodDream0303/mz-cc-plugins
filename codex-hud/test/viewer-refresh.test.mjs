@@ -15,8 +15,11 @@ test('watcher failure and silently lost notifications both preserve polling fall
  for(const mode of ['fallback','lost']){const r=viewerProbe({mode,refreshMs:250,duration:650});assert.equal(r.counts.paint,2);assert.ok(r.visibleLatency<700,JSON.stringify(r));}
 });
 test('Recent expiry repaints from a deadline without a new log record',()=>{
- const r=viewerProbe({mode:'expiry',refreshMs:1000,duration:900});assert.match(r.frames[0],/EXPIRY-PROBE/);assert.doesNotMatch(r.frames.at(-1),/EXPIRY-PROBE/);assert.equal(r.counts.paint,2);assert.equal(r.counts.read,1);
+ const r=viewerProbe({mode:'expiry',refreshMs:1000,duration:900});assert.match(r.frames[0],/EXPIRY-PROBE/);assert.doesNotMatch(r.frames.at(-1),/EXPIRY-PROBE/);assert.equal(r.counts.paint,2);assert.equal(r.counts.read,1);assert.equal(r.samples[1].configStat,r.samples[0].configStat);
 });
 test('a child-only completion wakes the viewer and keeps exact parent binding',()=>{
  const r=viewerProbe({mode:'child',refreshMs:1000,duration:1250});assert.match(r.frames[0],/review.*\[running\]/);assert.match(r.frames.at(-1),/review.*\[done\]/);assert.ok(r.visibleLatency<800,JSON.stringify(r));
+});
+test('an unresolved session with lost notifications is discovered at the configured fallback cadence',()=>{
+ const r=viewerProbe({mode:'discovery',refreshMs:250,duration:1050});assert.match(r.frames.at(-1),/PROBE-MODEL/);assert.ok(r.visibleLatency<800,JSON.stringify(r));
 });

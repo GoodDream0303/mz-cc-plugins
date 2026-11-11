@@ -86,9 +86,11 @@ async function watch(args, once = false) {
                     exitReason = 'stop-requested';
                     activeQuery?.abort();
                     events.request('quit');
+                    return false;
                 }
-                else if (controlState(next) !== projection)
-                    activeQuery?.abort();
+                if (controlState(next) === projection)
+                    return false;
+                activeQuery?.abort();
             }
             catch { /* The worker reports or reconciles invalid control state. */ }
         if (reason === 'host' && descriptor?.host)
@@ -157,6 +159,7 @@ async function watch(args, once = false) {
         if (descriptor && !descriptor.demo) {
             descriptor = updateLaunch(ownedFile, d => { d.state = 'running'; d.pid = process.pid; d.heartbeat = Date.now(); });
             projection = controlState(descriptor);
+            nextHeartbeat = Date.now() + get(config, 'terminal.refreshMs');
         }
         while (!quit) {
             const initial = reasons.has('initial'), now = Date.now(), reconcile = now >= nextReconcile;
@@ -203,39 +206,49 @@ async function watch(args, once = false) {
                         nextDiscover = 0;
                     }
                 }
-                if (descriptor?.host) {
-                    if (initial || reconcile || reasons.has('host')) {
-                        const registered = readHost(descriptor.host.recordFile);
-                        if (registered.state === 'closed') {
-                            exitReason = 'source-closed';
-                            break;
-                        }
-                    }
-                    if (Date.now() >= nextOwnerCheck) {
-                        try {
-                            const expected = descriptor.host.proof.owner, values = await readProcessIdentitiesAsync([expected.pid], signal), actual = values.find(p => p.pid === expected.pid);
-                            if (!current()) {
-                                reasons = new Set(['control']);
-                                continue;
-                            }
-                            if (!actual || actual.startedAt !== expected.startedAt) {
-                                exitReason = 'owner-exited';
+                if (descriptor?.host)
+                    try {
+                        if (initial || reconcile || reasons.has('host')) {
+                            const registered = readHost(descriptor.host.recordFile);
+                            if (registered.state === 'closed') {
+                                exitReason = 'source-closed';
                                 break;
                             }
-                            sourceVerified = true;
-                            sourceMessage = '';
                         }
-                        catch (error) {
-                            if (signal.aborted)
-                                throw error;
-                            sourceVerified = false;
-                            sourceMessage = 'Source identity unavailable; keeping HUD open and retrying';
+                        if (!sourceVerified && reasons.has('host'))
+                            nextOwnerCheck = 0;
+                        if (Date.now() >= nextOwnerCheck) {
+                            try {
+                                const expected = descriptor.host.proof.owner, values = await readProcessIdentitiesAsync([expected.pid], signal), actual = values.find(p => p.pid === expected.pid);
+                                if (!current()) {
+                                    reasons = new Set(['control']);
+                                    continue;
+                                }
+                                if (!actual || actual.startedAt !== expected.startedAt) {
+                                    exitReason = 'owner-exited';
+                                    break;
+                                }
+                                sourceVerified = true;
+                                sourceMessage = '';
+                            }
+                            catch (error) {
+                                if (signal.aborted)
+                                    throw error;
+                                sourceVerified = false;
+                                sourceMessage = 'Source identity unavailable; keeping HUD open and retrying';
+                            }
+                            nextOwnerCheck = Date.now() + 5000;
                         }
+                    }
+                    catch (error) {
+                        if (signal.aborted)
+                            throw error;
+                        sourceVerified = false;
+                        sourceMessage = 'Source identity unavailable; keeping HUD open and retrying';
                         nextOwnerCheck = Date.now() + 5000;
                     }
-                }
-                const stamp = inputStamp(cfgFile);
-                if (stamp !== cfgStamp || statusMessage) {
+                const checkConfig = initial || reconcile || reasons.has('config'), stamp = checkConfig ? inputStamp(cfgFile) : cfgStamp;
+                if (checkConfig && (stamp !== cfgStamp || statusMessage)) {
                     try {
                         config = loadConfig(cfgFile);
                         cfgStamp = stamp;
@@ -260,7 +273,7 @@ async function watch(args, once = false) {
                             readParent = true;
                         }
                     }
-                    else if (initial || reasons.has('discovery') || Date.now() >= nextDiscover) {
+                    else if (initial || reasons.has('discovery') || !reader && reconcile || Date.now() >= nextDiscover) {
                         subscribe(root, 'discovery', true);
                         const session = await findSession(root, selected);
                         nextDiscover = Date.now() + 5000;

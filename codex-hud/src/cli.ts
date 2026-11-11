@@ -54,8 +54,8 @@ async function watch(args:string[],once=false):Promise<void>{
  const events=new RefreshEvents(undefined,reason=>{
   if(reason==='config'||reason==='geometry')activeQuery?.abort();
   if(reason==='control'&&ownedFile)try{
-   const next=readLaunch(ownedFile);if(next.hudStop||next.state==='exited'){quit=true;exitReason='stop-requested';activeQuery?.abort();events.request('quit');}
-   else if(controlState(next)!==projection)activeQuery?.abort();
+   const next=readLaunch(ownedFile);if(next.hudStop||next.state==='exited'){quit=true;exitReason='stop-requested';activeQuery?.abort();events.request('quit');return false;}
+   if(controlState(next)===projection)return false;activeQuery?.abort();
   }catch{/* The worker reports or reconciles invalid control state. */}
   if(reason==='host'&&descriptor?.host)try{if(readHost(descriptor.host.recordFile).state==='closed'){quit=true;exitReason='source-closed';activeQuery?.abort();events.request('quit');}}catch{}
  });
@@ -76,7 +76,7 @@ async function watch(args:string[],once=false):Promise<void>{
  if(!once&&process.stdout.isTTY){process.stdout.on('resize',onResize);process.stdout.write('\x1b[?1049h\x1b[?25l');}
  let reasons=new Set(['initial']);
  try{
-  if(descriptor&&!descriptor.demo){descriptor=updateLaunch(ownedFile!,d=>{d.state='running';d.pid=process.pid;d.heartbeat=Date.now();});projection=controlState(descriptor);}
+  if(descriptor&&!descriptor.demo){descriptor=updateLaunch(ownedFile!,d=>{d.state='running';d.pid=process.pid;d.heartbeat=Date.now();});projection=controlState(descriptor);nextHeartbeat=Date.now()+get(config,'terminal.refreshMs');}
   while(!quit){
    const initial=reasons.has('initial'),now=Date.now(),reconcile=now>=nextReconcile;let dirty=initial||reasons.has('page')||reasons.has('geometry');
    if(reconcile){nextReconcile=now+get(config,'terminal.refreshMs');events.reconcile();}
@@ -95,8 +95,9 @@ async function watch(args:string[],once=false):Promise<void>{
      descriptor=next;selected=next.sessionId;dirty||=changed;
      if(bindingChanged){reader=undefined;knownPath='';parentSnapshot=emptySnapshot(selected??'pending');baseSnapshot=parentSnapshot;agentSessions=new AgentSessionTracker(root);remove('log',new Set());remove('child',new Set());page=0;nextDiscover=0;}
     }
-    if(descriptor?.host){
+    if(descriptor?.host)try{
      if(initial||reconcile||reasons.has('host')){const registered=readHost(descriptor.host.recordFile);if(registered.state==='closed'){exitReason='source-closed';break;}}
+     if(!sourceVerified&&reasons.has('host'))nextOwnerCheck=0;
      if(Date.now()>=nextOwnerCheck){
       try{const expected=descriptor.host.proof.owner,values=await readProcessIdentitiesAsync([expected.pid],signal),actual=values.find(p=>p.pid===expected.pid);
        if(!current()){reasons=new Set(['control']);continue;}
@@ -104,13 +105,13 @@ async function watch(args:string[],once=false):Promise<void>{
       }catch(error){if(signal.aborted)throw error;sourceVerified=false;sourceMessage='Source identity unavailable; keeping HUD open and retrying';}
       nextOwnerCheck=Date.now()+5000;
      }
-    }
-    const stamp=inputStamp(cfgFile);
-    if(stamp!==cfgStamp||statusMessage){try{config=loadConfig(cfgFile);cfgStamp=stamp;statusMessage='';nextGit=0;nextReconcile=Math.min(nextReconcile,Date.now()+get(config,'terminal.refreshMs'));if(nextHeartbeat)nextHeartbeat=Math.min(nextHeartbeat,Date.now()+get(config,'terminal.refreshMs'));dirty=true;}catch(error){statusMessage='Configuration reload failed: '+(error as Error).message;}}
+    }catch(error){if(signal.aborted)throw error;sourceVerified=false;sourceMessage='Source identity unavailable; keeping HUD open and retrying';nextOwnerCheck=Date.now()+5000;}
+    const checkConfig=initial||reconcile||reasons.has('config'),stamp=checkConfig?inputStamp(cfgFile):cfgStamp;
+    if(checkConfig&&(stamp!==cfgStamp||statusMessage)){try{config=loadConfig(cfgFile);cfgStamp=stamp;statusMessage='';nextGit=0;nextReconcile=Math.min(nextReconcile,Date.now()+get(config,'terminal.refreshMs'));if(nextHeartbeat)nextHeartbeat=Math.min(nextHeartbeat,Date.now()+get(config,'terminal.refreshMs'));dirty=true;}catch(error){statusMessage='Configuration reload failed: '+(error as Error).message;}}
     let readParent=initial||bindingChanged||reconcile||reasons.has('log'),readChildren=reconcile||reasons.has('child');
     if(selected){
      if(descriptor?.transcriptPath){if(!reader||knownPath!==descriptor.transcriptPath){knownPath=descriptor.transcriptPath;subscribe(knownPath,'log');reader=new SessionReader(knownPath,selected);readParent=true;}}
-     else if(initial||reasons.has('discovery')||Date.now()>=nextDiscover){
+     else if(initial||reasons.has('discovery')||!reader&&reconcile||Date.now()>=nextDiscover){
       subscribe(root,'discovery',true);const session=await findSession(root,selected);nextDiscover=Date.now()+5000;
       if(!current()){reasons=new Set(['control']);continue;}
       if(session&&(!reader||session.path!==knownPath)){knownPath=session.path;subscribe(knownPath,'log');reader=new SessionReader(knownPath,session.id);selected=session.id;readParent=true;remove('log',new Set([knownPath]));}

@@ -116,3 +116,9 @@ test('a superseded asynchronous query cannot resize after stop or rebinding',asy
  await controller.fit(d,config,6,0,undefined,()=>current);
  assert.equal(await controller.fit(d,config,6,1000,undefined,()=>current),undefined);assert.deepEqual(state.resizes,[]);
 });
+test('an added pane during the async identity query rejects the pending resize',async t=>{
+ const {d,config,state,deps}=await fixture(t);state.rows=3;
+ const controller=new api.DynamicHeightController({...deps,processesAsync:async()=>{state.extra=true;return deps.processes();}});
+ await controller.fit(d,config,6,0);
+ await assert.rejects(()=>controller.fit(d,config,6,1000),/scope|panes/i);assert.deepEqual(state.resizes,[]);
+});

@@ -32,6 +32,14 @@ export function nextDisplayAt(s, c, now) {
         if (Number.isFinite(start))
             at(start + (Math.floor((now - start) / 60000) + 1) * 60000);
     }
+    if (get(c, 'display.timeFormat') !== 'absolute')
+        for (const [visible, value] of [[get(c, 'display.showSessionStartDate'), s.startedAt], [get(c, 'display.showLastResponseAt'), s.lastResponseAt]]) {
+            if (visible && value) {
+                const time = Date.parse(value);
+                if (Number.isFinite(time))
+                    at(time + (Math.floor((now - time - 1) / 60000 + 0.5) + 0.5) * 60000 + 1);
+            }
+        }
     if (get(c, 'display.showUsage'))
         for (const quota of s.quotas) {
             if (quota.minutes === 300 && !get(c, 'display.showFiveHourUsage') || quota.minutes === 10080 && !get(c, 'display.showSevenDayUsage') || quota.usedPercent < get(c, quota.minutes >= 10080 ? 'display.sevenDayThreshold' : 'display.usageThreshold'))
@@ -41,7 +49,7 @@ export function nextDisplayAt(s, c, now) {
             const reset = quota.resetsAt * 1000;
             at(reset);
             if (reset > now && get(c, 'display.timeFormat') !== 'absolute')
-                at(reset + (Math.floor((now - reset) / 60000 + 0.5) + 0.5) * 60000 + 1);
+                at(reset + (Math.floor((now - reset - 1) / 60000 + 0.5) + 0.5) * 60000 + 1);
         }
     return next;
 }

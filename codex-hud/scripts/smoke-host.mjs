@@ -111,7 +111,7 @@ if(process.argv[2]==='--fixture'){
    const visible=text=>wait(()=>command('A',['capture-pane','-p','-t',descriptor('A').host.hudPane]).stdout.includes(text),'Live HUD did not render '+text);
    append({type:'CommandExecution',id:'live-command',status:'in_progress'});await visible('◐ Run command');
    append({type:'CommandExecution',id:'live-command',status:'completed',exit_code:0});await visible('✓ Run command');
-   append({type:'CommandExecution',id:'cancelled-command',status:'cancelled'});await visible('⊘ Run command');
+   append({type:'CommandExecution',id:'cancelled-command',status:'cancelled'});await visible('Run command › ⊘ Unclassified');
    checks.push('same running viewer updates actual tool running/completed/cancelled symbols as metadata arrives');
    append({type:'SubAgentActivity',id:'agent-start',kind:'started',agent_thread_id:'synthetic-agent',agent_path:'/root/reviewer',model:'synthetic-agent-model'});await visible('reviewer [running] (synthetic-agent-model)');
    if(process.argv.includes('--task-lines')){

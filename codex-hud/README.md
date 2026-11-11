@@ -396,8 +396,9 @@ auto-height disabled to use the percentage limit. Initial sizing runs at creatio
 For continuous fitting, enable `terminal.dynamicHeight` in Configuration →
 Terminal. Three content rows then occupy three HUD rows, six occupy six, including
 wrapped lines and warnings. The pane ratio limits growth and ten source rows are
-reserved; overflow stays paged. Growth waits one stable refresh and shrinking
-waits at least two seconds to avoid flicker. With this option off (the compatibility
+reserved; overflow stays paged. Growth coalesces changes for 50 ms and shrinking
+waits two stable seconds to avoid flicker. These deadlines do not wait for the
+next telemetry refresh; native identity/backend queries add their own latency. With this option off (the compatibility
 default), later wrapping/paging preserves manual sizing; with it on, content
 fitting resumes after a manual drag. Additional internal panes or changed host
 identity stop automatic resizing and leave the existing size in place.
@@ -405,6 +406,26 @@ While a verified growth is pending, the HUD clips to its current viewport withou
 showing a temporary pager. Genuine overflow at the size cap still shows paging.
 Use q to close the HUD, or `stop --launch <launch-id>` to request its exit.
 Ctrl+C does not close the HUD; terminal selection/copy shortcuts remain available.
+
+## Event-driven refresh (unreleased source)
+
+File changes, terminal resize and paging keys wake a serialized refresh worker.
+Dense notifications are coalesced; configuration is parsed only when it changes,
+and unchanged frames are not repainted. Recent entries expire and elapsed fields
+advance using display deadlines without making those clock ticks read telemetry.
+Heartbeat-only notifications do not wake another refresh.
+
+Notifications are hints, not ownership proof. `terminal.refreshMs` still controls
+heartbeat, time-field cadence and integrity/control reconciliation; notifications
+can update sooner. Reader fingerprint checks remain in that fallback, including
+when no change was reported. Owner identity and displayed Git status retain their
+five-second checks; geometry has a five-second fallback. Short startup retries
+and lock waits remain bounded at their existing rates. Polling is retained where
+needed for correctness and experience, rather than reduced indiscriminately.
+Recurring native queries run asynchronously; each resize still validates current
+process incarnations, registration and exact physical panes. No daemon or runtime
+dependency is added. These source changes require a later authorized release to
+affect installed viewers.
 
 ## Source development
 
