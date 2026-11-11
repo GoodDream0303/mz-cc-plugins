@@ -10,7 +10,7 @@ function sample(){return {...emptySnapshot('abc-session'),model:'gpt-example',ef
 
 for(const [language,expected]of [
  ['en',['Run command','Run script','Follow up on task','Ask user','Wait']],
- ['zh-Hans',['执行命令','运行脚本','跟进子任务','向你提问','短暂等待']],
+ ['zh-Hans',['执行命令','执行脚本','跟进子任务','向你提问','短暂等待']],
  ['zh-Hant',['執行命令','執行腳本','跟進子任務','向你提問','短暫等待']],
 ])test('known tool actions use friendly labels in '+language,()=>{
  const names=['exec_command','exec','followup_task','request_user_input_async','clock.sleep'];
@@ -28,10 +28,10 @@ test('only recognized core namespaces receive action labels while unknown tools 
 
 
 
-test('ordinary actions retain timing but do not expose file or directory targets',()=>{
+test('equal ordinary actions aggregate without inventing a shared duration or exposing targets',()=>{
  const config=set(set(set(defaultConfig(),'display.showTools',true),'display.showContextBar',false),'display.toolsMaxVisible',0);
  const s={...emptySnapshot('parent'),tools:[{id:'a',name:'exec_command',action:{kind:'read',target:'render.ts'},status:'running',startedAt:1000},{id:'b',name:'exec_command',action:{kind:'read',target:'reader.ts'},status:'running',startedAt:2000},{id:'c',name:'exec',status:'done'}]};
- const text=render(s,config,{width:160,height:30,color:false,now:3000}).lines.join('\n');assert.match(text,/Read file · 2s/);assert.match(text,/Read file · 1s/);assert.match(text,/Run script ×1/);assert.doesNotMatch(text,/render\.ts|reader\.ts/);
+ const text=render(s,config,{width:160,height:30,color:false,now:3000}).lines.join('\n');assert.match(text,/Read ×2/);assert.doesNotMatch(text,/1s|2s/);assert.match(text,/Run script ×1/);assert.doesNotMatch(text,/render\.ts|reader\.ts/);
 });
 
 test('only agent operations show task targets while Git subcommands remain visible action verbs',()=>{
@@ -47,10 +47,10 @@ test('only agent operations show task targets while Git subcommands remain visib
 
 
 
-test('friendly labels preserve raw identities, per-status counts and caller-owned metadata',()=>{
+test('core aliases aggregate under one major while preserving per-status counts and caller-owned metadata',()=>{
  const c=set(set(defaultConfig(),'display.showTools',true),'display.toolsMaxVisible',0),s={...emptySnapshot('parent'),tools:[{id:'a',name:'exec',status:'done'},{id:'b',name:'exec',status:'done'},{id:'c',name:'functions.exec',status:'done'},{id:'d',name:'exec',status:'failed'},{id:'e',name:'exec',status:'cancelled'}]},before=structuredClone(s);
  const text=render(s,c,{width:240,height:30,color:false}).lines.join('\n');
- for(const part of ['✓ Run script ×2','✓ Run script ×1','✗ Run script ×1','⊘ Run script ×1'])assert.ok(text.includes(part),part);assert.deepEqual(s,before);
+ for(const part of ['Run script ›','✓ Unclassified ×3','✗ Unclassified ×1','⊘ Unclassified ×1'])assert.ok(text.includes(part),part);assert.deepEqual(s,before);
 });
 test('tool name limits truncate the translated label by terminal cells',()=>{
  const c=set(set(defaultConfig(),'display.showTools',true),'display.toolNameMaxLength',7),s={...emptySnapshot('parent'),tools:[{id:'a',name:'exec_command',status:'running'}]};

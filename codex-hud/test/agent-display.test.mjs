@@ -40,7 +40,7 @@ test('agent rows stay separate even in compact layout and on narrow terminals',(
 });
 test('tool summaries group successes, failures and cancellations separately while retaining active calls',()=>{
  const c=set(set(defaultConfig(),'display.showTools',true),'display.toolsMaxVisible',0),s={...emptySnapshot('parent'),tools:[{id:'r',name:'exec_command',status:'running'},{id:'a',name:'exec_command',status:'done'},{id:'b',name:'exec_command',status:'done'},{id:'c',name:'exec_command',status:'failed'},{id:'d',name:'exec_command',status:'cancelled'}]};
- const text=render(s,c,{width:240,height:30,color:false}).lines.join('\n');assert.match(text,/◐ Run command/);assert.match(text,/✓ Run command ×2/);assert.match(text,/✗ Run command ×1/);assert.match(text,/⊘ Run command ×1/);
+ const text=render(s,c,{width:240,height:30,color:false}).lines.join('\n');assert.match(text,/◐ Run command/);assert.match(text,/Run command ›/);assert.match(text,/✓ Unclassified ×2/);assert.match(text,/✗ Unclassified ×1/);assert.match(text,/⊘ Unclassified ×1/);
 });
 test('unreported agents cannot evict known running work or be counted as running',()=>{
  const agents=[{id:'run',name:'actual-work',status:'running'},...Array.from({length:4},(_,i)=>({id:'u'+i,name:'unknown-'+i,status:'unreported'}))];
