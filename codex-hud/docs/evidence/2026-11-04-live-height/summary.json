@@ -1,0 +1,21 @@
+{
+  "scope": "Native Windows processes and pinned production backend; synthetic CLI and session telemetry",
+  "command": "node scripts/smoke-host.mjs --psmux <bundled backend/psmux.exe> --dynamic-height",
+  "checks": [
+    "two real source owners each open an independent waiting HUD before a hook",
+    "both HUDs start at six rows with the backend-specific separator geometry",
+    "compact rows stay adjacent and explicit six/eight-row resizing remains exact after viewport changes without changing the other server",
+    "native hook process ancestry binds A20% and B70% independently (synthetic CLI)",
+    "same thread in two source owners retains two displays; rebind does not duplicate",
+    "closing/reopening one HUD keeps the other source and display alive",
+    "live watch loop follows 3/6/3 content with exact native rows and unchanged neighbour",
+    "narrower viewport grows wrapped content to seven rows without changing the other server",
+    "disabling live fitting keeps the manually/currently selected height",
+    "same running viewer updates actual tool running/completed/cancelled symbols as metadata arrives",
+    "same viewer updates agent lifecycle and retains the reported actual model",
+    "source exit closes only its owned display"
+  ],
+  "limitations": [
+    "Renamed Node fixture, not official Codex; real hook trust/default shared-daemon behavior and actual interactive desktop use remain unverified."
+  ]
+}

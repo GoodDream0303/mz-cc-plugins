@@ -3,11 +3,12 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { get, configPath, loadConfig, startupEnabled } from './config.js';
+import { get, configPath, loadConfig, startupEnabled, defaultConfig } from './config.js';
 import { codexHome } from './sessions.js';
 import { readHostOrigin } from './psmux.js';
+import { inspectSetup } from './setup-readiness.js';
 const guid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-export function runtimeRoot() { return path.join(path.dirname(configPath()), 'runtime'); }
+export function runtimeRoot(file = configPath()) { return path.join(path.dirname(file), 'runtime'); }
 function write(file, value) { const temp = file + '.' + randomUUID() + '.tmp'; try {
     fs.writeFileSync(temp, JSON.stringify(value), { flag: 'wx', mode: 0o600 });
     fs.renameSync(temp, file);
@@ -67,41 +68,38 @@ export function selectSessionId(explicit, environment = process.env) {
         throw new Error('Invalid session ID');
     return id;
 }
-export function buildTerminalArgs(d, window = 'last') {
+export function buildTerminalArgs(d) {
     if (!d.demo)
         throw new Error('Windows Terminal cannot identify the exact source pane; a verified psmux host is required');
-    if (!/^[a-zA-Z0-9_.-]{1,100}$/.test(window))
-        throw new Error('Invalid Windows Terminal window ID or name');
     const entry = pathToFileURL(path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'cli.js')).href;
     const boot = "import(Buffer.from(process.argv[1],'base64').toString()).then(m=>m.main(process.argv.slice(2))).catch(e=>{console.error(e.message),process.exitCode=1})";
     const shared = [process.execPath, '-e', boot, Buffer.from(entry).toString('base64')], launch64 = Buffer.from(d.file).toString('base64');
     const viewer = [...shared, 'watch', '--launch64', launch64];
-    if (d.demo)
-        return ['-w', 'mz-codex-hud-' + d.id, 'new-tab', '--title', 'Codex HUD Preview ' + d.id.slice(0, 8), '--suppressApplicationTitle', ...shared, 'demo-runner', '--launch64', launch64, ';', 'split-pane', '--horizontal', '--size', String(d.paneSize), '--title', 'Codex HUD', '--suppressApplicationTitle', ...viewer, ';', 'focus-pane', '-t', '0'];
-    throw new Error('A verified psmux host is required');
+    return ['-w', 'mz-codex-hud-' + d.id, 'new-tab', '--title', 'Codex HUD Preview ' + d.id.slice(0, 8), '--suppressApplicationTitle', ...shared, 'demo-runner', '--launch64', launch64, ';', 'split-pane', '--horizontal', '--size', String(d.paneSize), '--title', 'Codex HUD', '--suppressApplicationTitle', ...viewer, ';', 'focus-pane', '-t', '0'];
 }
 export function checkRuntime(options = {}) {
-    let terminal = false;
+    let terminalCheck = { status: 'available' };
     try {
         execFileSync('where.exe', ['wt.exe'], { stdio: 'ignore', windowsHide: true, timeout: 1500 });
-        terminal = true;
     }
-    catch { }
+    catch (error) {
+        const failure = error;
+        const code = typeof failure?.code === 'string' && /^[A-Z0-9_]{1,64}$/.test(failure.code) ? failure.code : Number.isSafeInteger(failure?.status) ? 'EXIT_' + failure.status : undefined;
+        terminalCheck = { status: failure?.code === 'ETIMEDOUT' ? 'timed-out' : failure?.status === 1 && !failure.code ? 'missing' : 'failed', ...(code ? { code } : {}) };
+    }
+    const terminal = terminalCheck.status === 'available';
     const file = options.configFile ?? configPath();
-    let status = fs.existsSync(file) ? 'valid' : 'defaults', enabled = false, legacyEnabled = false;
+    let status = fs.existsSync(file) ? 'valid' : 'defaults', enabled = false, legacyEnabled = false, config = defaultConfig();
     try {
-        const config = loadConfig(file);
+        config = loadConfig(file);
         enabled = startupEnabled(config);
         legacyEnabled = !!get(config, 'startup.enabled');
     }
     catch {
         status = 'invalid';
     }
-    let configured = false;
-    try {
-        configured = !!get(loadConfig(file), 'host.psmuxPath');
-    }
-    catch { }
+    const configured = status !== 'invalid' && !!get(config, 'host.psmuxPath');
+    const setup = inspectSetup(config, { ...options.setup, configValid: status !== 'invalid' && options.setup?.configValid !== false });
     let origin = 'unavailable';
     try {
         readHostOrigin();
@@ -126,10 +124,10 @@ export function checkRuntime(options = {}) {
     const pluginRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
     let lastResult;
     try {
-        const result = JSON.parse(fs.readFileSync(path.join(runtimeRoot(), 'autostart-status.json'), 'utf8'));
+        const result = JSON.parse(fs.readFileSync(path.join(runtimeRoot(file), 'autostart-status.json'), 'utf8'));
         if (['opened', 'already-open', 'disabled', 'ignored', 'busy', 'failed'].includes(result.status))
             lastResult = result.status;
     }
     catch { }
-    return { node: process.version, terminal, hooksRequired: false, nativeStatusline: 'unchanged', host: { backend: 'psmux', configured, origin, verification: 'required-at-attach' }, autostart: { enabled, legacyEnabled, trigger: 'SessionStart', trust: 'unknown', hookFilesPresent: ['hooks/hooks.json', 'hooks/session-start.mjs', 'dist/autostart.js'].every(f => fs.existsSync(path.join(pluginRoot, f))), lastResult }, configuration: { status, path: file }, session: { status: current ? 'Codex environment available' : 'Select explicitly or start from inside Codex' }, display, notes: process.platform === 'win32' ? [] : ['Automatic split attachment requires native Windows and a verified psmux host'] };
+    return { node: process.version, terminal, terminalCheck, hooksRequired: false, nativeStatusline: 'unchanged', host: { backend: 'psmux', configured, origin, verification: 'required-at-attach' }, autostart: { enabled, legacyEnabled, trigger: 'SessionStart', trust: 'unknown', hookFilesPresent: ['hooks/hooks.json', 'hooks/session-start.mjs', 'dist/autostart.js'].every(f => fs.existsSync(path.join(pluginRoot, f))), lastResult }, configuration: { status, path: file }, session: { status: current ? 'Codex environment available' : 'Select explicitly or start from inside Codex' }, display, setup, notes: setup.steps };
 }

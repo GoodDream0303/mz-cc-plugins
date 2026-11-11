@@ -39,7 +39,6 @@ Native Codex statusline is unchanged. Model, effort, project and session-name fi
 | display.showModelScopedUsage | false | Per-model quota data is unavailable |
 | display.showTools | false | Supported |
 | display.showSkills | false | Codex does not expose reliable active-Skill events |
-| display.showMcp | false | Supported |
 | display.showAgents | false | Supported |
 | display.showTodos | false | Supported |
 | display.showSessionName | false | Supported |
@@ -89,6 +88,7 @@ Native Codex statusline is unchanged. Model, effort, project and session-name fi
 | colors.git | "magenta" | Supported |
 | colors.gitBranch | "cyan" | Supported |
 | colors.label | "dim" | Supported |
+| colors.heading | "#bac2ce" | Current, Recent, Agents and Todo heading foreground |
 | colors.custom | 208 | Supported |
 | colors.barFilled | "█" | Supported |
 | colors.barEmpty | "░" | Supported |
@@ -100,4 +100,4 @@ Native Codex statusline is unchanged. Model, effort, project and session-name fi
 | host.psmuxPath | "" | Absolute path to verified portable psmux 3.4.0 build 20aa1d7 |
 | host.autoStart | "inherit" | inherit / enabled / disabled; explicit 0.4 override keeps legacy startup paused |
 
-Unknown imported fields are retained without executing behavior. Legacy showSessionId is ignored. Claude-only billing/cache/Advisor/output-style values remain unavailable. MCP shows configured/called/unknown facts, not online counts.
+Unknown imported fields are retained without executing behavior. Legacy showSessionId is ignored. Claude-only billing/cache/Advisor/output-style values remain unavailable. Legacy MCP display/runtime settings are ignored; dedicated MCP presentation and live connection queries have been removed.

@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { effectiveBackendPath } from './backend-version.js';
 export const hostIdPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const panePattern = /^%[1-9]\d*$/;
 const positive = (value) => Number.isSafeInteger(value) && value > 0;
@@ -25,19 +26,32 @@ export function readHostOrigin(env = process.env) {
     return origin;
 }
 export function readProcessFacts(pids, rootPid = process.pid) {
+    return queryProcessFacts(pids, rootPid, false);
+}
+/** Explicit identities only; never use this result to establish hook ancestry. */
+export function readProcessIdentities(pids) {
+    return queryProcessFacts(pids, process.pid, true);
+}
+function queryProcessFacts(pids, rootPid, identitiesOnly) {
     if (process.platform !== 'win32')
         throw new Error('Native Windows process identity is required');
     if (![rootPid, ...pids].every(positive))
         throw new Error('Invalid process identity');
     const helper = fileURLToPath(new URL('../bin/process-facts.ps1', import.meta.url));
-    const raw = execFileSync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-File', helper, '-RootPid', String(rootPid), '-Ids', pids.join(',')], { encoding: 'utf8', windowsHide: true, timeout: 6000, maxBuffer: 65536, stdio: ['ignore', 'pipe', 'pipe'] });
+    const raw = execFileSync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-File', helper, '-RootPid', String(rootPid), '-Ids', pids.join(','), ...(identitiesOnly ? ['-IdentitiesOnly'] : [])], { encoding: 'utf8', windowsHide: true, timeout: 6000, maxBuffer: 65536, stdio: ['ignore', 'pipe', 'pipe'] });
     const value = JSON.parse(raw.replace(/^\uFEFF/, ''));
     if (!Array.isArray(value) || value.length > 128 || !value.every(validFact))
         throw new Error('Process identity snapshot is invalid');
     return value;
 }
 function validFact(value) { return !!value && positive(value.pid) && Number.isSafeInteger(value.parentPid) && value.parentPid >= 0 && typeof value.name === 'string' && value.name.length < 260 && typeof value.startedAt === 'string' && Number.isFinite(Date.parse(value.startedAt)); }
-function sameProcess(actual, expected) { return !!actual && validFact(expected) && actual.pid === expected.pid && actual.startedAt === expected.startedAt && actual.name.toLowerCase() === expected.name.toLowerCase() && actual.parentPid === expected.parentPid; }
+export function sameProcess(actual, expected) { return !!actual && validFact(expected) && actual.pid === expected.pid && actual.startedAt === expected.startedAt && actual.name.toLowerCase() === expected.name.toLowerCase() && actual.parentPid === expected.parentPid; }
+export function hostProcessIds(proof, extra = []) { return [...new Set([proof.owner.pid, proof.server.pid, ...(proof.frontend ? [proof.frontend.pid] : []), ...(proof.appServer ? [proof.appServer.process.pid] : []), ...extra])]; }
+export function verifyLocalAppServer(proof, owner, values) {
+    const endpoint = /^ws:\/\/127\.0\.0\.1:([1-9]\d{0,4})\/?$/.exec(proof.endpoint);
+    if (!endpoint || Number(endpoint[1]) > 65535 || !validFact(proof.process) || proof.process.name.toLowerCase() !== 'codex.exe' || proof.process.parentPid !== owner.pid || Date.parse(proof.process.startedAt) < Date.parse(owner.startedAt) || !sameProcess(values.find(p => p.pid === proof.process.pid), proof.process))
+        throw new Error('Local App Server endpoint or process incarnation is unavailable');
+}
 export class PsmuxClient {
     origin;
     dependencies;
@@ -53,7 +67,10 @@ export class PsmuxClient {
         const env = { ...process.env, TMUX: this.origin.tmux, TMUX_PANE: this.origin.pane, PSMUX_SESSION: this.origin.session, PSMUX_DATA_DIR: this.origin.dataDir };
         for (const key of ['PSMUX_TARGET_SESSION', 'PSMUX_TARGET_FULL', 'PSMUX_SESSION_NAME', 'PSMUX_ROUTE_WARM'])
             delete env[key];
-        return execFileSync(this.origin.binary, argv, { env, encoding: 'utf8', windowsHide: true, timeout: 5000, maxBuffer: 65536, stdio: ['ignore', 'pipe', 'pipe'] });
+        const binary = effectiveBackendPath(this.origin.binary);
+        if (!binary)
+            throw new Error('A verified packaged backend is required for this host');
+        return execFileSync(binary, argv, { env, encoding: 'utf8', windowsHide: true, timeout: 5000, maxBuffer: 65536, stdio: ['ignore', 'pipe', 'pipe'] });
     }
     pane(id) {
         if (!panePattern.test(id))
@@ -76,6 +93,25 @@ export class PsmuxClient {
             throw new Error('Backend did not return a distinct HUD pane; creation is uncertain');
         return result;
     }
+    panes() {
+        const raw = this.command(['list-panes', '-a', '-F', '#{session_name}\t#{window_id}\t#{pane_id}\t#{pane_pid}\t#{pane_width}\t#{pane_height}\t#{pid}']).trim();
+        const panes = raw ? raw.split(/\r?\n/).map(line => {
+            const values = line.split('\t'), [session, window, pane, pid, width, height, server] = values;
+            if (values.length !== 7 || session !== this.origin.session || !/^@\d+$/.test(window) || !panePattern.test(pane) || ![pid, width, height].every(value => positive(Number(value))) || Number(server) !== serverPid(this.origin))
+                throw new Error('Pane scope does not match the source server');
+            return { session, window, pane, pid: Number(pid), width: Number(width), height: Number(height), serverPid: Number(server) };
+        }) : [];
+        if (new Set(panes.map(p => p.pane)).size !== panes.length)
+            throw new Error('Source pane scope is ambiguous');
+        return panes;
+    }
+    resizePane(id, rows) {
+        if (!panePattern.test(id) || id === this.origin.pane)
+            throw new Error('Only a distinct HUD pane can be resized');
+        if (!Number.isInteger(rows) || rows < 1 || rows > 1000)
+            throw new Error('Invalid HUD pane height');
+        this.command(['resize-pane', '-t', id, '-y', String(rows)]);
+    }
     confirmsAbsent(id, ownerPid) {
         if (!panePattern.test(id) || id === this.origin.pane)
             throw new Error('Invalid HUD recovery pane');
@@ -97,19 +133,21 @@ export function proveOwner(origin, dependencies = {}) {
 }
 export function verifyHost(proof, role, dependencies = {}) {
     const pid = dependencies.pid ?? process.pid, physical = new PsmuxClient(proof.origin, dependencies).pane(proof.origin.pane);
-    const values = (dependencies.processes ?? readProcessFacts)([proof.owner.pid, proof.server.pid, ...(proof.frontend ? [proof.frontend.pid] : [])], pid), table = new Map(values.map(p => [p.pid, p]));
+    const values = (dependencies.processes ?? readProcessFacts)(hostProcessIds(proof), pid), table = new Map(values.map(p => [p.pid, p]));
     if (physical.pid !== proof.owner.pid || physical.window !== proof.window || physical.serverPid !== proof.server.pid || !sameProcess(table.get(proof.owner.pid), proof.owner) || !sameProcess(table.get(proof.server.pid), proof.server))
         throw new Error('Source owner/server process incarnation changed');
     if (role === 'owner' && pid !== proof.owner.pid)
         throw new Error('Current process does not own this source pane');
     if (role === 'frontend' && (table.get(pid)?.parentPid !== proof.owner.pid || pid === proof.owner.pid))
         throw new Error('Frontend entry must be a direct child of the registered source');
+    if (proof.appServer)
+        verifyLocalAppServer(proof.appServer, proof.owner, values);
     if (role === 'hook') {
         if (!proof.frontend)
             throw Object.assign(new Error('Official frontend registration is pending'), { code: 'ERR_HUD_FRONTEND_PENDING' });
         if (proof.frontend.parentPid !== proof.owner.pid || !sameProcess(table.get(proof.frontend.pid), proof.frontend))
             throw new Error('Registered official frontend incarnation is unavailable');
-        let current = table.get(pid), reached = false, frontend = false;
+        let current = table.get(pid), reached = false, frontend = false, appServer = false;
         const seen = new Set(), codex = [];
         for (let depth = 0; depth < 64 && current && !seen.has(current.pid); depth++) {
             seen.add(current.pid);
@@ -117,6 +155,8 @@ export function verifyHost(proof, role, dependencies = {}) {
                 codex.push(current);
             if (current.pid === proof.frontend.pid)
                 frontend = true;
+            if (proof.appServer && current.pid === proof.appServer.process.pid)
+                appServer = true;
             if (current.pid === proof.owner.pid) {
                 reached = true;
                 break;
@@ -126,7 +166,11 @@ export function verifyHost(proof, role, dependencies = {}) {
                 break;
             current = parent;
         }
-        if (!reached || !frontend || codex.length !== 1 || (proof.frontend.name.toLowerCase() === 'codex.exe' ? codex[0].pid !== proof.frontend.pid : codex[0].parentPid !== proof.frontend.pid))
+        if (proof.appServer) {
+            if (!reached || !appServer || codex.length !== 1 || codex[0].pid !== proof.appServer.process.pid)
+                throw new Error('Local App Server ancestry cannot prove this hook origin');
+        }
+        else if (!reached || !frontend || codex.length !== 1 || (proof.frontend.name.toLowerCase() === 'codex.exe' ? codex[0].pid !== proof.frontend.pid : codex[0].parentPid !== proof.frontend.pid))
             throw new Error('Ambiguous frontend/daemon ancestry cannot prove this hook origin');
     }
     return proof;

@@ -2,6 +2,9 @@ import fs from 'node:fs/promises';
 import { StringDecoder } from 'node:string_decoder';
 import { createHash } from 'node:crypto';
 import { emptySnapshot } from './types.js';
+import { AgentTracker } from './agents.js';
+import { toolOutput } from './tool-output.js';
+import { toolDetails, commandDetails, isAgentAction } from './tool-details.js';
 const MAX_LINE = 2 * 1024 * 1024;
 const safe = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 function count(v) { return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0; }
@@ -34,21 +37,28 @@ export class SessionReader {
     carry = '';
     decoder = new StringDecoder('utf8');
     snapshot;
+    agents;
     mismatch = false;
     absolute = false;
     discard = false;
     canonicalCompleted = new Set();
     prefix;
     checkpoint;
+    canonicalTools = new Set();
+    processTools = new Map();
+    pollTargets = new Map();
     constructor(file, sessionId) {
         this.file = file;
         this.sessionId = sessionId;
         this.snapshot = emptySnapshot(sessionId);
+        this.agents = new AgentTracker(this.snapshot.agents, sessionId);
     }
-    reset() { this.offset = 0; this.carry = ''; this.decoder = new StringDecoder('utf8'); this.snapshot = emptySnapshot(this.sessionId); this.mismatch = false; this.absolute = false; this.discard = false; this.canonicalCompleted.clear(); this.prefix = undefined; this.checkpoint = undefined; }
-    async unchanged(handle) {
+    agentActivityAt(id) { return this.agents.activityAt(id); }
+    agentTiming(id) { return this.agents.timing(id); }
+    reset() { this.offset = 0; this.carry = ''; this.decoder = new StringDecoder('utf8'); this.snapshot = emptySnapshot(this.sessionId); this.agents = new AgentTracker(this.snapshot.agents, this.sessionId); this.mismatch = false; this.absolute = false; this.discard = false; this.canonicalCompleted.clear(); this.canonicalTools.clear(); this.processTools.clear(); this.pollTargets.clear(); this.prefix = undefined; this.checkpoint = undefined; }
+    async unchanged(hash) {
         for (const point of [this.prefix, this.checkpoint])
-            if (point && await fingerprint(handle, point.start, point.length) !== point.digest)
+            if (point && await hash(point.start, point.length) !== point.digest)
                 return false;
         return true;
     }
@@ -59,13 +69,21 @@ export class SessionReader {
             const identity = stat.dev + ':' + stat.ino + ':' + stat.birthtimeMs;
             if (identity !== this.identity || stat.size < this.offset || (stat.mtimeMs !== this.mtime && stat.size === this.offset && this.offset > 0))
                 this.reset();
-            if (this.offset && !await this.unchanged(handle))
+            const phase = () => { const digests = new Map(); return (start, length) => { const key = start + ':' + length; let digest = digests.get(key); if (!digest) {
+                digest = fingerprint(handle, start, length);
+                digests.set(key, digest);
+            } return digest; }; };
+            let beforeHash = phase();
+            if (this.offset && !await this.unchanged(beforeHash)) {
                 this.reset();
+                beforeHash = phase();
+            }
             this.identity = identity;
             this.mtime = stat.mtimeMs;
-            const prefixLength = Math.min(stat.size, 4096), before = await fingerprint(handle, 0, prefixLength);
-            const buffer = Buffer.alloc(64 * 1024);
+            const prefixLength = Math.min(stat.size, 4096), before = await beforeHash(0, prefixLength);
+            let buffer;
             while (this.offset < stat.size) {
+                buffer ??= Buffer.alloc(64 * 1024);
                 const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, stat.size - this.offset), this.offset);
                 if (!bytesRead)
                     break;
@@ -95,14 +113,15 @@ export class SessionReader {
                 }
             }
             // Hash anchors, not raw log text, are retained. Revalidate across the read too.
-            if (await fingerprint(handle, 0, prefixLength) !== before || !await this.unchanged(handle)) {
+            const afterHash = phase();
+            if (await afterHash(0, prefixLength) !== before || !await this.unchanged(afterHash)) {
                 this.reset();
                 this.error('Session log changed during read; retrying');
                 return structuredClone(this.snapshot);
             }
             const length = Math.min(this.offset, 4096), start = this.offset - length;
             this.prefix = { start: 0, length: prefixLength, digest: before };
-            this.checkpoint = { start, length, digest: await fingerprint(handle, start, length) };
+            this.checkpoint = { start, length, digest: await afterHash(start, length) };
             return structuredClone(this.snapshot);
         }
         finally {
@@ -124,6 +143,7 @@ export class SessionReader {
                 this.error('session identity mismatch');
                 return;
             }
+            this.snapshot.parentId = text(p.source?.subagent?.thread_spawn?.parent_thread_id);
             this.snapshot.cwd = text(p.cwd, 32768);
             this.snapshot.startedAt = text(p.timestamp ?? record.timestamp);
             this.snapshot.version = text(p.cli_version);
@@ -132,7 +152,11 @@ export class SessionReader {
         }
         if (this.mismatch)
             return;
-        if ((p.session_id && p.session_id !== this.sessionId) || (p.thread_id && p.thread_id !== this.sessionId))
+        if (p.session_id && p.session_id !== this.sessionId)
+            return;
+        if (type === 'event_msg' && this.agents.event(p, record.timestamp))
+            return;
+        if (p.thread_id && p.thread_id !== this.sessionId)
             return;
         if (type === 'turn_context') {
             this.snapshot.model = text(p.model);
@@ -186,16 +210,27 @@ export class SessionReader {
             }
             case 'task_started':
                 this.snapshot.status = 'working';
+                this.snapshot.activityAt = text(record.timestamp);
+                this.snapshot.turnStartedAt = Date.parse(String(record.timestamp));
+                this.snapshot.turnEndedAt = undefined;
                 return;
             case 'task_complete':
                 this.snapshot.status = 'idle';
+                this.snapshot.activityAt = text(record.timestamp);
+                this.snapshot.turnEndedAt = Date.parse(String(record.timestamp));
                 this.snapshot.lastResponseAt = text(p.completed_at ?? record.timestamp);
                 return;
             case 'turn_aborted':
                 this.snapshot.status = 'interrupted';
+                this.snapshot.activityAt = text(record.timestamp);
+                this.snapshot.turnEndedAt = Date.parse(String(record.timestamp));
                 for (const t of this.snapshot.tools)
-                    if (t.status === 'running')
-                        t.status = 'failed';
+                    if (t.status === 'running') {
+                        t.status = 'cancelled';
+                        if (Number.isFinite(this.snapshot.turnEndedAt))
+                            t.finishedAt = this.snapshot.turnEndedAt;
+                        this.canonicalCompleted.add(t.id);
+                    }
                 return;
             case 'context_compacted':
             case 'compact_boundary':
@@ -203,96 +238,149 @@ export class SessionReader {
                 return;
             case 'item_started':
                 if (safe(p.item))
-                    this.item(p.item, record.timestamp);
+                    this.item(p.item, record.timestamp, false, p.started_at_ms, p.completed_at_ms);
                 return;
             case 'item_completed':
                 if (safe(p.item))
-                    this.item(p.item, record.timestamp, true);
+                    this.item(p.item, record.timestamp, true, p.started_at_ms, p.completed_at_ms);
                 return;
-            case 'subagent_started':
-            case 'agent_started': {
-                const id = text(p.agent_id ?? p.thread_id);
-                if (id)
-                    this.agent(id, text(p.name ?? p.agent_name) ?? id, 'unknown');
-                return;
-            }
-            case 'subagent_stopped':
-            case 'agent_completed': {
-                const id = text(p.agent_id ?? p.thread_id);
-                if (id)
-                    this.agent(id, text(p.name) ?? id, p.success === false ? 'failed' : 'done');
-                return;
-            }
         }
     }
-    agent(id, name, status) { const existing = this.snapshot.agents.find(a => a.id === id); if (existing)
-        existing.status = status;
-    else
-        this.snapshot.agents.push({ id, name, status }); this.snapshot.agents = this.snapshot.agents.slice(-64); }
-    tool(id, name, status, canonical = false) {
+    tool(id, name, status, canonical = false, timestamp) {
         const previous = this.snapshot.tools.find(t => t.id === id);
+        const accepted = !previous || !this.canonicalCompleted.has(id) && (canonical || previous.status === 'running');
         if (previous) {
-            if (!this.canonicalCompleted.has(id) && (canonical || previous.status === 'running')) {
+            if (accepted) {
                 previous.name = name;
                 previous.status = status;
             }
         }
         else
             this.snapshot.tools.push({ id, name, status });
-        if (canonical && status !== 'running')
-            this.canonicalCompleted.add(id);
-        this.snapshot.tools = this.snapshot.tools.slice(-64);
-        const retained = new Set(this.snapshot.tools.map(t => t.id));
-        for (const key of this.canonicalCompleted)
-            if (!retained.has(key))
-                this.canonicalCompleted.delete(key);
+        const row = this.snapshot.tools.find(t => t.id === id), at = Date.parse(String(timestamp ?? ''));
+        if (accepted && row) {
+            if (row.status === 'running') {
+                delete row.finishedAt;
+                if (row.startedAt === undefined && Number.isFinite(at))
+                    row.startedAt = at;
+            }
+            else if (row.finishedAt === undefined && Number.isFinite(at))
+                row.finishedAt = at;
+        }
+        if (canonical) {
+            this.canonicalTools.add(id);
+            if (status !== 'running')
+                this.canonicalCompleted.add(id);
+        }
+        const live = this.snapshot.tools.filter(t => t.status === 'running').slice(-64), finished = this.snapshot.tools.filter(t => t.status !== 'running');
+        const retained = new Set([...live, ...(live.length < 64 ? finished.slice(-(64 - live.length)) : [])].map(t => t.id));
+        this.snapshot.tools = this.snapshot.tools.filter(t => retained.has(t.id));
+        for (const set of [this.canonicalCompleted, this.canonicalTools])
+            for (const key of set)
+                if (!retained.has(key))
+                    set.delete(key);
+        for (const [key, value] of this.processTools)
+            if (!retained.has(value))
+                this.processTools.delete(key);
+        while (this.processTools.size > 128)
+            this.processTools.delete(this.processTools.keys().next().value);
+        while (this.pollTargets.size > 128)
+            this.pollTargets.delete(this.pollTargets.keys().next().value);
+        return accepted ? row : undefined;
     }
-    item(p, timestamp, completed = false) {
+    annotate(row, details, start, duration, end) {
+        if (!row)
+            return;
+        if (isAgentAction(details.action) && details.action.kind === row.action?.kind && details.action.target === undefined && row.action.target)
+            details = { ...details, action: { ...details.action, target: row.action.target } };
+        Object.assign(row, details);
+        if (typeof start === 'number' && Number.isFinite(start) && start >= 0)
+            row.startedAt = start;
+        if (row.status !== 'running' && typeof end === 'number' && Number.isFinite(end) && end >= 0)
+            row.finishedAt = end;
+        if (typeof duration === 'number' && Number.isFinite(duration) && duration >= 0)
+            row.durationMs = duration;
+        else if (row.status !== 'running' && row.startedAt !== undefined && row.finishedAt !== undefined && row.finishedAt >= row.startedAt)
+            row.durationMs = row.finishedAt - row.startedAt;
+    }
+    item(p, timestamp, completed = false, startedAt, completedAt) {
         if (!safe(p))
             return;
-        if (p.type === 'McpToolCall' || p.type === 'CommandExecution') {
-            const id = text(p.id ?? p.call_id);
+        if (p.type === 'SubAgentActivity') {
+            this.agents.event({ ...p, type: 'sub_agent_activity' }, timestamp);
+            return;
+        }
+        if (p.type === 'McpToolCall' || p.type === 'CommandExecution' || p.type === 'Extension') {
+            let id = text(p.id ?? p.call_id);
             if (!id)
                 return;
-            let name = 'exec_command';
+            let name = p.type === 'Extension' ? text(p.kind) : 'exec_command';
+            if (!name)
+                return;
             if (p.type === 'McpToolCall') {
                 const server = text(p.server), tool = text(p.tool);
                 if (!server || !tool)
                     return;
                 name = 'mcp__' + server + '__' + tool;
-                if (!this.snapshot.mcpUsed.includes(server))
-                    this.snapshot.mcpUsed.push(server);
             }
-            const failed = ['failed', 'cancelled', 'aborted'].includes(p.status) || !!p.error || typeof p.exit_code === 'number' && p.exit_code !== 0;
-            this.tool(id, name, failed ? 'failed' : completed || p.status === 'completed' ? 'done' : 'running', true);
+            if (p.type === 'CommandExecution' && p.process_id !== undefined && p.process_id !== null) {
+                const key = 'session:' + String(p.process_id);
+                if (p.source !== 'unified_exec_startup')
+                    id = this.processTools.get(key) ?? id;
+                this.processTools.set(key, id);
+            }
+            const failed = p.status === 'failed' || !!p.error || typeof p.exit_code === 'number' && p.exit_code !== 0, cancelled = ['cancelled', 'aborted', 'interrupted', 'declined'].includes(p.status), running = ['in_progress', 'inProgress', 'running'].includes(p.status);
+            const row = this.tool(id, name, cancelled ? 'cancelled' : failed ? 'failed' : running ? 'running' : completed || p.status === 'completed' ? 'done' : 'running', true, timestamp);
+            const action = p.type === 'CommandExecution' ? commandDetails(p.command, p.command_actions ?? p.commandActions) : undefined;
+            this.annotate(row, { ...toolDetails(name), ...(action ? { action } : {}) }, startedAt ?? p.started_at_ms, p.duration_ms ?? p.durationMs, completedAt ?? p.completed_at_ms);
             return;
         }
         if (['function_call', 'custom_tool_call'].includes(p.type)) {
             const id = text(p.call_id ?? p.id);
             const name = text(p.name);
-            if (!id || !name || this.snapshot.tools.some(t => t.id === id))
+            if (!id || !name)
                 return;
-            this.tool(id, name, 'running');
-            const m = name.match(/^mcp__([^_].*?)__/);
-            if (m && !this.snapshot.mcpUsed.includes(m[1]))
-                this.snapshot.mcpUsed.push(m[1]);
+            const args = parse(p.arguments ?? p.input), existing = this.snapshot.tools.find(t => t.id === id);
+            if (existing) {
+                const details = toolDetails(name, args ?? p.input);
+                if (isAgentAction(details.action) && toolDetails(existing.name).action?.kind === details.action.kind)
+                    existing.action = details.action;
+                return;
+            }
+            const row = this.tool(id, name, 'running', false, timestamp);
             const leaf = name.split('.').at(-1);
-            if (leaf === 'update_plan') {
-                const args = parse(p.arguments ?? p.input);
-                if (Array.isArray(args?.plan))
-                    this.snapshot.todos = args.plan.filter(safe).filter((x) => typeof x.step === 'string' && ['pending', 'in_progress', 'completed'].includes(x.status)).slice(0, 200).map((x) => ({ step: x.step.slice(0, 200), status: x.status }));
+            this.annotate(row, toolDetails(name, args ?? p.input));
+            if (leaf === 'update_plan' && Array.isArray(args?.plan))
+                this.snapshot.todos = args.plan.filter(safe).filter((x) => typeof x.step === 'string' && ['pending', 'in_progress', 'completed'].includes(x.status)).slice(0, 200).map((x) => ({ step: x.step.slice(0, 200), status: x.status }));
+            if (['write_stdin', 'wait'].includes(leaf ?? '')) {
+                const key = args?.cell_id !== undefined ? 'cell:' + String(args.cell_id) : 'session:' + String(args?.session_id), target = this.processTools.get(key);
+                if (target)
+                    this.pollTargets.set(id, target);
             }
-            if (leaf === 'spawn_agent') {
-                const args = parse(p.arguments ?? p.input);
-                this.agent(id, text(args?.task_name) ?? text(args?.agent_type) ?? 'agent', 'unknown');
-            }
+            this.agents.call(id, leaf ?? '', args, timestamp);
         }
         if (['function_call_output', 'custom_tool_call_output'].includes(p.type)) {
-            const id = text(p.call_id);
-            const tool = this.snapshot.tools.find(t => t.id === id);
+            const id = text(p.call_id), tool = this.snapshot.tools.find(t => t.id === id);
             if (tool && !this.canonicalCompleted.has(tool.id)) {
-                const output = typeof p.output === 'string' ? parse(p.output) : p.output;
-                tool.status = p.is_error || output?.isError || output?.error || typeof output?.exit_code === 'number' && output.exit_code !== 0 ? 'failed' : 'done';
+                const metadata = toolOutput(p.output), output = metadata.data, leaf = tool.name.split('.').at(-1), executor = ['exec', 'exec_command', 'write_stdin', 'wait'].includes(leaf ?? '');
+                const failed = !!(p.is_error || output?.isError || output?.error) || metadata.exitCode !== undefined && metadata.exitCode !== 0 || executor && metadata.status === 'failed';
+                const pending = metadata.cellId !== undefined ? 'cell:' + metadata.cellId : metadata.sessionId !== undefined ? 'session:' + metadata.sessionId : undefined, poll = this.pollTargets.get(tool.id), processTool = poll ? this.snapshot.tools.find(t => t.id === poll) : undefined;
+                if (pending && !failed && metadata.exitCode === undefined && ['exec', 'exec_command'].includes(leaf ?? ''))
+                    this.processTools.set(pending, tool.id);
+                if (!this.canonicalTools.has(tool.id))
+                    tool.status = failed ? 'failed' : !poll && pending && this.processTools.get(pending) === tool.id ? 'running' : 'done';
+                if (tool.status !== 'running' && tool.finishedAt === undefined) {
+                    const at = Date.parse(String(timestamp ?? ''));
+                    if (Number.isFinite(at))
+                        tool.finishedAt = at;
+                }
+                this.annotate(tool, {});
+                if (processTool && (metadata.exitCode !== undefined || executor && metadata.status && metadata.status !== 'running'))
+                    this.tool(processTool.id, processTool.name, failed ? 'failed' : 'done', false, timestamp);
+                while (this.processTools.size > 128)
+                    this.processTools.delete(this.processTools.keys().next().value);
+                this.pollTargets.delete(tool.id);
+                this.agents.result(tool.id, output, failed, timestamp);
             }
         }
         if (p.type === 'compaction')

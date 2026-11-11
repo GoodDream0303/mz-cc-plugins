@@ -1,0 +1,64 @@
+{
+  "verdict": "PASS_IMPLEMENTATION_AND_ISOLATED_CHECKS",
+  "backendSha256": "7bb642e5c36a7af4f0466a95a8d2d11e159885e953682748a2575c5a9afd1055",
+  "upstreamCommit": "20aa1d7254ee93f64dafa059ef89341d9767470a",
+  "defaultInitialRows": 6,
+  "quotaPolicy": "Independent 5h/7d switches default on; only reported windows are rendered",
+  "verification": {
+    "node24Full": {
+      "passed": 146,
+      "failed": 0
+    },
+    "node20PackageAndSetup": {
+      "passed": 14,
+      "failed": 0
+    },
+    "compactRustFocused": {
+      "passed": 25,
+      "failed": 0
+    },
+    "normalRustFocused": {
+      "passed": 12,
+      "failed": 0
+    },
+    "nativeProcesses": {
+      "verdict": "PASS_SYNTHETIC_PRODUCTION_BACKEND",
+      "checks": [
+        "killed a reported viewer before acknowledgement; source recovered only after exact absence proof",
+        "two real source owners each open an independent waiting HUD before a hook",
+        "both HUDs start at six rows with the backend-specific separator geometry",
+        "compact rows stay adjacent and explicit six/eight-row resizing remains exact after viewport changes without changing the other server",
+        "native hook process ancestry binds A20% and B70% independently (synthetic CLI)",
+        "same thread in two source owners retains two displays; rebind does not duplicate",
+        "closing/reopening one HUD keeps the other source and display alive",
+        "source exit closes only its owned display"
+      ]
+    },
+    "nativeDesktop": {
+      "verdict": "PASS_SYNTHETIC_DESKTOP_ENTRY",
+      "checks": [
+        "PS5 and PS7 bare codex entries create two independent HUDs in real WT tabs",
+        "B remains selected while background A recreates its exact HUD; B geometry unchanged",
+        "two separately opened PowerShell windows each run bare codex with their own HUD (PS5/PS7)",
+        "native WT split preserves active right neighbour geometry/focus while left recreates its own HUD"
+      ]
+    },
+    "freshPackageSetup": "Passed without src/node_modules/compiler or explicit backend path; official launcher was a nonexecuted fixture",
+    "physicalPointerFixture": "Passed manual Alt-drag alignment during movement and after release"
+  },
+  "normalUpstreamFullScope": {
+    "passed": 5128,
+    "failedInitially": 8,
+    "ignored": 2,
+    "isolatedEnvironmentRecovered": 6,
+    "remainingUntouchedCases": [
+      "Bash-path parsing",
+      "debug flood timing"
+    ]
+  },
+  "limits": [
+    "Official Codex hook trust, deployed upgrade and actual model-session acceptance remain manual.",
+    "Desktop/process checks used explicitly synthetic programs and did not launch official Codex or send a model request.",
+    "Automatic mouse injection was not reliable and is not counted as a pass."
+  ]
+}

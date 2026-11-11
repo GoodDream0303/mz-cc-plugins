@@ -35,6 +35,20 @@ test('a daemon below another still-live frontend cannot prove the second fronten
 test('a sibling Codex process cannot replace the explicitly registered frontend',()=>{
  const sibling={...frontend,pid:601};assert.throws(()=>api.verifyHost({origin,owner,server,window:'@1',frontend},'hook',deps({processes:()=>[{...hook,parentPid:601},frontend,sibling,owner,server]})),/frontend|origin|ancestor/i);
 });
+
+test('a registered local App Server proves its own hook chain without pretending to be the sibling TUI',()=>{
+ const app={pid:501,parentPid:201,name:'codex.exe',startedAt:'2026-11-03T01:00:02.100Z'},remote={...hook,parentPid:501},proof={origin,owner,server,window:'@1',frontend,appServer:{endpoint:'ws://127.0.0.1:12345/',process:app}};
+ assert.deepEqual(api.verifyHost(proof,'hook',deps({processes:()=>[remote,app,frontend,owner,server]})),proof);
+ for(const changed of [{...app,parentPid:999},{...app,startedAt:'2026-11-03T01:00:02.200Z'},{...app,name:'other.exe'}])assert.throws(()=>api.verifyHost(proof,'hook',deps({processes:()=>[remote,changed,frontend,owner,server]})),/server|incarnation|origin|process/i);
+ assert.throws(()=>api.verifyHost(proof,'hook',deps()),/server|origin|process/i);
+ assert.throws(()=>api.verifyHost({...proof,appServer:{...proof.appServer,endpoint:'ws://example.com:12345'}},'hook',deps({processes:()=>[remote,app,frontend,owner,server]})),/endpoint|loopback|server/i);
+});
+
+test('local-server mode still rejects foreign hooks and loss of its actual frontend',()=>{
+ const app={pid:501,parentPid:201,name:'codex.exe',startedAt:'2026-11-03T01:00:02.100Z'},foreign={...app,pid:601},proof={origin,owner,server,window:'@1',frontend,appServer:{endpoint:'ws://127.0.0.1:12345/',process:app}};
+ assert.throws(()=>api.verifyHost(proof,'hook',deps({processes:()=>[{...hook,parentPid:601},app,foreign,frontend,owner,server]})),/origin|ancestry|server/i);
+ assert.throws(()=>api.verifyHost(proof,'hook',deps({processes:()=>[{...hook,parentPid:501},app,owner,server]})),/frontend/i);
+});
 test('detached split targets the exact pane and returns a scoped pane, never a WT destination',()=>{
  assert.equal(typeof api.PsmuxClient,'function','psmux backend is missing');
  let emitted;
@@ -52,6 +66,24 @@ test('same pane number from another server cannot satisfy owner proof',()=>{
  assert.throws(()=>api.proveOwner(origin,deps({pid:999,processes:()=>[owner,server]})),/owner|process/i);
 });
 test('an existing process with unreadable birth time is unknown rather than dead',{skip:process.platform!=='win32'},()=>{
- const helper=path.resolve(import.meta.dirname,'../bin/process-facts.ps1').replaceAll("'","''"),script=`function Get-CimInstance { [pscustomobject]@{ProcessId=123;ParentProcessId=1;Name='node.exe';CreationDate=$null} }; & '${helper}' -RootPid 123 -Ids '123'`;
- const result=spawnSync('powershell.exe',['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],{encoding:'utf8',timeout:10000});assert.notEqual(result.status,0,'a live process with unknown identity must not disappear from the snapshot');
+ const helper=path.resolve(import.meta.dirname,'../bin/process-facts.ps1').replaceAll("'","''"),script=`function New-Object { $entry=[pscustomobject]@{ProcessId=123;ParentProcessId=1;Name='node.exe';CreationDate=$null}; $entry | Add-Member ScriptMethod Dispose {}; $snapshot=[System.Collections.ArrayList]@($entry); Add-Member -InputObject $snapshot ScriptMethod Dispose {}; $searcher=[pscustomobject]@{Snapshot=$snapshot}; $searcher | Add-Member ScriptMethod Get { ,$this.Snapshot }; $searcher | Add-Member ScriptMethod Dispose {}; return $searcher }; & '${helper}' -RootPid 123 -Ids '123' -IdentitiesOnly`;
+ const result=spawnSync('powershell.exe',['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],{encoding:'utf8',timeout:10000});assert.notEqual(result.status,0,'a live process with unknown identity must not disappear from the snapshot');assert.match(result.stderr,/unknown creation time/);
+});
+
+test('explicit identity collection preserves creation times without CIM initialization or inferred ancestry',{skip:process.platform!=='win32'},()=>{
+ const helper=path.resolve(import.meta.dirname,'../bin/process-facts.ps1').replaceAll("'","''");
+ const script=`$expected=Get-CimInstance -Query "SELECT CreationDate FROM Win32_Process WHERE ProcessId=$PID"; function Get-CimInstance { throw 'CIM cmdlet initialization is not available' }; $raw=& '${helper}' -RootPid $PID -Ids '${process.pid}' -IdentitiesOnly; [pscustomobject]@{root=$PID;expected=$expected.CreationDate.ToUniversalTime().ToString('O');raw=$raw} | ConvertTo-Json -Compress`;
+ const result=spawnSync('powershell.exe',['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],{encoding:'utf8',timeout:15000});
+ assert.equal(result.status,0,result.stderr);const {root,expected,raw}=JSON.parse(result.stdout.replace(/^\uFEFF/,'')),facts=JSON.parse(raw);
+ const self=facts.find(p=>p.pid===root),parent=facts.find(p=>p.pid===process.pid);
+ assert.equal(self.parentPid,process.pid);assert.equal(self.name.toLowerCase(),'powershell.exe');assert.equal(self.startedAt,expected);
+ assert.equal(parent.name.toLowerCase(),'node.exe');assert.equal(new Set(facts.map(p=>p.pid)).size,facts.length);
+ assert.equal(facts.length,2,'explicit identity lookup does not return or imply an ancestor proof');
+});
+
+test('periodic identity queries keep the actual caller and only explicitly requested processes',{skip:process.platform!=='win32'},()=>{
+ assert.equal(typeof api.readProcessIdentities,'function');
+ const facts=api.readProcessIdentities([process.pid]);assert.equal(facts.length,1);assert.equal(facts[0].pid,process.pid);assert.equal(facts[0].name.toLowerCase(),'node.exe');
+ const ancestry=api.readProcessFacts([process.pid]);assert.ok(ancestry.some(p=>p.pid===facts[0].parentPid));
+ assert.deepEqual(ancestry.find(p=>p.pid===process.pid),facts[0]);
 });

@@ -12,7 +12,3 @@ with OpenAI or Anthropic.
 Autostart owner/liveness rules were informed by the MIT-licensed oh-my-codex HUD
 runtime (Yeachan Heo and contributors). The immutable PID/nonce claim protocol
 here is implemented independently; no OMX orchestration runtime is included.
-
-The distributed JavaScript runtime includes smol-toml 1.9.1 by Squirrel Chat and
-contributors, under BSD-3-Clause. Its full license is included at
-dist/vendor/smol-toml/LICENSE; the copied modules retain their copyright headers.

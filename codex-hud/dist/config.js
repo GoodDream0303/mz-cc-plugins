@@ -2,26 +2,27 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { randomUUID } from 'node:crypto';
+import { packagedBackendPath } from './backend-version.js';
 const defs = [];
-function def(key, value, section, label, extra = {}) {
+function def(key, value, section, extra = {}) {
     const english = key.split('.').at(-1).replace(/^show(?=[A-Z])/, '').replace(/([a-z])([A-Z])/g, '$1 $2');
     defs.push({ key, value, section, label: english.charAt(0).toUpperCase() + english.slice(1), kind: Array.isArray(value) ? 'array' : typeof value, ...extra });
 }
-def('language', 'en', 'layout', 'Language', { choices: ['en', 'zh-Hans', 'zh-Hant'] });
-def('lineLayout', 'expanded', 'layout', '展开 / 紧凑', { choices: ['expanded', 'compact'] });
-def('showSeparators', false, 'layout', '分隔线');
-def('pathLevels', 1, 'layout', '目录层数', { choices: [1, 2, 3, 'full'] });
-def('maxWidth', 0, 'layout', '最大宽度（0=自动）', { min: 0, max: 1000 });
-def('forceMaxWidth', false, 'layout', 'Maximum width override', { reason: 'Reserved: rendering always respects the actual viewport width' });
-def('elementOrder', ['project', 'addedDirs', 'context', 'usage', 'promptCache', 'memory', 'environment', 'tools', 'skills', 'mcp', 'agents', 'todos', 'sessionTime'], 'layout', '元素顺序');
-def('projectLineOrder', [], 'layout', '首行顺序');
-def('display.mergeGroups', [['context', 'usage']], 'layout', '同行分组');
-def('display.rightAlign', [], 'layout', '靠右元素');
-for (const [key, value, label] of [
-    ['enabled', true, 'Git'], ['showDirty', true, '修改标记'], ['showAheadBehind', false, '领先 / 落后'],
-    ['showFileStats', false, '文件统计'], ['branchOverflow', 'truncate', '分支溢出'], ['pushWarningThreshold', 0, '推送警告阈值'], ['pushCriticalThreshold', 0, '推送严重阈值']
+def('language', 'en', 'layout', { choices: ['en', 'zh-Hans', 'zh-Hant'] });
+def('lineLayout', 'expanded', 'layout', { choices: ['expanded', 'compact'] });
+def('showSeparators', false, 'layout');
+def('pathLevels', 1, 'layout', { choices: [1, 2, 3, 'full'] });
+def('maxWidth', 0, 'layout', { min: 0, max: 1000 });
+def('forceMaxWidth', false, 'layout', { reason: 'Reserved: rendering always respects the actual viewport width' });
+def('elementOrder', ['project', 'addedDirs', 'context', 'usage', 'promptCache', 'memory', 'environment', 'tools', 'skills', 'agents', 'todos', 'sessionTime'], 'layout');
+def('projectLineOrder', [], 'layout');
+def('display.mergeGroups', [['context', 'usage']], 'layout');
+def('display.rightAlign', [], 'layout');
+for (const [key, value] of [
+    ['enabled', true], ['showDirty', true], ['showAheadBehind', false],
+    ['showFileStats', false], ['branchOverflow', 'truncate'], ['pushWarningThreshold', 0], ['pushCriticalThreshold', 0]
 ])
-    def('gitStatus.' + key, value, 'git', label, key === 'branchOverflow' ? { choices: ['truncate', 'wrap'] } : typeof value === 'number' ? { min: 0, max: 100000 } : {});
+    def('gitStatus.' + key, value, 'git', key === 'branchOverflow' ? { choices: ['truncate', 'wrap'] } : typeof value === 'number' ? { min: 0, max: 100000 } : {});
 const unavailable = {
     showSkills: 'Codex does not expose reliable active-Skill events', showMemoryUsage: 'Other-process memory inspection is not supported',
     showPromptCache: 'Codex does not expose authoritative cache expiry', showSpeed: 'Reliable generation-only duration is unavailable',
@@ -33,23 +34,16 @@ const unavailable = {
 const flags = {
     showModel: false, showProject: false, showAddedDirs: false, showContextBar: true, showConfigCounts: false,
     showCost: false, showRoutedCost: false, showDailyCost: false, showDuration: false, showSpeed: false,
-    showTokenBreakdown: true, showUsage: true, usageBarEnabled: true, showResetLabel: true, usageCompact: false,
-    showModelScopedUsage: false, showTools: false, showSkills: false, showMcp: false, showAgents: false, showTodos: false,
+    showTokenBreakdown: true, showUsage: true, showFiveHourUsage: true, showSevenDayUsage: true, usageBarEnabled: true, showResetLabel: true, usageCompact: false,
+    showModelScopedUsage: false, showTools: false, showSkills: false, showAgents: false, showTodos: false,
     showSessionName: false, showAuth: false, showAuthUser: false, showCodexVersion: false,
     showEffortLevel: false, showMemoryUsage: false, showPromptCache: false, showSessionTokens: false,
     showOutputStyle: false, showSessionStartDate: false, showLastResponseAt: false, showCompactions: false,
     showProvider: false, showClockSeconds: false, showAdvisor: false
 };
-const labels = {
-    showModel: '模型', showProject: '项目', showContextBar: '上下文', showEffortLevel: '推理强度',
-    showSessionTokens: '会话累计 Token', showTokenBreakdown: 'Token 明细', showUsage: '额度', showResetLabel: '重置标签',
-    usageBarEnabled: '额度进度条', usageCompact: '紧凑额度', showTools: '工具活动', showMcp: 'MCP', showAgents: '子代理',
-    showTodos: '待办进度', showDuration: '会话时长', showSessionId: '会话 ID', showSessionName: '会话名称',
-    showCodexVersion: 'Codex 版本', showCompactions: '压缩次数', showAuth: '订阅类型', showProvider: '服务商',
-    showSessionStartDate: '会话开始时间', showLastResponseAt: '最后响应时间'
-};
+const quotaLabels = { showUsage: 'Quota master switch', showFiveHourUsage: '5-hour quota', showSevenDayUsage: '7-day quota' };
 for (const [key, value] of Object.entries(flags))
-    def('display.' + key, value, 'display', labels[key] ?? key, { reason: unavailable[key] });
+    def('display.' + key, value, 'display', { reason: unavailable[key], ...(quotaLabels[key] ? { label: quotaLabels[key] } : {}) });
 for (const [key, value, choices] of [
     ['contextValue', 'percent', ['percent', 'tokens', 'remaining', 'both']], ['usageValue', 'percent', ['percent', 'remaining']],
     ['effortFormat', 'full', ['full', 'symbol', 'text']], ['modelFormat', 'full', ['full', 'compact', 'short']],
@@ -57,27 +51,29 @@ for (const [key, value, choices] of [
     ['hourCycle', 'auto', ['auto', 'h11', 'h12', 'h23', 'h24']], ['customLinePosition', 'last', ['first', 'last']],
     ['addedDirsLayout', 'inline', ['inline', 'line']]
 ])
-    def('display.' + key, value, 'display', key, { choices: [...choices] });
+    def('display.' + key, value, 'display', { choices: [...choices] });
 for (const [key, value, max] of [
-    ['toolNameMaxLength', 0, 200], ['toolsMaxVisible', 4, 30], ['authUserLength', 8, 100],
+    ['toolNameMaxLength', 0, 200], ['toolsMaxVisible', 4, 30], ['agentsMaxVisible', 3, 64], ['authUserLength', 8, 100],
     ['contextWarningThreshold', 70, 100], ['contextCriticalThreshold', 85, 100], ['usageThreshold', 0, 100],
-    ['sevenDayThreshold', 80, 100], ['environmentThreshold', 0, 100]
+    ['sevenDayThreshold', 0, 100], ['environmentThreshold', 0, 100]
 ])
-    def('display.' + key, value, 'display', key, { min: 0, max });
+    def('display.' + key, value, 'display', { min: 0, max });
 for (const key of ['modelOverride', 'providerName', 'customLine', 'advisorOverride', 'externalUsagePath', 'externalUsageWritePath'])
-    def('display.' + key, '', 'display', key, { reason: key.startsWith('externalUsage') ? 'Preserved only; external path I/O is disabled' : key === 'advisorOverride' ? unavailable.showAdvisor : undefined });
-for (const [key, value] of Object.entries({ context: 'green', usage: 'brightBlue', warning: 'yellow', usageWarning: 'brightMagenta', critical: 'red', model: 'cyan', project: 'yellow', git: 'magenta', gitBranch: 'cyan', label: 'dim', custom: 208 }))
-    def('colors.' + key, value, 'colors', key, { kind: 'color' });
-def('colors.barFilled', '█', 'colors', '进度条填充');
-def('colors.barEmpty', '░', 'colors', '进度条空白');
-def('terminal.paneSize', 0.22, 'terminal', '下方面板比例', { min: 0.1, max: 0.75 });
-def('terminal.autoHeight', true, 'terminal', 'Fit initial pane to content');
-def('terminal.refreshMs', 1000, 'terminal', '刷新间隔（毫秒）', { min: 250, max: 60000 });
-def('terminal.margin', 4, 'terminal', '预留列数', { min: 0, max: 20 });
-def('startup.enabled', true, 'startup', 'Auto open HUD', { label: 'Legacy startup', reason: 'Preserved for compatibility; use exact-host Auto start and keep this false while 0.3.4 sessions exist' });
-def('startup.window', 'last', 'startup', 'Terminal target', { pattern: /^[a-zA-Z0-9_.-]{1,100}$/, reason: 'Legacy value preserved; attachment uses the verified source pane' });
-def('host.psmuxPath', '', 'startup', 'Portable psmux executable');
-def('host.autoStart', 'inherit', 'startup', 'Exact host automatic opening', { choices: ['inherit', 'enabled', 'disabled'] });
+    def('display.' + key, '', 'display', { reason: key.startsWith('externalUsage') ? 'Preserved only; external path I/O is disabled' : key === 'advisorOverride' ? unavailable.showAdvisor : undefined });
+for (const [key, value] of Object.entries({ context: 'green', usage: 'brightBlue', warning: 'yellow', usageWarning: 'brightMagenta', critical: 'red', model: 'cyan', project: 'yellow', git: 'magenta', gitBranch: 'cyan', label: 'dim', heading: '#bac2ce', active: '#f2f2f2', inactive: '#9a9a9a', custom: 208 }))
+    def('colors.' + key, value, 'colors', { kind: 'color' });
+def('colors.barFilled', '█', 'colors');
+def('colors.barEmpty', '░', 'colors');
+def('terminal.paneSize', 0.22, 'terminal', { min: 0.1, max: 0.75 });
+def('terminal.initialRows', 6, 'terminal', { min: 0, max: 1000 });
+def('terminal.autoHeight', false, 'terminal');
+def('terminal.dynamicHeight', false, 'terminal');
+def('terminal.refreshMs', 1000, 'terminal', { min: 250, max: 60000 });
+def('terminal.margin', 4, 'terminal', { min: 0, max: 20 });
+def('startup.enabled', true, 'startup', { label: 'Legacy startup', reason: 'Preserved for compatibility; use exact-host Auto start and keep this false while 0.3.4 sessions exist' });
+def('startup.window', 'last', 'startup', { pattern: /^[a-zA-Z0-9_.-]{1,100}$/, reason: 'Legacy value preserved; attachment uses the verified source pane' });
+def('host.psmuxPath', packagedBackendPath(), 'startup');
+def('host.autoStart', 'inherit', 'startup', { choices: ['inherit', 'enabled', 'disabled'] });
 export const definitions = defs;
 export const unsupported = unavailable;
 const unsafe = new Set(['__proto__', 'prototype', 'constructor']);
@@ -159,6 +155,8 @@ export function validateConfig(value) {
             throw new Error('Invalid type: ' + d.key);
         if (typeof v === 'number' && (!Number.isFinite(v) || v < (d.min ?? -Infinity) || v > (d.max ?? Infinity)))
             throw new Error('Out of range: ' + d.key);
+        if (d.key === 'terminal.initialRows' && !Number.isInteger(v))
+            throw new Error('Expected whole rows: ' + d.key);
         if (typeof v === 'string' && v.length > 1000)
             throw new Error('Text is too long: ' + d.key);
         if (typeof v === 'string' && d.pattern && !d.pattern.test(v))
@@ -167,7 +165,15 @@ export function validateConfig(value) {
     return config;
 }
 export function set(config, key, value) { const copy = structuredClone(config); put(copy, key, value); return validateConfig(copy); }
-export function configPath() { return path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), '.local', 'share'), 'mz-codex-hud', 'config.json'); }
+export function configPath(environment = process.env) {
+    const selected = environment.MZ_HUD_CONFIG_FILE;
+    if (selected) {
+        if (!path.isAbsolute(selected))
+            throw new Error('HUD configuration override must be an absolute path');
+        return selected;
+    }
+    return path.join(environment.LOCALAPPDATA ?? path.join(os.homedir(), '.local', 'share'), 'mz-codex-hud', 'config.json');
+}
 export function loadConfig(file = configPath()) {
     try {
         const stat = fs.statSync(file);
@@ -211,7 +217,7 @@ export function preset(name, base = defaultConfig()) {
         throw new Error('Unknown preset: ' + name);
     const config = structuredClone(base);
     for (const d of defs.filter(d => d.key.startsWith('display.show') && d.kind === 'boolean'))
-        put(config, d.key, !d.reason && (name === 'full' || ['display.showContextBar', ...(name === 'essential' ? ['display.showUsage', 'display.showSessionTokens'] : [])].includes(d.key)));
+        put(config, d.key, !d.reason && (name === 'full' || ['display.showContextBar', ...(name === 'essential' ? ['display.showUsage', 'display.showFiveHourUsage', 'display.showSevenDayUsage', 'display.showSessionTokens'] : [])].includes(d.key)));
     return validateConfig(config);
 }
 export function importClaude(value) {

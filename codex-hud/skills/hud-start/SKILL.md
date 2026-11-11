@@ -1,45 +1,44 @@
 ---
 name: hud-start
-description: Use when the user wants an independent Codex HUD in PowerShell tabs or windows, or needs to reopen the current conversation's HUD.
+description: Use when the current configured Codex conversation has a missing or closed HUD, or the user wants to open or reopen it manually.
 ---
 
-Resolve this plugin root two directories above the skill. Use its direct
-`node "<plugin-root>/bin/hud.mjs"` entry; a global npm link may target older code.
-Published packages include dist. Build only an explicitly selected source checkout.
+# Open the current HUD
 
-Run `doctor` first. It distinguishes configured psmux from present origin metadata;
-`origin: present` is not live ownership proof. `start` verifies that proof itself.
+This is the manual open/reopen entry. It reuses a verified live HUD or opens the
+missing HUD for this conversation. First-time initialization belongs to
+[hud-setup](../hud-setup/SKILL.md); do not rewrite profiles or preferences here.
+Resolve the installed plugin root two directories above this skill.
 
-| Observable situation | Action |
-| --- | --- |
-| Current Codex already runs inside its registered HUD host | Run `start` from this Codex tool environment to reuse/reopen its exact HUD. |
-| No registered physical host, including an ordinary existing WT/PowerShell Codex | Explain that this live process cannot be retroactively moved into psmux. Prepare the one-time PowerShell entry setup; do not open a guessed pane. |
-| Registered owner is waiting for its first conversation metadata | Leave its independent waiting HUD in place; native SessionStart supplies data. |
-| User asks to enable automatic opening | Verify portable psmux, prepare profile changes, arrange native hook review, then enable only as part of the authorized setup. |
+Run from the current Codex tool environment:
 
-One-time setup keeps the user's normal `codex` command. It internally creates an
-independent host per interactive invocation in that same PowerShell tab/window.
-Preview the concrete loader change using `setup --profile <absolute-profile-path>`.
-Writing a real user profile requires the user's authorization for that concrete
-change; only then use `--apply`. Do not silently change PATH, WT settings or profiles.
-PowerShell 5/7 have separate user profiles; resolve the actual profile from each
-shell instead of assuming a Documents path. `host.psmuxPath` selects the verified
-portable backend. For a machine with older 0.3.4 sessions, keep
-`startup.enabled=false`: enabling that legacy flag can revive their unsafe MRU
-launcher. Explicitly enable only `host.autoStart` with the value `enabled` for
-the authorized 0.4 setup; old runtimes ignore it. Its default `inherit` preserves
-existing preferences, and `disabled` explicitly pauses exact-host startup.
-Do not treat hook trust alone as setup.
+```text
+node "<plugin-root>/bin/hud.mjs" doctor
+node "<plugin-root>/bin/hud.mjs" start
+```
 
-For first-use data binding, direct the user to native Codex `/hooks` to review the
-current hook. Never edit trust hashes or add bypass/daemon/security overrides.
-Do not start another real Codex or send a model prompt as an implicit self-test.
+Use the existing Node20+ executable; no reinstall, build or dependency installation
+is needed for a configured package. Doctor readiness is a prerequisite report,
+not source ownership or native hook trust. `start` verifies current host ancestry,
+actual process birth times, source/HUD panes and this thread before attachment.
+It does not launch another Codex or model turn.
 
-`start --session <ID>` accepts only the current conversation in its proven host.
-An ID or WT window name alone cannot identify a pane. Never use `--window`, WT
-last/MRU, focus, titles or the latest log to attach. `once --session <ID>` can
-inspect explicitly selected telemetry; it is not proof of a correctly placed HUD.
+- An existing verified live HUD is reused; delayed telemetry alone is not proof
+  it died. Never create a duplicate to hide uncertain identity.
+- When the old process/pane are confirmed gone, `start` opens the replacement in
+  that same source host. Check the returned state and progressing heartbeat.
+- `start --session ID` is restricted to the current proven conversation; it does
+  not authorize picking another window or guessing a thread.
+- Genuine remote TUI metadata may use source=vscode, originator=codex-tui and
+  thread_source=user. The implementation accepts it only after actual host
+  verification; ordinary IDE and subagent logs remain excluded.
+- Without a registered physical host, explain the missing prerequisite and use
+  hud-setup when initialization is requested. A standalone PowerShell prompt
+  outside the current host cannot identify which active conversation to reopen.
 
-Use English UI labels and preserve task-name language. Native Codex/statusline
-remain intact. Report waiting, rejected or unverified states accurately; only
-actual independent displays prove the user's multi-session goal is met.
+User command inside the intended conversation: `$codex-hud:hud-start`.
+`q` closes only the HUD; the same command reopens it. Ctrl+C does not close it.
+Manual start does not require a trusted SessionStart hook; automatic binding does.
+Never choose MRU/latest log, fake rootPid/ancestry, send keys to another pane,
+restart another session, change daemon/security/trust settings, or take over
+terminal mouse selection and clipboard. Preserve sizing and native statusline.

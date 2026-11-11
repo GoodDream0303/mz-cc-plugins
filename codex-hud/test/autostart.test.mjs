@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {spawnSync} from 'node:child_process';import {pathToFileURL} from 'node:url';
-import {autoStart} from '../dist/autostart.js';import {defaultConfig,saveConfig,set} from '../dist/config.js';import {readLaunch,updateLaunch,requestStop} from '../dist/runtime.js';
+import {autoStart,isMainSession} from '../dist/autostart.js';import {defaultConfig,saveConfig,set} from '../dist/config.js';import {readLaunch,updateLaunch,requestStop} from '../dist/runtime.js';
 import {hostFixture} from './support/host-fixture.mjs';
 function fixture(t,metadata={}){
  const f=hostFixture(t),{root,runtime}=f,file=path.join(root,'current session.jsonl'),config=path.join(root,'config.json');
@@ -7,12 +7,27 @@ function fixture(t,metadata={}){
  return {...f,file,config,event:{hook_event_name:'SessionStart',source:'startup',session_id:'tree-root',cwd:root,transcript_path:file},options:{configFile:config,environment:f.environment,dependencies:f.dependencies}};
 }
 const descriptors=dir=>fs.existsSync(dir)?fs.readdirSync(dir).filter(n=>/^[a-f0-9-]{36}\.json$/.test(n)).map(n=>path.join(dir,n)):[];
+
+test('remote TUI source requires a verified host and remains distinct from IDE and child metadata',()=>{
+ const meta={id:'remote-thread',cwd:'C:/repo',source:'vscode',originator:'codex-tui',thread_source:'user'};
+ assert.equal(isMainSession(meta,'remote-thread'),false);assert.equal(isMainSession(meta,'remote-thread',true),true);
+ for(const change of [{originator:'codex-vscode'},{originator:'other-client'},{thread_source:'subagent'},{source:{subagent:{thread_spawn:{}}}}])assert.equal(isMainSession({...meta,...change},'remote-thread',true),false);
+});
+test('a genuine remote TUI binds through its registered App Server without rewriting metadata',async t=>{
+ const f=fixture(t,{source:'vscode',originator:'codex-tui',thread_source:'user'}),original=f.dependencies.processes(),app={pid:901,parentPid:201,name:'codex.exe',startedAt:'2026-11-03T01:00:02.100Z'};
+ f.record.proof.appServer={endpoint:'ws://127.0.0.1:12345',process:app};fs.writeFileSync(f.record.file,JSON.stringify(f.record));f.dependencies.processes=()=>[...original.map(p=>p.pid===401?{...p,parentPid:901}:p),app,...f.state.viewers];
+ assert.equal((await autoStart(f.event,f.options)).status,'opened');assert.equal(readLaunch(descriptors(f.runtime)[0]).sessionId,'current-thread');assert.equal(JSON.parse(fs.readFileSync(f.file,'utf8')).payload.source,'vscode');
+});
+test('remote-born TUI threads resume in a verified ordinary CLI but not an unproven host',async t=>{
+ const f=fixture(t,{source:'vscode',originator:'codex-tui',thread_source:'user'});assert.equal((await autoStart(f.event,f.options)).status,'opened');
+ const g=fixture(t,{source:'vscode',originator:'codex-tui',thread_source:'user'});assert.equal((await autoStart(g.event,{...g.options,dependencies:{...g.dependencies,processes:()=>[]}})).reason,'unproven-host');assert.equal(descriptors(g.runtime).length,0);
+});
 test('autostart attaches metadata thread identity quietly and stores no transcript content',async t=>{
  const f=fixture(t);const result=await autoStart(f.event,f.options);assert.equal(result.status,'opened');const files=descriptors(f.runtime);assert.equal(files.length,1);const d=readLaunch(files[0]);assert.equal(d.sessionId,'current-thread');assert.equal(d.transcriptPath,f.file);assert.ok(!fs.readFileSync(files[0],'utf8').includes('SECRET'));
 });
 test('autostart sizes using its exact source pane geometry',async t=>{
  const f=fixture(t);await autoStart(f.event,f.options);const launched=readLaunch(descriptors(f.runtime)[0]);
- assert.equal(launched.initialSizing.mode,'content');assert.equal(launched.initialSizing.parentRows,40);assert.equal(launched.sessionId,'current-thread');
+ assert.equal(launched.initialSizing.mode,'rows');assert.equal(launched.initialSizing.rows,6);assert.equal(launched.initialSizing.parentRows,40);assert.equal(launched.sessionId,'current-thread');
 });
 test('parallel frontends in the same directory each own a HUD across all start sources',async t=>{
  const first=fixture(t),fixtures=['startup','resume','clear','fork'].map((source,i)=>{

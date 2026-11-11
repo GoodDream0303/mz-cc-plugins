@@ -21,24 +21,26 @@ export async function sessionMetadata(file:string):Promise<Record<string,any>|un
   }
  }catch{/* metadata may still be written at SessionStart */}finally{await handle?.close();}
 }
-export function isMainSession(meta:Record<string,any>|undefined,id:string):boolean{return !!meta&&meta.source==='cli'&&typeof meta.id==='string'&&idPattern.test(meta.id)&&(id===meta.id||id===meta.session_id)&&typeof meta.cwd==='string';}
+function remoteTuiMain(meta:Record<string,any>):boolean{return meta.source==='vscode'&&meta.originator==='codex-tui'&&meta.thread_source==='user';}
+export function isMainSession(meta:Record<string,any>|undefined,id:string,verifiedHost=false):boolean{return !!meta&&(meta.source==='cli'||verifiedHost&&remoteTuiMain(meta))&&typeof meta.id==='string'&&idPattern.test(meta.id)&&(id===meta.id||id===meta.session_id)&&typeof meta.cwd==='string';}
 export async function autoStart(event:HookEvent,options:AutostartOptions={}):Promise<AutostartResult>{
  if(event.hook_event_name!=='SessionStart'||!['startup','resume','clear','fork'].includes(String(event.source))||event.agent_id||event.subagent_id||event.agent_transcript_path)return {status:'ignored',reason:'not-main-start'};
  if(process.platform!=='win32')return {status:'ignored',reason:'not-windows'};
- const file=options.configFile??configPath(),config=loadConfig(file);if(!startupEnabled(config))return {status:'disabled'};
+ const file=options.configFile??configPath(options.environment),config=loadConfig(file);if(!startupEnabled(config))return {status:'disabled'};
  if(typeof event.session_id!=='string'||!idPattern.test(event.session_id)||typeof event.transcript_path!=='string'||!path.isAbsolute(event.transcript_path))return {status:'ignored',reason:'missing-transcript'};
  let meta:Record<string,any>|undefined;
  const deadline=Date.now()+2000;
  do{meta=await sessionMetadata(event.transcript_path);if(meta)break;await new Promise(r=>setTimeout(r,100));}while(Date.now()<deadline);
  if(!meta)return {status:'ignored',reason:'metadata-unavailable'};
- if(meta.source!=='cli')return {status:'ignored',reason:'not-cli-main'};
- if(!isMainSession(meta,event.session_id))return {status:'ignored',reason:'identity-mismatch'};
+ if(meta.source!=='cli'&&!remoteTuiMain(meta))return {status:'ignored',reason:'not-cli-main'};
+ if(meta.source==='cli'&&!isMainSession(meta,event.session_id))return {status:'ignored',reason:'identity-mismatch'};
  let record;
  const registrationDeadline=Date.now()+2500;
  for(;;){try{record=loadCurrentHost('hook',options.dependencies,options.environment);break;}catch(error){
   if((error as NodeJS.ErrnoException).code!=='ERR_HUD_FRONTEND_PENDING'||Date.now()>=registrationDeadline)return {status:'ignored',reason:'unproven-host'};
   await new Promise(r=>setTimeout(r,100));
  }}
+ if(!isMainSession(meta,event.session_id,true))return {status:'ignored',reason:'identity-mismatch'};
  const result=await bindHostSession(record,meta.id,event.transcript_path,{role:'hook',config,configFile:file,dependencies:options.dependencies});
  return result.status==='stopping'?{status:'ignored',reason:'hud-stopping'}:{status:result.status};
 }

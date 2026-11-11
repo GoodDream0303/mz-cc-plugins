@@ -1,0 +1,2 @@
+psmux.exe binary
+patches/*.patch -text -whitespace

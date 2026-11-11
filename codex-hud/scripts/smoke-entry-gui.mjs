@@ -4,7 +4,7 @@ import {defaultConfig,set,saveConfig} from '../dist/config.js';import {readHost}
 const product=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),index=process.argv.indexOf('--psmux'),binary=process.argv[index+1];
 if(index<0||!path.isAbsolute(binary))throw Error('smoke-entry-gui.mjs --psmux ABSOLUTE_PINNED_EXE');
 const allRoles=['A','B','C','D','L','R'],root=fs.mkdtempSync(path.join(os.tmpdir(),'hud-entry-desktop-')),tag=randomUUID().slice(0,8),names={tabs:'mzhud-tabs-'+tag,C:'mzhud-window-C-'+tag,D:'mzhud-window-D-'+tag,split:'mzhud-split-'+tag},titles=Object.fromEntries(allRoles.map(role=>[role,'HUD TEST '+role+' '+tag])),splitTitle='HUD TEST SPLIT '+tag;
-const read=file=>JSON.parse(fs.readFileSync(file,'utf8')),roles=new Map(),checks=[];
+const read=file=>JSON.parse(fs.readFileSync(file,'utf8')),roles=new Map(),checks=[],previewOnly=process.argv.includes('--preview-only');
 async function wait(check,message,ms=30000){const until=Date.now()+ms;do{try{const value=await check();if(value)return value;}catch{}await delay(150);}while(Date.now()<until);throw Error(message);}
 const shim=path.join(root,'npm'),pkg=path.join(shim,'node_modules/@openai/codex'),fake=path.join(root,'codex.exe');fs.mkdirSync(path.join(pkg,'bin'),{recursive:true});fs.cpSync(process.execPath,fake);fs.writeFileSync(path.join(shim,'codex.ps1'),'# Synthetic npm shim; no official Codex is launched\n');
 fs.writeFileSync(path.join(pkg,'package.json'),JSON.stringify({name:'@openai/codex',bin:{codex:'bin/codex.js'},type:'module'}));
@@ -12,7 +12,7 @@ fs.writeFileSync(path.join(pkg,'bin/codex.js'),`import {spawn} from 'node:child_
 const configFile=path.join(root,'local/mz-codex-hud/config.json');saveConfig(configFile,set(set(set(defaultConfig(),'host.psmuxPath',binary),'startup.enabled',false),'host.autoStart','enabled'));fs.mkdirSync(path.join(root,'codex-home'));fs.mkdirSync(path.join(root,'samecwd'));
 const quote=s=>"'"+s.replaceAll("'","''")+"'",boot=path.join(root,'boot.ps1');
 const trace=path.join(root,'trace-errors.mjs');fs.writeFileSync(trace,`import fs from 'node:fs';const original=console.error;console.error=(...args)=>{fs.appendFileSync(${JSON.stringify(path.join(root,'trace-errors.jsonl'))},JSON.stringify({pid:process.pid,role:process.env.MZ_HUD_SMOKE_ROLE,message:args.map(value=>String(value)).join(' ')})+'\\n');original(...args);};`);
-fs.writeFileSync(boot,`param([string]$Role)\n$ErrorActionPreference='Stop'\n$env:PATH=${quote(shim)}+[IO.Path]::PathSeparator+$env:PATH\n$env:LOCALAPPDATA=${quote(path.join(root,'local'))}\n$env:CODEX_HOME=${quote(path.join(root,'codex-home'))}\n$env:MZ_HUD_SMOKE_ROLE=$Role\n$env:NODE_OPTIONS=${quote('--import='+new URL('file:///'+trace.replaceAll('\\','/')).href)}\nSet-Location -LiteralPath ${quote(path.join(root,'samecwd'))}\n. ${quote(path.join(product,'bin/powershell-entry.ps1'))} -HudCli ${quote(path.join(product,'bin/hud.mjs'))} -NodePath ${quote(process.execPath)}\ncodex\nexit $LASTEXITCODE\n`);
+fs.writeFileSync(boot,`param([string]$Role)\n$ErrorActionPreference='Stop'\nGet-ChildItem Env: | Where-Object { $_.Name -match '^(TMUX|PSMUX_)|^MZ_HUD_(ORIGIN|NAMESPACE|HOST_DIR|PSMUX|CONFIG_FILE)$' } | ForEach-Object { Remove-Item -LiteralPath ('Env:'+$_.Name) }\n$env:PATH=${quote(shim)}+[IO.Path]::PathSeparator+$env:PATH\n$env:LOCALAPPDATA=${quote(path.join(root,'local'))}\n$env:CODEX_HOME=${quote(path.join(root,'codex-home'))}\n$env:MZ_HUD_SMOKE_ROLE=$Role\n$env:MZ_HUD_SMOKE_FOOTER='1'\n$env:MZ_HUD_SMOKE_EXPIRES_AT=${quote(previewOnly?String(Date.now()+1800000):'')}\n$env:NODE_OPTIONS=${quote('--import='+new URL('file:///'+trace.replaceAll('\\','/')).href)}\nSet-Location -LiteralPath ${quote(path.join(root,'samecwd'))}\n. ${quote(path.join(product,'bin/powershell-entry.ps1'))} -HudCli ${quote(path.join(product,'bin/hud.mjs'))} -NodePath ${quote(process.execPath)} -ConfigPath ${quote(configFile)}\ncodex\nexit $LASTEXITCODE\n`);
 function wt(name,args){const r=spawnSync('wt.exe',['-w',name,...args],{encoding:'utf8',windowsHide:false,timeout:10000});if(r.status!==0)throw Error(r.stderr||'Owned test Terminal launch failed');}
 function inspect(title,capture){const args=['-NoLogo','-NoProfile','-NonInteractive','-File',path.join(product,'scripts/inspect-test-window.ps1'),'-Title',title];if(capture)args.push('-CaptureFile',capture);const r=spawnSync('powershell.exe',args,{encoding:'utf8',windowsHide:true,timeout:10000,maxBuffer:65536});if(r.status!==0)throw Error(r.stderr);return JSON.parse(r.stdout.replace(/^\uFEFF/,''));}
 function descriptor(role){const record=readHost(roles.get(role).host);return readLaunch(record.launchFile);}
@@ -26,6 +26,10 @@ async function bind(role,percent,id='synthetic-ui-'+role){
 }
 try{
  const tab=(role,shell)=>['new-tab','--title',titles[role],'--suppressApplicationTitle',shell,'-NoLogo','-NoProfile','-File',boot,'-Role',role];
+ if(previewOnly){
+  wt(names.tabs,['--size','100,32',...tab('A','pwsh.exe')]);roles.set('A',await wait(()=>fs.existsSync(path.join(root,'ready-A.json'))?read(path.join(root,'ready-A.json')):undefined,'Preview fixture did not start'));
+  await bind('A',20);inspect(titles.A,path.join(root,'preview.png'));console.log(JSON.stringify({verdict:'PREVIEW_ONLY',root,host:roles.get('A').host,title:titles.A,binary,expiresAfterMinutes:30},null,2));
+ }else{
  wt(names.tabs,['--size','120,42',...tab('A','powershell.exe'),';',...tab('B','pwsh.exe')]);
  for(const role of ['A','B'])roles.set(role,await wait(()=>fs.existsSync(path.join(root,'ready-'+role+'.json'))?read(path.join(root,'ready-'+role+'.json')):undefined,'PowerShell entry did not start fixture '+role));
  assert.notEqual(descriptor('A').file,descriptor('B').file);const initial=inspect(titles.B);assert.equal(initial.tabs.length,2);assert.ok(initial.tabs.some(t=>t.name===titles.B&&t.selected));checks.push('PS5 and PS7 bare codex entries create two independent HUDs in real WT tabs');
@@ -44,9 +48,10 @@ try{
  assert.ok(left?.text.includes('25%')&&!left.text.includes('75%'));assert.ok(right?.text.includes('75%')&&!right.text.includes('25%'));assert.ok(right.focused);for(const key of ['left','top','width','height'])assert.equal(right[key],rightBefore[key]);
  checks.push('native WT split preserves active right neighbour geometry/focus while left recreates its own HUD');
  const summary={verdict:'PASS_SYNTHETIC_DESKTOP_ENTRY',root,ownedWindows:names,titles,checks,limitations:['Synthetic npm package and renamed Node codex.exe fixture; not official Codex trust/daemon/input acceptance.']};fs.writeFileSync(path.join(root,'summary.json'),JSON.stringify(summary,null,2));console.log(JSON.stringify(summary,null,2));
+ }
 }catch(error){console.error(JSON.stringify({root,error:error.message}));process.exitCode=1;}
 finally{
- for(const role of allRoles)fs.writeFileSync(path.join(root,'stop-'+role),'stop');
+ for(const role of allRoles)if(!previewOnly||role!=='A')fs.writeFileSync(path.join(root,'stop-'+role),'stop');
  await delay(1500);
- for(const [role,ready]of roles){try{const record=readHost(ready.host);if(record.state==='running')command(role,['kill-session','-t','codex'],true);}catch{}}
+ for(const [role,ready]of roles){if(previewOnly&&role==='A')continue;try{const record=readHost(ready.host);if(record.state==='running')command(role,['kill-session','-t','codex'],true);}catch{}}
 }

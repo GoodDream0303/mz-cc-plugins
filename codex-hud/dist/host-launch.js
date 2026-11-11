@@ -4,10 +4,11 @@ import { randomUUID } from 'node:crypto';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadConfig, get, configPath, startupEnabled } from './config.js';
-import { runtimeRoot } from './runtime.js';
-import { readHostOrigin, proveOwner } from './psmux.js';
+import { readHostOrigin, proveOwner, readProcessFacts } from './psmux.js';
 import { registerHost, ensureHostDisplay, readHost, closeHost, registerCurrentFrontend } from './host-session.js';
-import { assertActiveEntry } from './entry-install.js';
+import { verifyBackend, effectiveBackendPath } from './backend-version.js';
+import { resolveOfficial } from './entry-resolver.js';
+export { resolveOfficial } from './entry-resolver.js';
 const commands = new Set(['agents', 'exec', 'e', 'review', 'login', 'logout', 'mcp', 'mcp-server', 'plugin', 'app-server', 'remote-control', 'app', 'completion', 'update', 'doctor', 'sandbox', 'debug', 'apply', 'a', 'queue', 'archive', 'delete', 'migrate-rollouts', 'migrate-nfs-db', 'unarchive', 'cloud', 'cloud-tasks', 'execpolicy', 'tcp-tunnel', 'responses-api-proxy', 'stdio-to-uds', 'exec-server', 'features', 'help']);
 const values = new Set(['-c', '--config', '--enable', '--disable', '--remote', '--remote-auth-token-env', '-m', '--model', '--local-provider', '-p', '--profile', '-s', '--sandbox', '-C', '--cd', '--add-dir', '-a', '--ask-for-approval']);
 const flags = new Set(['--strict-config', '--oss', '--approve-for-me', '--dangerously-bypass-approvals-and-sandbox', '--dangerously-bypass-hook-trust', '--yolo', '--not-so-yolo', '--worktree', '--search', '--no-alt-screen', '--no-daemon', '--last', '--all', '--include-non-interactive']);
@@ -53,30 +54,14 @@ export function decodeInvocation(encoded) {
         throw new Error('Invalid Codex invocation');
     return { command: value.command, args: value.args };
 }
-export function resolveOfficial(command) {
-    const resolved = fs.realpathSync(command);
-    if (path.extname(resolved).toLowerCase() === '.exe')
-        return { file: resolved, prefix: [] };
-    // Follow the verified npm package entry, not a shell command string. This also
-    // preserves empty/quoted arguments on PowerShell 5, whose native argv is lossy.
-    if (!['.ps1', '.cmd'].includes(path.extname(resolved).toLowerCase()))
-        throw new Error('Unsupported official Codex launcher; select its native executable or npm PowerShell shim');
-    const directory = path.dirname(resolved), root = path.join(directory, 'node_modules', '@openai', 'codex'), manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-    const entry = typeof manifest.bin === 'string' ? manifest.bin : manifest.bin?.codex;
-    if (manifest.name !== '@openai/codex' || typeof entry !== 'string')
-        throw new Error('Codex npm entry ownership is not established');
-    const script = fs.realpathSync(path.resolve(root, entry)), relative = path.relative(fs.realpathSync(root), script);
-    if (relative.startsWith('..') || path.isAbsolute(relative) || path.extname(script) !== '.js')
-        throw new Error('Invalid official Codex npm entry');
-    const adjacent = path.join(directory, 'node.exe');
-    return { file: fs.existsSync(adjacent) ? adjacent : process.execPath, prefix: [script] };
+class ForegroundStartError extends Error {
 }
 async function foreground(file, args, env) {
     const child = spawn(file, args, { env, stdio: 'inherit', windowsHide: false });
     const onInterrupt = () => { };
     process.on('SIGINT', onInterrupt);
     try {
-        return await new Promise((resolve, reject) => { child.once('error', () => reject(new Error('Foreground command could not start'))); child.once('exit', (code, signal) => resolve(code ?? (signal ? 130 : 1))); });
+        return await new Promise((resolve, reject) => { child.once('error', () => reject(new ForegroundStartError('Foreground command could not start'))); child.once('exit', (code, signal) => resolve(code ?? (signal ? 130 : 1))); });
     }
     finally {
         process.off('SIGINT', onInterrupt);
@@ -96,28 +81,26 @@ export async function runHostFrontend(invocation) {
         await import(pathToFileURL(command.prefix[0]).href);
         return process.exitCode === undefined ? 0 : Number(process.exitCode);
     }
-    return runOfficial(invocation);
+    return foreground(command.file, invocation.args, process.env);
 }
-export async function launchHostedCodex(invocation, options = {}) {
-    assertActiveEntry(fileURLToPath(new URL('../bin/hud.mjs', import.meta.url)));
-    const interactive = options.interactive ?? (!!process.stdin.isTTY && !!process.stdout.isTTY);
-    if (!interactive || classifyCodexInvocation(invocation.args) === 'passthrough')
-        return runOfficial(invocation);
+function prepareHost(invocation, options) {
+    if (classifyCodexInvocation(invocation.args) === 'passthrough')
+        return;
     const file = options.configFile ?? configPath(), config = loadConfig(file);
     if (!startupEnabled(config))
-        return runOfficial(invocation);
+        return;
     if (process.platform !== 'win32')
         throw new Error('The Codex HUD host requires native Windows');
     if (process.env.MZ_HUD_ORIGIN)
         throw new Error('Nested interactive Codex needs its own source pane; start it in another PowerShell tab/window');
     resolveOfficial(invocation.command);
-    const binary = get(config, 'host.psmuxPath');
-    if (typeof binary !== 'string' || !path.isAbsolute(binary) || !fs.statSync(binary).isFile())
+    const configured = get(config, 'host.psmuxPath'), binary = typeof configured === 'string' ? effectiveBackendPath(configured) : '';
+    if (!path.isAbsolute(binary) || !fs.statSync(binary).isFile())
         throw new Error('Configure host.psmuxPath with the verified portable psmux 3.4.0 executable');
     const version = execFileSync(binary, ['-V'], { encoding: 'utf8', windowsHide: true, timeout: 3000, maxBuffer: 4096 });
-    if (!/psmux 3\.4\.0 \(20aa1d7\b/.test(version))
-        throw new Error('This HUD host requires validated psmux 3.4.0 build 20aa1d7');
-    const id = randomUUID(), namespace = 'mzhud-' + id.replaceAll('-', ''), root = options.runtimeDir ?? runtimeRoot(), hostDir = path.join(root, 'hosts'), dataDir = path.join(root, 'psmux', id);
+    if (!verifyBackend(binary, version))
+        throw new Error('This HUD host requires validated psmux 3.4.0 build 20aa1d7 or the packaged, checksum-verified compact backend');
+    const id = randomUUID(), namespace = 'mzhud-' + id.replaceAll('-', ''), root = options.runtimeDir ?? path.join(path.dirname(path.resolve(file)), 'runtime'), hostDir = path.join(root, 'hosts'), dataDir = path.join(root, 'psmux', id);
     fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
     fs.mkdirSync(hostDir, { recursive: true, mode: 0o700 });
     const hostConfig = path.join(dataDir, 'host.conf');
@@ -126,36 +109,84 @@ export async function launchHostedCodex(invocation, options = {}) {
     for (const key of Object.keys(env))
         if (/^TMUX|^PSMUX_/i.test(key))
             delete env[key];
-    Object.assign(env, { MZ_HUD_ORIGIN: id, MZ_HUD_NAMESPACE: namespace, MZ_HUD_HOST_DIR: hostDir, MZ_HUD_PSMUX: binary, PSMUX_DATA_DIR: dataDir, PSMUX_CONFIG_FILE: hostConfig, PSMUX_NO_WARM: '1' });
+    delete env.MZ_HUD_APP_SERVER_TOKEN;
+    Object.assign(env, { MZ_HUD_ORIGIN: id, MZ_HUD_NAMESPACE: namespace, MZ_HUD_HOST_DIR: hostDir, MZ_HUD_PSMUX: binary, MZ_HUD_CONFIG_FILE: path.resolve(file), PSMUX_DATA_DIR: dataDir, PSMUX_CONFIG_FILE: hostConfig, PSMUX_NO_WARM: '1' });
     const entry = fileURLToPath(new URL('../bin/hud.mjs', import.meta.url)), encoded = Buffer.from(JSON.stringify(invocation)).toString('base64');
-    const status = await foreground(binary, ['-L', namespace, '-f', hostConfig, 'new-session', '-s', 'codex', '-c', process.cwd(), '--', process.execPath, entry, 'host-owner', '--invocation64', encoded, '--config', path.resolve(file)], env);
-    const registered = path.join(hostDir, id + '.json');
-    if (fs.existsSync(registered)) {
-        const record = readHost(registered);
+    return { binary, args: ['-L', namespace, '-f', hostConfig, 'new-session', '-s', 'codex', '-c', process.cwd(), '--', process.execPath, entry, 'host-owner', '--invocation64', encoded, '--config', path.resolve(file)], env, registered: path.join(hostDir, id + '.json') };
+}
+function fallbackNotice() { process.stderr.write('Codex HUD: startup unavailable; starting official Codex without HUD.\n'); }
+export async function launchHostedCodex(invocation, options = {}) {
+    if (!(options.interactive ?? (!!process.stdin.isTTY && !!process.stdout.isTTY)))
+        return runOfficial(invocation);
+    let prepared;
+    try {
+        prepared = prepareHost(invocation, options);
+    }
+    catch {
+        fallbackNotice();
+        return runOfficial(invocation);
+    }
+    if (!prepared)
+        return runOfficial(invocation);
+    let status;
+    try {
+        status = await foreground(prepared.binary, prepared.args, prepared.env);
+    }
+    catch (error) {
+        // A spawn error proves that no backend process executed. A process exit does
+        // not prove whether it started Codex and must never cause a second invocation.
+        if (!(error instanceof ForegroundStartError))
+            throw error;
+        fallbackNotice();
+        return runOfficial(invocation);
+    }
+    if (fs.existsSync(prepared.registered)) {
+        const record = readHost(prepared.registered);
         if (record.state === 'closed' && typeof record.exitCode === 'number')
             return record.exitCode;
     }
     return status;
 }
 export async function runHostOwner(invocation, configFile = configPath()) {
-    const origin = readHostOrigin(), proof = proveOwner(origin), record = registerHost(proof, origin.hostDir), config = loadConfig(configFile);
+    let bootstrap;
+    const origin = readHostOrigin(), proof = proveOwner(origin, { processes: (pids, rootPid) => { const values = readProcessFacts(pids, rootPid); bootstrap = { values, rootPid, at: Date.now() }; return values; } }), record = registerHost(proof, origin.hostDir), config = loadConfig(configFile);
+    const processes = (pids, rootPid) => {
+        const initial = bootstrap;
+        bootstrap = undefined;
+        // Share only this immediate bootstrap observation. Expiry, new PIDs or
+        // viewer acknowledgement always require a fresh process snapshot.
+        const age = initial ? Date.now() - initial.at : Infinity;
+        if (initial && initial.rootPid === rootPid && age >= 0 && age <= 100 && pids.every(pid => initial.values.some(p => p.pid === pid)))
+            return initial.values;
+        return readProcessFacts(pids, rootPid);
+    };
     let exitCode = 1;
     try {
+        const command = resolveOfficial(invocation.command), entry = fileURLToPath(new URL('../bin/hud.mjs', import.meta.url)), encoded = Buffer.from(JSON.stringify(invocation)).toString('base64'), startup = new AbortController();
+        let frontend;
+        const startFrontend = () => {
+            frontend ??= foreground(command.prefix.length ? command.file : process.execPath, [entry, 'host-frontend', '--invocation64', encoded], { ...process.env, MZ_HUD_CONFIG_FILE: path.resolve(configFile) }).then(code => { startup.abort(); return { code }; }, error => { startup.abort(); return { error }; });
+        };
         if (startupEnabled(config)) {
             // A retry still verifies the exact slot: only an acknowledged viewer or a
             // successfully queried, definitively absent reported pane can be reused.
             for (let attempt = 0; attempt < 2; attempt++)
                 try {
-                    await ensureHostDisplay(readHost(record.file), config, { configFile });
+                    await ensureHostDisplay(readHost(record.file), config, { configFile, dependencies: { processes }, onPublished: startFrontend, signal: startup.signal });
                     break;
                 }
                 catch {
+                    if (startup.signal.aborted)
+                        break;
                     if (attempt === 1)
                         process.stderr.write('Codex HUD is not ready; inspect this host with hud doctor.\n');
                 }
         }
-        const command = resolveOfficial(invocation.command), entry = fileURLToPath(new URL('../bin/hud.mjs', import.meta.url)), encoded = Buffer.from(JSON.stringify(invocation)).toString('base64');
-        exitCode = await foreground(command.prefix.length ? command.file : process.execPath, [entry, 'host-frontend', '--invocation64', encoded], process.env);
+        startFrontend();
+        const result = await frontend;
+        if ('error' in result)
+            throw result.error;
+        exitCode = result.code;
         return exitCode;
     }
     finally {

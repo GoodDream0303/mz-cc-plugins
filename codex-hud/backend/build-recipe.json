@@ -1,0 +1,146 @@
+{
+  "kind": "psmux-hud-compact-build/1",
+  "status": "held-drag synchronization release built and clean-PATH verified; native GUI acceptance pending root",
+  "sourceCommit": "20aa1d7254ee93f64dafa059ef89341d9767470a",
+  "feature": "hud-compact",
+  "versionMarker": "3.4.0-hud-compact-v1",
+  "rustToolchain": "1.99.1-x86_64-pc-windows-gnu",
+  "cargoCommand": [
+    "cargo",
+    "build",
+    "--release",
+    "--bin",
+    "psmux",
+    "--features",
+    "hud-compact",
+    "--locked",
+    "--offline"
+  ],
+  "pathOrder": [
+    "tools/msys2/mingw64/bin",
+    "toolchain/bin",
+    "toolchain/lib/rustlib/x86_64-pc-windows-gnu/bin",
+    "toolchain/lib/rustlib/x86_64-pc-windows-gnu/bin/self-contained"
+  ],
+  "rustFlags": "-C linker=<lab>/toolchain/lib/rustlib/x86_64-pc-windows-gnu/bin/rust-lld.exe -C linker-flavor=ld.lld -C link-self-contained=yes -L native=<lab>/native-libs",
+  "nativeImportAlias": {
+    "purpose": "build-only IMM32.dll import-library filename alias",
+    "source": "<lab>\\vendor\\winapi-x86_64-pc-windows-gnu-0.4.0\\lib\\libwinapi_imm32.a",
+    "destination": "<lab>\\native-libs\\libimm32.a",
+    "sourceSha256": "f26dda47a3459748d872bd930aec687840a8d13b7f4831e05a4416e7333960af",
+    "destinationSha256": "f26dda47a3459748d872bd930aec687840a8d13b7f4831e05a4416e7333960af",
+    "packageChecksum": "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
+  },
+  "changedSourceFiles": [
+    {
+      "path": "Cargo.toml",
+      "sha256": "51f8eac29678fb4cd84d7ec0763cad95f5e52f82aeb103c266fd3036ea99bd0c",
+      "hasUpstreamOriginal": true
+    },
+    {
+      "path": "src/main.rs",
+      "sha256": "3ef86a9a420e228b2f5539b73a0cbed8d117b81dfa615fdc47f96598e3b60e59",
+      "hasUpstreamOriginal": true
+    },
+    {
+      "path": "src/hud_compact.rs",
+      "sha256": "e16ddfc9745e8cea962bd56f92daae037f125545ae8b3b74e135adad11942dcc",
+      "hasUpstreamOriginal": false
+    },
+    {
+      "path": "src/tree.rs",
+      "sha256": "c0b7076803391432b5f237955b1db002ded1a74933d9ba27d91708c17ff6afe6",
+      "hasUpstreamOriginal": true
+    },
+    {
+      "path": "src/client.rs",
+      "sha256": "9960a11680a8fda1b4ffd53a281079a67f3c0268ae4d6bcd6d3ad651f5bef69f",
+      "hasUpstreamOriginal": true
+    },
+    {
+      "path": "src/types.rs",
+      "sha256": "66b3b7c804e941037a61c2de0253e3442607c00098a981c35971f3bd6de27a22",
+      "hasUpstreamOriginal": true
+    },
+    {
+      "path": "src/pane.rs",
+      "sha256": "9cc3681255117715875567b0a4bfd98ba0d2399223ef8a4684fdcdaeebe32410",
+      "hasUpstreamOriginal": true
+    },
+    {
+      "path": "src/server/mod.rs",
+      "sha256": "1cf8bce82c6bdea6a98304ae936a0688ce2c90f33ee19c04887dae5f43f22282",
+      "hasUpstreamOriginal": true
+    },
+    {
+      "path": "src/window_ops.rs",
+      "sha256": "7fd8bd6ce8be5d918f466429526005c523a0f282fda36e3680055dc11fc6f8ce",
+      "hasUpstreamOriginal": true
+    },
+    {
+      "path": "tests-rs/test_hud_compact_render.rs",
+      "sha256": "9f56b117798e7dea863b5174545ae22de27a17e6508ea84c4155e24da7103bc9",
+      "hasUpstreamOriginal": false
+    },
+    {
+      "path": "tests-rs/test_hud_compact_lifecycle.rs",
+      "sha256": "9607bcfb26aaff1429580c0e280c3b1ce3777f809fc9ea811827302fa691337d",
+      "hasUpstreamOriginal": false
+    }
+  ],
+  "validation": {
+    "compactFocused": {
+      "passed": 25,
+      "failed": 0,
+      "log": "cargo-compact-held-drag-green.log"
+    },
+    "normalFullUnit": {
+      "passed": 5128,
+      "failed": 8,
+      "ignored": 2,
+      "log": "cargo-normal-full-unit-tests.log"
+    },
+    "normalNeutralRerun": {
+      "recoveredDefaultWarmTests": 6,
+      "remainingUnchangedUpstreamCases": [
+        "pane::test_sync_output_gate::sync_gate_flood_inside_an_open_frame_stays_linear",
+        "pane::tests_issue474_unix_shells::bash_default_shell_gets_login_flag_and_chere"
+      ],
+      "log": "normal-failure-classification.log"
+    },
+    "normalStandaloneHelper": {
+      "passed": 11,
+      "failed": 0
+    },
+    "normalFinalFocused": {
+      "passed": 12,
+      "failed": 0,
+      "log": "cargo-normal-held-drag-focused-tests.log"
+    }
+  },
+  "artifact": {
+    "path": "<lab>\\target\\release\\psmux.exe",
+    "size": 7414784,
+    "sha256": "7bb642e5c36a7af4f0466a95a8d2d11e159885e953682748a2575c5a9afd1055",
+    "imports": [
+      "IMM32.dll",
+      "bcryptprimitives.dll",
+      "api-ms-win-core-synch-l1-2-0.dll",
+      "ADVAPI32.dll",
+      "IPHLPAPI.DLL",
+      "KERNEL32.dll",
+      "msvcrt.dll",
+      "ntdll.dll",
+      "USER32.dll",
+      "USERENV.dll",
+      "WINMM.dll",
+      "WS2_32.dll"
+    ],
+    "cleanPathVersion": "tmux 3.4.0\npsmux 3.4.0-hud-compact-v1 (20aa1d7)",
+    "cleanPathExitCode": 0,
+    "statusOffReserveRows": 0,
+    "liveDragResizesPty": true
+  },
+  "releaseLog": "cargo-compact-held-drag-release.log",
+  "supersededArtifactSha256": "cdd99ffbb91e612dd95ec26d42e0ae784680a903c70a9fc000b1bf20dfd4abbe"
+}

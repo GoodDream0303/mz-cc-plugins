@@ -2,11 +2,152 @@
 
 An independent companion HUD for each simultaneously running Codex in PowerShell
 WT tabs or separate PowerShell windows. The official CLI and native statusline
-remain intact. UI is English; task names retain their original language.
+remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
+task names retain their original language.
 
-> This checkout contains the unreleased 0.4.0 exact-host implementation. Installed
-> 0.3.4 still has the WT MRU placement defect. Source tests and synthetic desktop
-> checks do not establish real Codex trust/shared-daemon acceptance or deployment.
+## Version 0.7.13: less refresh work and clearer headings
+
+The viewer avoids duplicate renders and unused timestamp/Git work. Idle session
+readers reuse hash work only within each validation phase and defer increment
+buffers until data arrives. Session discovery reads verified metadata with at
+most eight workers while preserving duplicate-ID and equal-time ordering.
+Unused viewport helpers and ineffective configuration labels have been removed.
+
+Current, Recent, Agents and Todo headings have compact monochrome icons and a
+separate `colors.heading` foreground. Activity colors, provenance checks and the
+foreground-first startup behavior remain intact. Component measurements support
+reduced work; real launch duration and long-term stability remain acceptance items.
+
+## Version 0.7.12: foreground-first startup
+
+The host publishes its exact HUD intent and starts the official frontend before
+waiting for the viewer acknowledgement. HUD process/pane verification continues
+in parallel; acknowledgement still requires fresh process facts. If the frontend
+exits or cannot start, the acknowledgement wait is cancelled and only that host's
+HUD is asked to stop. Ordinary arguments, exit status and runtime choice are kept.
+
+A proven SessionStart hook can bind the published intent while the owner is still
+opening its HUD, without creating another pane. Regression tests prove startup
+ordering and binding, not an end-to-end improvement in real UI launch time.
+
+## Dedicated MCP features removed in 0.7.12
+
+MCP connection summaries, dedicated scheduling/call rows and their settings have
+been removed. Tool calls, including MCP calls, use the normal Current/Recent
+activity display. HUD no longer reads MCP configuration or queries live MCP
+connections. The WebSocket/TOML dependencies and vendored runtimes are removed.
+Old `display.showMcp`, `colors.mcpConnected`, `mcp`/`mcpCalls` order entries and
+`host.runtime` settings may remain in saved files, but do not enable these features.
+
+The foreground-first startup improvement above is retained. Existing legacy
+remote sessions keep their exact source/ancestry compatibility checks solely for
+HUD attachment; HUD does not start, stop or switch their App Server.
+
+## Startup proof reuse
+
+New host startup reuses its just-read owner snapshot for the immediate display
+check, saving one repeated process query. Reuse is limited to the same bootstrap,
+caller and known PIDs within 100 ms; a delay beyond that bound or a new PID triggers a fresh
+query, and viewer acknowledgement always obtains fresh facts. Birth times,
+ancestry and physical pane checks remain required; no background service is added.
+
+## Compatibility repair after 0.7.9
+
+The automatic local App Server experiment is retired. HUD preserves the user's
+ordinary Codex invocation; it does not add `--remote`, create an App Server or
+change session metadata to obtain a Connected label. Old `host.runtime` values
+remain parseable for migration, but cannot enable that automatic startup path.
+Already running 0.7.9 remote sessions need normal user-controlled exit/resume;
+they cannot hot-migrate. Existing proven legacy hosts can still be displayed.
+
+New remote TUI metadata can be tagged `source=vscode` with exact
+`originator=codex-tui` and `thread_source=user`. HUD accepts that shape only after
+its existing physical host/ancestry checks, so affected existing conversations
+can reopen their HUD. IDE clients, subagents and unproven hosts stay excluded.
+No other plugin's files or configuration are modified.
+
+Version 0.7.8 refines tool labels: only agent operations display a task target.
+Ordinary tools show their action and recorded duration without file names,
+directories or other object summaries. Git subcommands remain part of the action
+label.
+
+> Version 0.7.6 reduces periodic process-query overhead, rechecks stable automatic
+> height at most once per five seconds, and reads session metadata in small chunks.
+> Content or terminal geometry changes trigger fresh height checks; every resize
+> still requires the original process and pane proof. Packaged backend digests
+> are reused only while file identity, size, change and modification times, and
+> the checksum pin remain unchanged. Running viewers keep their existing code
+> until the updated package is installed and opened.
+>
+> Version 0.7.5 emphasizes current tools and starting/running agents with bright
+> foreground text, while recent tools and inactive agents use gray. The Agents
+> heading has its own line and all agent rows share the same indentation.
+> Backgrounds and font weight remain unchanged.
+>
+> Version 0.7.4 separates a missing Windows Terminal from a timed-out or failed
+> lookup. Demo dry-run only prepares isolated launch metadata and needs no
+> Terminal lookup; actual demos still check Terminal. Explicit configurations
+> keep their demo/doctor/stop runtime records together. Ordinary psmux hosting
+> does not require Windows Terminal. Packaged runtime errors direct users to
+> repair the formal installation.
+>
+> Version 0.7.3 displays common tool actions as readable names such as Run command,
+> Run script, Follow up on task, Ask user and Wait. Labels follow the configured
+> English, Simplified Chinese or Traditional Chinese language. Unknown tools keep
+> their original names; counts still group by the original tool name and status.
+>
+> Version 0.7.2 restores native terminal selection and copy behavior. The HUD no
+> longer takes mouse ownership, freezes a selected frame or writes the clipboard.
+> Tool activity still separates current calls from recent history. Reported
+> terminal calls expire after 60 seconds; unknown ages remain bounded without a
+> guessed completion time.
+>
+> Version 0.7.0 displays one task row per agent with structured action, actual
+> model, elapsed task time and child cumulative tokens (Σ). Active work has
+> priority; reported completions disappear after 60 seconds, with at most two
+> recent terminal rows. Three agent rows are shown by default; set
+> `display.agentsMaxVisible=0` for all retained active rows. Hidden work has a +N
+> summary. Unknown end times stay bounded without inventing an age.
+> Tool counts group the retained recent calls by full name and status, keeping
+> success, failure and cancellation separate. Counts are not lifetime totals.
+>
+> Version 0.6.3 also recovers missing model metadata for completed agents from
+> their verified child logs, without changing a completed or closed state.
+>
+> Version 0.6.2 keeps Ctrl+C from closing the HUD, suppresses the pager during
+> pending automatic growth, and fills missing parent agent completion events
+> from exact child-session lifecycle metadata after checking parent and timing.
+> Ordinary messages do not start a new agent turn; q still closes the viewer.
+>
+> Version 0.6.1 also lets new clients reopen an existing verified host after its
+> old package cache has been removed. Package-managed backend paths follow the
+> current checksum-verified bundle; explicit portable paths stay explicit, and
+> server/process/pane ownership checks remain required.
+>
+> Version 0.6.0 adds guided first-use setup, optional continuous content height,
+> correlated agent lifecycle and actual model labels, and live tool status.
+> Existing fixed/manual sizing is preserved; enable `terminal.dynamicHeight`
+> in Configuration → Terminal to fit content continuously. Existing PowerShell
+> loaders select the new installed runtime on the next ordinary Codex launch;
+> running viewers keep their loaded code until reopened.
+>
+> Version 0.5.2 limits startup metadata lookup to this plugin's configured
+> marketplace, avoiding delays from unrelated markets. Fallback notices include
+> a safe failure stage/code without logging invocation arguments or credentials.
+> For an existing 0.5.1 setup, refresh the copied bootstrap once with the installed
+> 0.5.2 setup and reload the profile. A marketplace package upgrade alone cannot
+> replace bootstrap files outside its cache; daily launch commands stay unchanged.
+>
+> Version 0.5.1 adds stable PowerShell startup across plugin upgrades and safe
+> fallback to official Codex when HUD preflight fails. Existing version-bound
+> profiles need one setup migration and shell reload; ordinary later upgrades
+> keep the normal `codex` and `codex resume` commands without repeated setup.
+>
+> Version 0.5.0 includes a checksum-pinned compact terminal backend, six-row initial
+> sizing, separate quota-window controls and prerequisite-gated first-run setup.
+> See [validation](docs/validation.md) for tested scope and remaining real-session
+> checks. Existing running processes keep their loaded backend until a new host
+> starts. Older 0.3.4 runtimes retain the WT MRU placement defect.
 
 ## How automatic pairing works
 
@@ -15,7 +156,8 @@ unique psmux host inside that same tab/window and executes the verified official
 npm JavaScript entry or native executable once, preserving the original argv.
 Help, maintenance commands and non-TTY pipelines run without the terminal host.
 
-Each source bootstrap opens its own waiting HUD before the first model turn.
+Each source bootstrap publishes its own waiting HUD intent, then starts the
+official frontend while its HUD finishes opening.
 Native SessionStart later binds that source's main CLI metadata. The hook verifies
 the actual launched entry process incarnation, Codex ancestry, server/session,
 source pane and viewer pane; thread ID or `%1` alone never establishes ownership.
@@ -36,13 +178,68 @@ psmux. Apply setup to future launches, then verify the actual multi-session flow
 
 ## Installation and one-time PowerShell setup
 
-Requires native Windows, Node 20+, and verified portable psmux **3.4.0 build
-20aa1d7**. The fixed official ZIP SHA256 is
+The target environment already has official Codex and Node 20+. Keep using
+`codex` and `codex resume <ID>`; no replacement launch command is introduced.
+After marketplace installation, ask the installed `hud-setup` skill to guide the
+one-time initialization for the PowerShell hosts you use. Existing ordinary
+Codex processes keep running; initialization applies to subsequent launches.
+
+Requires native Windows x64 and Node 20+. Packages with the compact backend include
+`backend/psmux.exe`, its pinned checksum manifest and upstream license. Fresh
+configuration selects that verified bundled backend automatically. Existing
+explicit backend paths are preserved. The compact backend removes the dedicated
+horizontal separator row; **Alt + drag** on the source pane's underlined last row
+resizes it, while ordinary selection keeps working.
+
+The original portable psmux **3.4.0 build 20aa1d7** remains supported as an explicit
+alternative, with its original separator row and drag behavior. Its fixed ZIP
+SHA256 is
 `a66b6be7c13c6fa0dc3660a267b9e34eaa91a4eb7f07fbd55a0468018bd0f721`.
 See [the fixed release](https://github.com/psmux/psmux/releases/tag/v3.4.0).
 No global PATH changes or automatic dependency installation are performed.
 
-After the candidate has actually been published, use the formal marketplace:
+The marketplace's **Set up** action opens the packaged `hud-setup` onboarding
+skill. It checks prerequisites, previews the one-time changes, guides native hook
+review and keeps the normal `codex` / `codex resume` commands. An existing plain
+Codex process must be resumed from a newly initialized shell to gain its HUD host.
+
+Native Codex does not require a separately callable Node runtime. This HUD does:
+use an existing Node 20+ executable, or choose an official Node LTS installation
+or portable runtime during onboarding. No compiler, Rust toolchain or manual
+package build is required. Missing Node is reported before Node-based diagnostics.
+
+Installing the package alone does not change PowerShell profiles. Initialization
+uses the existing Node runtime; an explicit portable executable can also be
+selected. The bundled backend and shipped runtime need no Rust, npm install or build.
+Run the PowerShell-first setup entry separately from each PS5/PS7 host you use:
+
+```powershell
+# Preview the concrete profile block, settings changes and runtime prerequisites.
+& "<plugin-root>/bin/setup.ps1" -Enable
+# After reviewing that preview, apply the same setup.
+& "<plugin-root>/bin/setup.ps1" -Enable -Apply
+```
+
+Use `-NodePath "C:/tools/node/node.exe"` if Node is not on PATH. Setup checks its
+version before invoking JavaScript; the generated entry makes that pinned runtime
+available to its child hooks and restores the parent shell PATH after Codex exits.
+`-ProfilePath` and `-ConfigPath` can explicitly select destinations. Default setup
+is a dry run. Applying initialization refuses missing/unsupported prerequisites
+before writing either file; `-Enable` opts into exact-host startup and pauses the
+legacy startup flag. Setup does not launch Codex or submit a model prompt.
+For a source checkout without the bundled binary, or to retain the original
+backend explicitly, supply `-PsmuxPath "C:/tools/psmux/psmux.exe"` after verifying
+the upstream archive. A compact replacement must also match the package's pinned
+artifact checksum.
+
+Doctor now reports `setup.prerequisites`, missing actions and their next steps.
+Its `setup.ready` means runtime prerequisites passed, not that a profile was loaded
+or a native hook was trusted. Review the installed hook through `/hooks`, open a
+new PowerShell session and verify real interaction after setup. Legacy direct
+`setup --profile ...` is profile-only; use `--initialize` for prerequisite-gated
+initialization, with optional `--psmux` and `--enable`.
+
+Use the formal marketplace:
 
 ```powershell
 codex plugin marketplace add GoodDream0303/mz-cc-plugins
@@ -54,7 +251,8 @@ Use the installed plugin's direct `node <plugin-root>/bin/hud.mjs` entry for the
 following operations; the optional global npm link can target older source.
 Do not silently replace the formal marketplace with a local installation.
 
-1. Configure `host.psmuxPath` to the verified portable executable's absolute path.
+1. Keep the verified bundled `host.psmuxPath`, or explicitly select a supported
+   portable executable's absolute path.
 2. From each PowerShell 5/7 shell, resolve `$PROFILE.CurrentUserCurrentHost`.
 3. Preview `setup --profile <absolute-profile-path>`. Review the concrete block,
    then explicitly apply with the same command plus `--apply`.
@@ -68,16 +266,85 @@ Do not silently replace the formal marketplace with a local installation.
 
 Setup preserves existing profile content/encoding and refuses modified managed
 blocks or conflicting functions/aliases. `setup --profile ... --remove --apply`
-removes only its own verified block. Cache upgrades are checked against the
-installed-version selection: an obsolete retained loader reports that setup must
-be regenerated, rather than silently using old code. Deleted paths fail visibly.
+removes only its own verified block. Initialization deploys a small PowerShell
+loader and a standalone resolver beside the selected configuration, outside the
+versioned cache. A cached installation's profile stores its plugin identity,
+rather than its current version path. Each invocation discovers the official
+command again and queries its bounded `plugin list --json` output to select the
+actual installed, enabled package. Residual cache directories are not authority.
+
+When migrating from a version-bound profile, apply initialization once and open
+a new PowerShell or reload its profile once. Other already-open shells cannot
+have their old in-memory functions replaced remotely. After this migration, a
+plugin upgrade or deletion of its old cache needs no repeated setup or profile
+reload. Existing Codex/HUD processes still keep their loaded runtime.
+This applies to selection of the versioned runtime. A fix to the copied bootstrap
+itself, including 0.5.1 to 0.5.2, needs a one-time setup refresh; reload its profile
+to adopt changes to the PowerShell function as well.
+
+Disabled/uninstalled plugins, unavailable metadata, corrupt runtime imports,
+invalid settings and backend preflight failures print a short notice and start
+official Codex without the HUD. Literal arguments, input and exit status are
+preserved through the existing Node runtime. Even a missing/corrupt resolver has
+an independent official-launch fallback; if Node itself is unavailable, the
+external official command is invoked using PowerShell's normal semantics. A
+deleted loader leaves the original external `codex` command visible on profile
+load. Official errors and nonzero exits are never retried. If a started backend
+may already have executed Codex, its result is propagated rather than risking a
+duplicate session. An OS spawn failure proves the backend did not execute and
+can fall back safely.
+
+Saved backend paths inside this plugin's versioned `backend/psmux.exe` directory
+are package-managed and follow the current verified bundled artifact at runtime;
+the saved configuration need not be rewritten. Explicit portable backend paths
+outside that directory are retained. The active backend remains checksum-checked.
 
 No prompts, invocation arguments, command output, credentials or environment dumps
 are persisted in HUD state. Bindings contain only allowlisted identity/lifecycle
 metadata. Official Codex shims, approval/sandbox/daemon settings and WT settings
 are unchanged. No automatic model request is made for setup or self-test.
 
+## Manual opening and initialization
+
+In the intended Codex conversation, invoke `$codex-hud:hud-start` to manually open
+or reopen its HUD. This does not initialize profiles or start another Codex.
+Use `$codex-hud:hud-setup` for first-time setup; the marketplace Set up action
+routes there. Existing CLI `start` remains manual attachment and `setup` remains
+initialization. A plain PowerShell outside a registered host cannot guess which
+open conversation to control.
+
+Transient source-identity queries keep the viewer visible with a warning, stop
+unverified resizing until the source is revalidated.
+Launch metadata records a safe `exitReason`/exit code, and a safe error code for
+fatal errors; it never stores raw error messages or command/transcript content.
+Earlier 0.7.9 exit records lack a reason and cannot establish the cause of a past
+closure merely from exitCode=0.
+
 ## Commands and diagnostics
+
+The interactive configuration menu follows `language`: `en` (default),
+`zh-Hans` (Simplified Chinese) or `zh-Hant` (Traditional Chinese). Open **1 Layout**,
+then **1 Language**, and enter `zh-Hans` to switch the draft menu immediately.
+Choose **s Save** to persist it or **q Cancel** to leave the saved configuration
+unchanged. The same language setting controls HUD labels; task names and custom
+text stay exactly as written.
+
+Each option includes an input example and an explanation of its effect. Selecting
+an option shows its allowed values or range before editing. Enter keeps a text or
+numeric value unchanged; `""` explicitly clears a text value. Long sections show
+eight options per page: enter **n** for the next page or **p** for the previous
+page, then press Enter. First/last-page boundaries show a message. Editing keeps
+the current page open; an empty response returns to the main menu. **v** previews
+from either menu; **s** saves and **q** cancels from either menu. Option numbers
+remain stable across pages. Unavailable and inactive compatibility fields are
+hidden; their existing saved values remain untouched.
+
+Quota display has a master switch and separate **5-hour quota** / **7-day quota**
+switches. Both windows are enabled by default, with zero display thresholds.
+Each label comes from the recorded window duration, not primary/secondary order.
+Only windows actually supplied by Codex telemetry are shown; absent windows
+have no placeholder. Explicit existing switches/thresholds remain in
+effect; the weekly default change does not overwrite saved preferences.
 
 ```powershell
 node "<plugin-root>/bin/hud.mjs" doctor
@@ -96,9 +363,22 @@ for live proof separately. `origin: present` is not a verified ownership claim.
 `once --session <ID>` can inspect explicit telemetry, but is not a placed HUD.
 `watch` remains available for manual rendering; `demo` uses an isolated preview.
 
-The initial HUD height uses the exact source pane's geometry and configured
-content. It runs only at creation; later wrapping/paging preserves manual resizing.
-Use q/Ctrl+C to close the HUD, or `stop --launch <launch-id>` to request its exit.
+The default initial HUD height is six visible rows (`terminal.initialRows = 6`).
+Small terminals reduce that target to preserve room for Codex. Enable
+`terminal.autoHeight` to fit content instead, or use `initialRows = 0` with
+auto-height disabled to use the percentage limit. Initial sizing runs at creation.
+For continuous fitting, enable `terminal.dynamicHeight` in Configuration →
+Terminal. Three content rows then occupy three HUD rows, six occupy six, including
+wrapped lines and warnings. The pane ratio limits growth and ten source rows are
+reserved; overflow stays paged. Growth waits one stable refresh and shrinking
+waits at least two seconds to avoid flicker. With this option off (the compatibility
+default), later wrapping/paging preserves manual sizing; with it on, content
+fitting resumes after a manual drag. Additional internal panes or changed host
+identity stop automatic resizing and leave the existing size in place.
+While a verified growth is pending, the HUD clips to its current viewport without
+showing a temporary pager. Genuine overflow at the size cap still shows paging.
+Use q to close the HUD, or `stop --launch <launch-id>` to request its exit.
+Ctrl+C does not close the HUD; terminal selection/copy shortcuts remain available.
 
 ## Source development
 
@@ -112,7 +392,6 @@ Daily changes are not automatically published or applied to user profiles.
 ```powershell
 mz-codex-hud.cmd configure
 mz-codex-hud.cmd config show
-mz-codex-hud.cmd config set display.showMcp true
 mz-codex-hud.cmd config set display.showModel true
 mz-codex-hud.cmd import-claude
 mz-codex-hud.cmd import-claude --yes
@@ -128,8 +407,32 @@ explicit file. Saves are validated, backed up and atomic. Valid edits hot-reload
 Use Left/Right or p/n for overflow pages; drag the pane divider to resize.
 
 Context uses latest telemetry; cumulative/cache token counts remain distinct.
-Quota labels use actual window durations. MCP reports configured/called/unknown
-facts. Unavailable cost, speed, cache expiry and Skills data is never invented.
+Quota labels use actual window durations. Unavailable cost, speed, cache expiry
+and Skills data is never invented.
+Agent entries correlate spawn calls with actual thread IDs or task paths and
+follow reported start, run, interrupt, complete, fail, close and resume events.
+The Agents heading occupies its own line; entries and wrapped continuations share
+the same indentation. Starting/running agents and current tools use bright text,
+while inactive agents and recent tools use gray text. Customize these foregrounds
+with `colors.active` and `colors.inactive`; tool failures retain the critical color.
+Current, Recent, Agents and Todo headings use compact monochrome icons and a
+separate soft gray-blue foreground, configurable with `colors.heading`.
+Backgrounds and font weight stay unchanged, and color-disabled output stays plain.
+Completed spawn/wait tools alone do not mean an agent finished. Missing lifecycle
+metadata is shown as `status not reported`; prompt and result bodies are discarded.
+Each agent also shows its reported actual model. The requested or parent model
+does not override resolved spawn/activity metadata; absent data is displayed as
+`model not reported`. Later completion updates keep the last reported model.
+If the parent misses a completion notification, active agents can be reconciled
+with their exact child session logs. The recorded parent must match, and an old
+child completion cannot undo a newer task request. This reads lifecycle/model
+metadata, not message bodies or agent-service APIs. Sending an ordinary message
+does not imply that an idle agent started working again.
+Tool activity refreshes from the same incremental log reader (every second by
+default). Running calls stay visible ahead of recent completions; yielded command
+sessions remain running until a final process/poll result. Symbols distinguish
+running `◐`, completed `✓`, failed `✗` and cancelled `⊘`. Reported events determine
+status; unavailable runtime events are not invented from command output text.
 See [configuration compatibility](docs/compatibility.md).
 
 ## Preview and checks

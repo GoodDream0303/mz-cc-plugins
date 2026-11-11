@@ -32,3 +32,32 @@ test('loading the entry preserves the calling PowerShell error preference',{skip
  fs.writeFileSync(runner,`$ErrorActionPreference='Continue'\n$global:LASTEXITCODE=29\n. ${quote(entry)} -HudCli ${quote(cli)} -NodePath ${quote(process.execPath)}\nWrite-Output $ErrorActionPreference\nWrite-Output $LASTEXITCODE\n`);
  const result=spawnSync('pwsh.exe',['-NoLogo','-NoProfile','-NonInteractive','-File',runner],{encoding:'utf8',env:{...process.env,PATH:f.root+path.delimiter+process.env.PATH},timeout:10000});assert.equal(result.status,0,result.stderr);assert.deepEqual(result.stdout.trim().split(/\r?\n/),['Continue','29']);
 });
+
+test('PowerShell entry accepts an official npm installation with only a cmd shim',{skip:process.platform!=='win32'},t=>{
+ const f=fixture(t);fs.renameSync(f.command,path.join(f.root,'codex.cmd'));
+ const entry=path.resolve(import.meta.dirname,'../bin/powershell-entry.ps1'),runner=path.join(f.root,'cmd-only.ps1'),quote=s=>"'"+s.replaceAll("'","''")+"'";
+ fs.writeFileSync(runner,`. ${quote(entry)} -HudCli ${quote(cli)} -NodePath ${quote(process.execPath)}\n'fixture' | codex exec\nexit $LASTEXITCODE\n`);
+ const win=process.env.SystemRoot??'C:/Windows',safePath=[f.root,path.dirname(process.execPath),path.join(win,'System32'),path.join(win,'System32/WindowsPowerShell/v1.0')].join(path.delimiter);
+ const result=spawnSync(path.join(win,'System32/WindowsPowerShell/v1.0/powershell.exe'),['-NoProfile','-NonInteractive','-File',runner],{encoding:'utf8',env:{...process.env,PATH:safePath,LOCALAPPDATA:f.root},timeout:15000});
+ assert.equal(result.status,17,result.stderr);assert.deepEqual(JSON.parse(result.stdout).args,['exec']);
+});
+
+test('pinned Node is available to hook descendants without permanently changing the shell PATH',{skip:process.platform!=='win32'},t=>{
+ const f=fixture(t);fs.writeFileSync(path.join(f.root,'node_modules/@openai/codex/bin/codex.js'),"import {execFileSync} from 'node:child_process';console.log(execFileSync('node',['--version'],{encoding:'utf8'}).trim());");
+ const entry=path.resolve(import.meta.dirname,'../bin/powershell-entry.ps1'),runner=path.join(f.root,'node-path.ps1'),quote=s=>"'"+s.replaceAll("'","''")+"'";
+ fs.writeFileSync(runner,`. ${quote(entry)} -HudCli ${quote(cli)} -NodePath ${quote(process.execPath)}\n$beforePath=$env:PATH\n'' | codex --version\nif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\nif ($env:PATH -ne $beforePath) { throw 'Parent PATH changed' }\n`);
+ const win=process.env.SystemRoot??'C:/Windows',safePath=[f.root,path.join(win,'System32'),path.join(win,'System32/WindowsPowerShell/v1.0')].join(path.delimiter);
+ const result=spawnSync(path.join(win,'System32/WindowsPowerShell/v1.0/powershell.exe'),['-NoProfile','-NonInteractive','-File',runner],{encoding:'utf8',env:{...process.env,PATH:safePath,LOCALAPPDATA:f.root},timeout:15000});
+ assert.equal(result.status,0,result.stderr);assert.equal(result.stdout.trim(),process.version);
+});
+
+test('profile-selected settings reach both the official child and native hook while parent environment is restored',{skip:process.platform!=='win32'},async t=>{
+ const f=fixture(t),custom=path.join(f.root,'selected/config.json'),profile=path.join(f.root,'selected-profile.ps1');fs.mkdirSync(path.dirname(custom));fs.writeFileSync(custom,JSON.stringify({language:'zh-Hans',startup:{enabled:false},host:{autoStart:'disabled'}}));
+ const configModule=path.resolve(import.meta.dirname,'../dist/config.js'),hook=path.resolve(import.meta.dirname,'../hooks/session-start.mjs');
+ fs.writeFileSync(path.join(f.root,'node_modules/@openai/codex/bin/codex.js'),`import {pathToFileURL} from 'node:url';import {spawnSync} from 'node:child_process';const {configPath,loadConfig}=await import(pathToFileURL(${JSON.stringify(configModule)}));const hook=spawnSync(process.execPath,[${JSON.stringify(hook)}],{input:JSON.stringify({hook_event_name:'SessionStart',source:'startup'}),encoding:'utf8'});if(hook.status!==0)throw Error(hook.stderr);console.log(JSON.stringify({file:configPath(),language:loadConfig().language}));`);
+ const {profileChange,applyProfileChange}=await import('../dist/profile-setup.js');applyProfileChange(profileChange(profile,{entry:path.resolve(import.meta.dirname,'../bin/powershell-entry.ps1'),cli,node:process.execPath,configFile:custom}));
+ const runner=path.join(f.root,'selected.ps1'),quote=s=>"'"+s.replaceAll("'","''")+"'";fs.writeFileSync(runner,`. ${quote(profile)}\n$beforeConfig=$env:MZ_HUD_CONFIG_FILE\n'' | codex --version\nif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\nif ($env:MZ_HUD_CONFIG_FILE -ne $beforeConfig) { throw 'Parent configuration changed' }\n`);
+ const env={...process.env,PATH:f.root+path.delimiter+process.env.PATH,LOCALAPPDATA:path.join(f.root,'local')};delete env.MZ_HUD_CONFIG_FILE;
+ const result=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-File',runner],{encoding:'utf8',env,timeout:15000});assert.equal(result.status,0,result.stderr);assert.deepEqual(JSON.parse(result.stdout),{file:custom,language:'zh-Hans'});
+ assert.equal(JSON.parse(fs.readFileSync(path.join(path.dirname(custom),'runtime/autostart-status.json'),'utf8')).status,'disabled');assert.ok(!fs.existsSync(path.join(env.LOCALAPPDATA,'mz-codex-hud/runtime/autostart-status.json')));
+});

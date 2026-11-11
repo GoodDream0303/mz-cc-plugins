@@ -15,18 +15,21 @@ import {sanitize} from './terminal-text.js';
 import {emptySnapshot,type HudSnapshot} from './types.js';
 import {buildTerminalArgs,checkRuntime,createLaunch,readLaunch,requestStop,runtimeRoot,selectSessionId,updateLaunch,type LaunchDescriptor} from './runtime.js';
 import {loadCurrentHost,ensureHostDisplay,bindHostSession,acknowledgeViewer,readHost} from './host-session.js';
-import {readProcessFacts} from './psmux.js';
+import {readProcessIdentities} from './psmux.js';
 import {decodeInvocation,launchHostedCodex,runHostOwner,runHostFrontend} from './host-launch.js';
-import {profileChange,applyProfileChange} from './profile-setup.js';
+import {profileChange,applyProfileChange,stableEntryPlan,applyStableEntry} from './profile-setup.js';
 import {fileURLToPath} from 'node:url';
 import {assertActiveEntry} from './entry-install.js';
+import {inspectSetup} from './setup-readiness.js';
 import {sessionMetadata,isMainSession} from './autostart.js';
+import {DynamicHeightController} from './dynamic-height.js';
+import {AgentSessionTracker} from './agent-sessions.js';
 
 function option(args:string[],key:string):string|undefined{const i=args.indexOf(key);return i>=0?args[i+1]:args.find(v=>v.startsWith(key+'='))?.slice(key.length+1);}
 function launchFile(args:string[]):string|undefined{const encoded=option(args,'--launch64');return encoded?Buffer.from(encoded,'base64').toString('utf8'):option(args,'--launch');}
 function configFile(args:string[]):string{return option(args,'--config')??configPath();}
 function preview(config:Config):string[]{
- return render({...emptySnapshot('preview'),model:'Codex Demo',effort:'high',cwd:'C:/projects/firmware',context:{used:45000,window:200000},latest:{input:42000,cached:30000,output:3000,reasoning:1000,total:45000},totals:{input:120000,cached:90000,output:10000,reasoning:3000,total:130000},quotas:[{id:'demo',minutes:300,usedPercent:25,resetsAt:Math.floor(Date.now()/1000)+3600}],agents:[{id:'demo',name:'reviewer',status:'unknown'}],todos:[{step:'Validate firmware',status:'in_progress'}],mcpUsed:['docs']},config,{width:process.stdout.columns??100,height:100,color:!!process.stdout.isTTY}).lines;
+ return render({...emptySnapshot('preview'),model:'Codex Demo',effort:'high',cwd:'C:/projects/firmware',context:{used:45000,window:200000},latest:{input:42000,cached:30000,output:3000,reasoning:1000,total:45000},totals:{input:120000,cached:90000,output:10000,reasoning:3000,total:130000},quotas:[{id:'demo:5h',minutes:300,usedPercent:25,resetsAt:Math.floor(Date.now()/1000)+3600},{id:'demo:7d',minutes:10080,usedPercent:35,resetsAt:Math.floor(Date.now()/1000)+86400}],agents:[{id:'demo',name:'reviewer',status:'running'}],todos:[{step:'Validate firmware',status:'in_progress'}]},config,{width:process.stdout.columns??100,height:100,color:!!process.stdout.isTTY}).lines;
 }
 async function chooseSession(root:string):Promise<string>{
  const sessions=(await listSessions(root)).filter(s=>!s.parentId).slice(0,20);if(!sessions.length)throw new Error('No sessions found');
@@ -40,23 +43,33 @@ async function watch(args:string[],once=false):Promise<void>{
  let selected=descriptor?.host?descriptor.sessionId:descriptor?.sessionId??selectSessionId(option(args,'--session'));if(!selected&&!descriptor?.host)selected=await chooseSession(root);
  if(descriptor?.host&&!once){acknowledgeViewer(ownedFile!);descriptor=readLaunch(ownedFile!);}
  let cfgFile=descriptor?.configFile??configFile(args),config=loadConfig(cfgFile);let page=0,quit=false,reader:SessionReader|undefined,nextDiscover=0,nextOwnerCheck=0,knownPath='',statusMessage='';let lastSnapshot=emptySnapshot(selected??'pending');
- const onKey=(_:unknown,key:{name?:string;ctrl?:boolean})=>{if(key?.name==='q'||key?.name==='c'&&key.ctrl)quit=true;else if(key?.name==='right'||key?.name==='n')page++;else if(key?.name==='left'||key?.name==='p')page=Math.max(0,page-1);};
+ let exitReason:NonNullable<LaunchDescriptor['exitReason']>='normal',exitErrorCode:string|undefined,sourceMessage='',sourceVerified=true;
+ let bodyFailed=false;
+ const recordFailure=(error:unknown)=>{exitReason='error';const code=(error as NodeJS.ErrnoException)?.code;exitErrorCode=typeof code==='string'&&/^[A-Z0-9_]{1,64}$/.test(code)?code:undefined;};
+ const onKey=(_:unknown,key:{name?:string;ctrl?:boolean})=>{if(key?.name==='q'){quit=true;exitReason='user-quit';}else if(key?.name==='right'||key?.name==='n')page++;else if(key?.name==='left'||key?.name==='p')page=Math.max(0,page-1);};
  const interactive=!once&&!!process.stdin.isTTY;
+ const dynamicHeight=new DynamicHeightController();
+ const agentSessions=new AgentSessionTracker(root);
  if(interactive){emitKeypressEvents(process.stdin);process.stdin.setRawMode(true);process.stdin.on('keypress',onKey);process.stdin.resume();}
  if(!once&&process.stdout.isTTY)process.stdout.write('\x1b[?1049h\x1b[?25l');
  if(descriptor&&!descriptor.demo)updateLaunch(ownedFile!,d=>{d.state='running';d.pid=process.pid;d.heartbeat=Date.now();});
  try{
   do{
    if(descriptor){
-    descriptor=readLaunch(ownedFile!);if(descriptor.hudStop||descriptor.state==='exited')break;
+    descriptor=readLaunch(ownedFile!);if(descriptor.hudStop||descriptor.state==='exited'){exitReason='stop-requested';break;}
     if(selected!==descriptor.sessionId){reader=undefined;knownPath='';lastSnapshot=emptySnapshot(descriptor.sessionId??'pending');page=0;}
     selected=descriptor.sessionId;
     if(descriptor.host){
-     if(readHost(descriptor.host.recordFile).state==='closed')break;
+     try{
+     const registered=readHost(descriptor.host.recordFile);if(registered.state==='closed'){exitReason='source-closed';break;}
      if(Date.now()>=nextOwnerCheck){
-      const expected=descriptor.host.proof.owner,actual=readProcessFacts([expected.pid]).find(p=>p.pid===expected.pid);nextOwnerCheck=Date.now()+5000;
-      if(!actual||actual.startedAt!==expected.startedAt)break;
+      const expected=descriptor.host.proof.owner;
+      const values=readProcessIdentities([expected.pid]),actual=values.find(p=>p.pid===expected.pid);nextOwnerCheck=Date.now()+5000;
+      if(!actual||actual.startedAt!==expected.startedAt){exitReason='owner-exited';break;}
+      sourceVerified=true;sourceMessage='';
+
      }
+     }catch{sourceVerified=false;sourceMessage='Source identity unavailable; keeping HUD open and retrying';nextOwnerCheck=Date.now()+5000;}
     }
    }
    try{config=loadConfig(cfgFile);statusMessage='';}catch(e){statusMessage='Configuration reload failed: '+(e as Error).message;}
@@ -70,29 +83,41 @@ async function watch(args:string[],once=false):Promise<void>{
      if(reader){try{snapshot=await reader.read();lastSnapshot=structuredClone(snapshot);}catch(e){snapshot=structuredClone(lastSnapshot);snapshot.errors.push('Session log unavailable; showing stale telemetry and retrying');}}
     else snapshot.errors.push('Waiting for the selected session log');
    }else snapshot.errors.push(descriptor?.host?'Waiting for this Codex conversation':'Select the existing Codex session to display');
-   if(snapshot.cwd)snapshot.environment=readEnvironment(snapshot.cwd,home);
+   if(reader)await agentSessions.refresh(snapshot,reader);
+   if(snapshot.cwd&&(get(config,'gitStatus.enabled')||args.includes('--json')))snapshot.environment=readEnvironment(snapshot.cwd);
    if(statusMessage)snapshot.errors.push(statusMessage);
-   const result=render(snapshot,config,{width:Number(option(args,'--width'))||process.stdout.columns||100,height:once?1000:process.stdout.rows||12,page,color:!args.includes('--no-color')&&!!process.stdout.isTTY});
-   if(descriptor&&!descriptor.demo)updateLaunch(ownedFile!,d=>{d.heartbeat=Date.now();d.viewport={columns:process.stdout.columns??100,rows:process.stdout.rows??12,contentRows:result.totalLines,pages:result.pages};});
+   if(sourceMessage)snapshot.errors.push(sourceMessage);
+   const width=Number(option(args,'--width'))||process.stdout.columns||100,color=!args.includes('--no-color')&&!!process.stdout.isTTY;
+   const now=Date.now();let rows=once?1000:process.stdout.rows||12,result=render(snapshot,config,{width,height:rows,page,color,now});
+   if(!once&&process.stdout.isTTY&&descriptor?.host&&sourceVerified){
+    try{const fitted=dynamicHeight.fit(descriptor,config,result.totalLines,now,{columns:width,rows});if(fitted!==undefined&&fitted!==rows||dynamicHeight.awaitingGrowth){rows=fitted??rows;result=render(snapshot,config,{width,height:rows,page,color,now,showPager:!dynamicHeight.awaitingGrowth});}}
+    catch{snapshot.errors.push('Automatic height unavailable; keeping the current pane size');result=render(snapshot,config,{width,height:rows,page,color,now});}
+   }
+   if(descriptor&&!descriptor.demo)updateLaunch(ownedFile!,d=>{d.heartbeat=Date.now();d.viewport={columns:process.stdout.columns??100,rows,contentRows:result.totalLines,pages:result.pages};});
    if(args.includes('--json'))console.log(JSON.stringify(snapshot));else{
     if(!once&&process.stdout.isTTY)process.stdout.write('\x1b[H\x1b[2J'+result.lines.join('\r\n'));
     else console.log(result.lines.join('\n'));
    }
-   if(once)break;
-   if(!process.stdout.isTTY)break;
+   if(once){exitReason='one-shot';break;}
+   if(!process.stdout.isTTY){exitReason='noninteractive';break;}
    await delay(get(config,'terminal.refreshMs'));
   }while(!quit);
- }finally{
-  if(interactive){process.stdin.off('keypress',onKey);process.stdin.setRawMode(false);process.stdin.pause();}
-  if(!once&&process.stdout.isTTY)process.stdout.write('\x1b[0m\x1b[?25h\x1b[?1049l');
-  if(descriptor&&!descriptor.demo)updateLaunch(ownedFile!,d=>{d.state='exited';d.exitCode=0;});
+ }catch(error){bodyFailed=true;recordFailure(error);throw error;}finally{
+  let cleanupFailed=false,cleanupError:unknown;
+  const cleanup=(action:()=>void)=>{try{action();}catch(error){if(!cleanupFailed){cleanupFailed=true;cleanupError=error;}}};
+  if(interactive){cleanup(()=>{process.stdin.off('keypress',onKey);});cleanup(()=>process.stdin.setRawMode(false));cleanup(()=>process.stdin.pause());}
+  if(!once&&process.stdout.isTTY)cleanup(()=>{process.stdout.write('\x1b[0m\x1b[?25h\x1b[?1049l');});
+  if(cleanupFailed&&!bodyFailed)recordFailure(cleanupError);
+  try{if(descriptor&&!descriptor.demo)updateLaunch(ownedFile!,d=>{d.state='exited';d.exitCode=exitReason==='error'?1:0;d.exitReason=exitReason;d.exitErrorCode=exitErrorCode;});}
+  catch(error){if(!bodyFailed&&!cleanupFailed)throw error;}
+  if(cleanupFailed&&!bodyFailed)throw cleanupError;
  }
 }
 async function demoRunner(d:LaunchDescriptor):Promise<void>{
  const id='demo-'+d.id;const root=path.join(path.dirname(d.file),'demo-sessions',d.id);fs.mkdirSync(root,{recursive:true});const file=path.join(root,id+'.jsonl');
  const row=(type:string,payload:unknown)=>JSON.stringify({timestamp:new Date().toISOString(),type,payload})+'\n';
  fs.writeFileSync(file,row('session_meta',{id,cwd:d.cwd,title:'List commonly used Codex plugins',timestamp:new Date().toISOString(),cli_version:'preview'})+row('turn_context',{model:'Codex HUD Demo',effort:'high',cwd:d.cwd})+row('event_msg',{type:'token_count',info:{last_token_usage:{input_tokens:40000,cached_input_tokens:30000,output_tokens:5000,total_tokens:45000},total_token_usage:{input_tokens:120000,cached_input_tokens:90000,output_tokens:10000,total_tokens:130000},model_context_window:200000},rate_limits:{primary:{used_percent:25,window_minutes:300,resets_at:Math.floor(Date.now()/1000)+3600},secondary:{used_percent:10,window_minutes:10080,resets_at:Math.floor(Date.now()/1000)+86400}}}));
- fs.appendFileSync(file,row('response_item',{type:'function_call',call_id:'demo-plan',name:'update_plan',arguments:JSON.stringify({plan:[{step:'列出 Codex 常用插件',status:'in_progress'},{step:'Verify configuration',status:'pending'}]})})+row('response_item',{type:'function_call_output',call_id:'demo-plan',output:'{}'}));
+ fs.appendFileSync(file,row('response_item',{type:'function_call',call_id:'demo-plan',name:'update_plan',arguments:JSON.stringify({plan:[{step:'鍒楀嚭 Codex 甯哥敤鎻掍欢',status:'in_progress'},{step:'Verify configuration',status:'pending'}]})})+row('response_item',{type:'function_call_output',call_id:'demo-plan',output:'{}'}));
  // Demo is a user-facing layout preview, never a model invocation.
  updateLaunch(d.file,v=>{v.state='running';v.heartbeat=Date.now();});
  const newHome=readLaunch(d.file).codexHome;fs.mkdirSync(path.join(newHome,'sessions'),{recursive:true});fs.copyFileSync(file,path.join(newHome,'sessions',id+'.jsonl'));
@@ -109,13 +134,16 @@ async function start(args:string[],demo=false):Promise<void>{
   if(!current||selected!==current)throw new Error('HUD must display the current Codex conversation in this exact host');
   const sessionsRoot=option(args,'--sessions-root')??path.join(codexHome(),'sessions'),session=await findSession(sessionsRoot,current);
   if(!session||session.id!==current)throw new Error('Current Codex transcript is not available yet');
-  const meta=await sessionMetadata(session.path);if(session.parentId||!isMainSession(meta,current)||meta?.id!==current)throw new Error('HUD requires main CLI conversation provenance; subagent and non-CLI transcripts are excluded');
+  const meta=await sessionMetadata(session.path);if(session.parentId||!isMainSession(meta,current,true)||meta?.id!==current)throw new Error('HUD requires main CLI conversation provenance; subagent and non-CLI transcripts are excluded');
   if(args.includes('--dry-run')){await ensureHostDisplay(record,loadConfig(configFile(args)),{role:'hook',dryRun:true});console.log(JSON.stringify({mode:'attach',backend:'psmux',status:'validated',ownerPane:record.proof.origin.pane}));return;}
   const result=await bindHostSession(record,current,session.path,{role:'hook',config:loadConfig(configFile(args)),configFile:configFile(args)});console.log('HUD '+result.status+'.');return;
  }
- const report=checkRuntime();if(!report.terminal)throw new Error('Windows Terminal is missing; run doctor');
+ const file=configFile(args);
+ if(!args.includes('--dry-run')){
+  const report=checkRuntime({configFile:file});if(!report.terminal)throw new Error(report.terminalCheck.status==='missing'?'Windows Terminal is missing; run doctor':report.terminalCheck.status==='timed-out'?'Windows Terminal lookup timed out; run doctor and retry':'Windows Terminal lookup failed'+(report.terminalCheck.code?' ('+report.terminalCheck.code+')':'')+'; run doctor');
+ }
  if(args.includes('--')||option(args,'--cwd'))throw new Error('HUD attaches an existing session; no Codex launch arguments are accepted');
- const d=createLaunch(process.cwd(),loadConfig(configFile(args)),runtimeRoot(),configFile(args));
+ const d=createLaunch(process.cwd(),loadConfig(file),runtimeRoot(file),file);
  updateLaunch(d.file,v=>{v.demo=true;v.demoDurationMs=Number(option(args,'--duration'))||120000;v.codexHome=path.join(path.dirname(v.file),'demo-home-'+v.id);v.sessionId='demo-'+v.id;});
  const descriptor=readLaunch(d.file),command=buildTerminalArgs(descriptor);
  if(args.includes('--dry-run')){updateLaunch(d.file,v=>{v.state='exited';v.exitCode=0;});console.log(JSON.stringify({mode:'demo',hooksRequired:false,window:'mz-codex-hud-'+d.id,paneSize:descriptor.paneSize,launch:d.file}));return;}
@@ -125,16 +153,38 @@ async function start(args:string[],demo=false):Promise<void>{
 export async function main(args=process.argv.slice(2)):Promise<void>{
  const command=args[0]??'help',rest=args.slice(1);
  switch(command){
-  case 'entry-check':assertActiveEntry(fileURLToPath(new URL('../bin/hud.mjs',import.meta.url)));return;
+  case 'entry-check':if(!rest.includes('--runtime-only'))assertActiveEntry(fileURLToPath(new URL('../bin/hud.mjs',import.meta.url)));return;
   case 'codex-entry':process.exitCode=await launchHostedCodex(decodeInvocation(option(rest,'--invocation64')),{configFile:configFile(rest)});return;
   case 'host-owner':process.exitCode=await runHostOwner(decodeInvocation(option(rest,'--invocation64')),configFile(rest));return;
   case 'host-frontend':process.exitCode=await runHostFrontend(decodeInvocation(option(rest,'--invocation64')));return;
   case 'setup':{
-   const profile=option(rest,'--profile');if(!profile)throw new Error('setup --profile ABSOLUTE_PATH [--apply] [--remove]');
-   const loader={entry:fileURLToPath(new URL('../bin/powershell-entry.ps1',import.meta.url)),cli:fileURLToPath(new URL('../bin/hud.mjs',import.meta.url)),node:process.execPath};
-   const change=profileChange(profile,loader,rest.includes('--remove')?'remove':'install');
-   if(rest.includes('--apply'))applyProfileChange(change);
-   console.log(JSON.stringify({file:change.file,action:rest.includes('--remove')?'remove':'install',applied:rest.includes('--apply'),changed:change.before!==change.after,loader,block:rest.includes('--remove')?change.removedBlock:change.block,removedBlock:change.removedBlock},null,2));return;
+   const profile=option(rest,'--profile');if(!profile)throw new Error('setup --profile ABSOLUTE_PATH [--psmux ABSOLUTE_PATH] [--enable] [--apply] [--remove]');
+   const backend=option(rest,'--psmux'),enable=rest.includes('--enable'),remove=rest.includes('--remove'),initialize=rest.includes('--initialize')||backend!==undefined||enable;
+   if(remove&&initialize)throw new Error('Use --remove separately from --psmux or --enable');
+   const settingsFile=configFile(rest),settingsBefore=fs.existsSync(settingsFile)?fs.readFileSync(settingsFile):undefined;let original:Config,configValid=true;
+   try{original=loadConfig(settingsFile);}catch(error){if(!remove)throw error;original=defaultConfig();configValid=false;}let proposed=original;
+   const configChanges:Record<string,{before:unknown;after:unknown}>={};
+   for(const [key,value]of [...(backend!==undefined?[['host.psmuxPath',backend] as const]:[]),...(enable?[['host.autoStart','enabled'] as const,['startup.enabled',false] as const]:[])]){
+    if(get(proposed,key)!==value)configChanges[key]={before:get(proposed,key),after:value};proposed=set(proposed,key,value);
+   }
+   const readiness=inspectSetup(proposed,{configValid});
+   const sourceLoader={entry:fileURLToPath(new URL('../bin/powershell-entry.ps1',import.meta.url)),cli:fileURLToPath(new URL('../bin/hud.mjs',import.meta.url)),node:process.execPath,configFile:path.resolve(settingsFile)};
+   const runtime=remove?undefined:stableEntryPlan(sourceLoader),loader=runtime?.loader??sourceLoader;
+   const change=profileChange(profile,loader,remove?'remove':'install'),apply=rest.includes('--apply'),blocked=apply&&initialize&&!readiness.ready;
+   if(apply&&!blocked){
+    if(initialize){const current=fs.existsSync(settingsFile)?fs.readFileSync(settingsFile):undefined;if(current===undefined?settingsBefore!==undefined:settingsBefore===undefined||!current.equals(settingsBefore))throw new Error('HUD configuration changed during setup review; rerun setup before applying');}
+    if(runtime)applyStableEntry(runtime);
+    applyProfileChange(change);
+    if(initialize&&Object.keys(configChanges).length){
+     try{saveConfig(settingsFile,proposed);}catch(error){
+      // Roll back only the exact profile block just written, refusing concurrent edits.
+      try{applyProfileChange({...change,before:change.after,after:change.before});}catch{throw new Error('Configuration save failed and the profile changed concurrently; inspect the profile before retrying setup');}
+      throw error;
+     }
+    }
+   }
+   console.log(JSON.stringify({mode:initialize?'initialize':'profile-only',file:change.file,action:remove?'remove':'install',applied:apply&&!blocked,changed:change.before!==change.after||!!runtime?.files.some(f=>f.content!==f.before),loader,runtimeFiles:runtime?.files.map(f=>({file:f.file,changed:f.content!==f.before})),block:remove?change.removedBlock:change.block,removedBlock:change.removedBlock,configFile:settingsFile,configChanges,readiness},null,2));
+   if(blocked)process.exitCode=1;return;
   }
   case 'start':return start(rest);
   case 'demo':return start(rest,true);
@@ -158,11 +208,11 @@ export async function main(args=process.argv.slice(2)):Promise<void>{
   }
   case 'doctor':{
    const id=option(rest,'--launch');if(id&&!/^[a-f0-9-]{36}$/i.test(id))throw new Error('doctor --launch <launch ID>');
-   console.log(JSON.stringify(checkRuntime({configFile:configFile(rest),launchFile:id?path.join(runtimeRoot(),id+'.json'):undefined}),null,2));return;
+   console.log(JSON.stringify(checkRuntime({configFile:configFile(rest),launchFile:id?path.join(runtimeRoot(configFile(rest)),id+'.json'):undefined}),null,2));return;
   }
-  case 'stop':{const id=option(rest,'--launch');if(!id||!/^[a-f0-9-]{36}$/i.test(id))throw new Error('stop --launch <launch ID>');requestStop(path.join(runtimeRoot(),id+'.json'));console.log('HUD stop requested; Codex keeps running');return;}
+  case 'stop':{const id=option(rest,'--launch');if(!id||!/^[a-f0-9-]{36}$/i.test(id))throw new Error('stop --launch <launch ID>');requestStop(path.join(runtimeRoot(configFile(rest)),id+'.json'));console.log('HUD stop requested; Codex keeps running');return;}
   case 'help':case '--help':case '-h':
-   console.log('mz-codex-hud\n  start [--session CURRENT_ID]\n  watch|once [--session ID] [--json] [--width N]\n  list\n  setup --profile ABSOLUTE_PATH [--apply] [--remove]\n  configure\n  config show | config set KEY VALUE\n  import-claude [--path CONFIG] [--yes]\n  doctor\n  demo [--duration MILLISECONDS]\n  stop --launch ID\nAutomatic opening requires the configured PowerShell host entry. SessionStart binds current telemetry.\nNative statusline is unchanged. All commands accept --config FILE.');return;
+   console.log('mz-codex-hud\n  start [--session CURRENT_ID]\n  watch|once [--session ID] [--json] [--width N]\n  list\n  setup --profile ABSOLUTE_PATH [--initialize] [--psmux ABSOLUTE_PATH] [--enable] [--apply] [--remove]\n  configure\n  config show | config set KEY VALUE\n  import-claude [--path CONFIG] [--yes]\n  doctor\n  demo [--duration MILLISECONDS]\n  stop --launch ID\nstart opens or reopens this conversation HUD; setup performs one-time initialization.\nAutomatic opening requires the configured PowerShell host entry. SessionStart binds current telemetry.\nNative statusline is unchanged. All commands accept --config FILE.');return;
   default:throw new Error('Unknown command: '+command);
  }
 }
