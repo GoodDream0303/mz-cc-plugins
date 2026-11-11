@@ -180,7 +180,7 @@ async function watch(args, once = false) {
             let rows = once ? 1000 : process.stdout.rows || 12, result = render(snapshot, config, { width, height: rows, page, color, now });
             if (!once && process.stdout.isTTY && descriptor?.host && sourceVerified) {
                 try {
-                    const fitted = dynamicHeight.fit(descriptor, config, result.totalLines, now, { columns: width, rows });
+                    const fitted = await dynamicHeight.fit(descriptor, config, result.totalLines, now, { columns: width, rows });
                     if (fitted !== undefined && fitted !== rows || dynamicHeight.awaitingGrowth) {
                         rows = fitted ?? rows;
                         result = render(snapshot, config, { width, height: rows, page, color, now, showPager: !dynamicHeight.awaitingGrowth });

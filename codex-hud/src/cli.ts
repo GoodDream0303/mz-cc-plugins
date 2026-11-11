@@ -90,7 +90,7 @@ async function watch(args:string[],once=false):Promise<void>{
    const width=Number(option(args,'--width'))||process.stdout.columns||100,color=!args.includes('--no-color')&&!!process.stdout.isTTY;
    const now=Date.now();let rows=once?1000:process.stdout.rows||12,result=render(snapshot,config,{width,height:rows,page,color,now});
    if(!once&&process.stdout.isTTY&&descriptor?.host&&sourceVerified){
-    try{const fitted=dynamicHeight.fit(descriptor,config,result.totalLines,now,{columns:width,rows});if(fitted!==undefined&&fitted!==rows||dynamicHeight.awaitingGrowth){rows=fitted??rows;result=render(snapshot,config,{width,height:rows,page,color,now,showPager:!dynamicHeight.awaitingGrowth});}}
+    try{const fitted=await dynamicHeight.fit(descriptor,config,result.totalLines,now,{columns:width,rows});if(fitted!==undefined&&fitted!==rows||dynamicHeight.awaitingGrowth){rows=fitted??rows;result=render(snapshot,config,{width,height:rows,page,color,now,showPager:!dynamicHeight.awaitingGrowth});}}
     catch{snapshot.errors.push('Automatic height unavailable; keeping the current pane size');result=render(snapshot,config,{width,height:rows,page,color,now});}
    }
    if(descriptor&&!descriptor.demo)updateLaunch(ownedFile!,d=>{d.heartbeat=Date.now();d.viewport={columns:process.stdout.columns??100,rows,contentRows:result.totalLines,pages:result.pages};});

@@ -2,8 +2,10 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { effectiveBackendPath } from './backend-version.js';
+import { runText } from './subprocess.js';
 export const hostIdPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const panePattern = /^%[1-9]\d*$/;
+const paneFormat = '#{session_name}\t#{window_id}\t#{pane_id}\t#{pane_pid}\t#{pane_width}\t#{pane_height}\t#{pid}';
 const positive = (value) => Number.isSafeInteger(value) && value > 0;
 const canonical = (value) => process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value);
 export function samePath(a, b) { return canonical(a) === canonical(b); }
@@ -32,6 +34,15 @@ export function readProcessFacts(pids, rootPid = process.pid) {
 export function readProcessIdentities(pids) {
     return queryProcessFacts(pids, process.pid, true);
 }
+export async function readProcessIdentitiesAsync(pids, signal) {
+    if (process.platform !== 'win32')
+        throw new Error('Native Windows process identity is required');
+    if (!pids.every(positive))
+        throw new Error('Invalid process identity');
+    const helper = fileURLToPath(new URL('../bin/process-facts.ps1', import.meta.url));
+    const raw = await runText('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-File', helper, '-RootPid', String(process.pid), '-Ids', pids.join(','), '-IdentitiesOnly'], { timeout: 6000, maxBuffer: 65536, signal });
+    return parseProcessFacts(raw);
+}
 function queryProcessFacts(pids, rootPid, identitiesOnly) {
     if (process.platform !== 'win32')
         throw new Error('Native Windows process identity is required');
@@ -39,6 +50,9 @@ function queryProcessFacts(pids, rootPid, identitiesOnly) {
         throw new Error('Invalid process identity');
     const helper = fileURLToPath(new URL('../bin/process-facts.ps1', import.meta.url));
     const raw = execFileSync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-File', helper, '-RootPid', String(rootPid), '-Ids', pids.join(','), ...(identitiesOnly ? ['-IdentitiesOnly'] : [])], { encoding: 'utf8', windowsHide: true, timeout: 6000, maxBuffer: 65536, stdio: ['ignore', 'pipe', 'pipe'] });
+    return parseProcessFacts(raw);
+}
+function parseProcessFacts(raw) {
     const value = JSON.parse(raw.replace(/^\uFEFF/, ''));
     if (!Array.isArray(value) || value.length > 128 || !value.every(validFact))
         throw new Error('Process identity snapshot is invalid');
@@ -71,6 +85,34 @@ export class PsmuxClient {
         if (!binary)
             throw new Error('A verified packaged backend is required for this host');
         return execFileSync(binary, argv, { env, encoding: 'utf8', windowsHide: true, timeout: 5000, maxBuffer: 65536, stdio: ['ignore', 'pipe', 'pipe'] });
+    }
+    async commandAsync(args, signal) {
+        const argv = ['-L', this.origin.namespace, ...args];
+        if (this.dependencies.runAsync)
+            return this.dependencies.runAsync(argv);
+        if (this.dependencies.run)
+            return this.dependencies.run(argv);
+        const env = { ...process.env, TMUX: this.origin.tmux, TMUX_PANE: this.origin.pane, PSMUX_SESSION: this.origin.session, PSMUX_DATA_DIR: this.origin.dataDir };
+        for (const key of ['PSMUX_TARGET_SESSION', 'PSMUX_TARGET_FULL', 'PSMUX_SESSION_NAME', 'PSMUX_ROUTE_WARM'])
+            delete env[key];
+        const binary = effectiveBackendPath(this.origin.binary);
+        if (!binary)
+            throw new Error('A verified packaged backend is required for this host');
+        return runText(binary, argv, { env, timeout: 5000, maxBuffer: 65536, signal });
+    }
+    async paneAsync(id, signal) {
+        if (!panePattern.test(id))
+            throw new Error('Invalid exact pane target');
+        const raw = await this.commandAsync(['display-message', '-p', '-t', id, paneFormat], signal);
+        return new PsmuxClient(this.origin, { run: () => raw }).pane(id);
+    }
+    async panesAsync(signal) {
+        const raw = await this.commandAsync(['list-panes', '-a', '-F', paneFormat], signal);
+        return new PsmuxClient(this.origin, { run: () => raw }).panes();
+    }
+    async resizePaneAsync(id, rows, signal) {
+        new PsmuxClient(this.origin, { run: () => '' }).resizePane(id, rows);
+        await this.commandAsync(['resize-pane', '-t', id, '-y', String(rows)], signal);
     }
     pane(id) {
         if (!panePattern.test(id))
@@ -131,8 +173,8 @@ export function proveOwner(origin, dependencies = {}) {
         throw new Error('Source owner/server process incarnation is unavailable');
     return { origin, owner, server, window: physical.window };
 }
-export function verifyHost(proof, role, dependencies = {}) {
-    const pid = dependencies.pid ?? process.pid, physical = new PsmuxClient(proof.origin, dependencies).pane(proof.origin.pane);
+export function verifyHost(proof, role, dependencies = {}, observedPane) {
+    const pid = dependencies.pid ?? process.pid, physical = observedPane ?? new PsmuxClient(proof.origin, dependencies).pane(proof.origin.pane);
     const values = (dependencies.processes ?? readProcessFacts)(hostProcessIds(proof), pid), table = new Map(values.map(p => [p.pid, p]));
     if (physical.pid !== proof.owner.pid || physical.window !== proof.window || physical.serverPid !== proof.server.pid || !sameProcess(table.get(proof.owner.pid), proof.owner) || !sameProcess(table.get(proof.server.pid), proof.server))
         throw new Error('Source owner/server process incarnation changed');

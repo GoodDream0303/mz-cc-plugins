@@ -17,7 +17,7 @@ globalThis.counts={read:0,config:0,render:0,paint:0};
 const root=${JSON.stringify(root)},start=performance.now(),cpu=process.cpuUsage();
 const {main}=await import(${JSON.stringify(pathToFileURL(path.join(copy,'cli.js')).href)});
 const {defaultConfig,set,saveConfig}=await import(${JSON.stringify(pathToFileURL(path.join(copy,'config.js')).href)});
-const cfg=path.join(root,'config.json');let config=set(set(set(defaultConfig(),'terminal.refreshMs',${refreshMs}),'gitStatus.enabled',false),'display.showDuration',false);saveConfig(cfg,config);
+const cfg=path.join(root,'config.json');let config=set(set(set(defaultConfig(),'terminal.refreshMs',${refreshMs}),'gitStatus.enabled',false),'display.showDuration',false);config=set(config,'display.showModel',true);saveConfig(cfg,config);
 const file=path.join(root,'session.jsonl'),log=(type,payload)=>JSON.stringify({type,payload})+'\\n';fs.writeFileSync(file,log('session_meta',{id:'refresh-probe',cwd:root}));
 const {createLaunch,updateLaunch}=await import(${JSON.stringify(pathToFileURL(path.join(copy,'runtime.js')).href)});
 const launch=createLaunch(root,config,path.join(root,'runtime'),cfg);updateLaunch(launch.file,d=>{d.sessionId='refresh-probe';d.transcriptPath=file;});
