@@ -1,0 +1,106 @@
+{
+  "status": "validated unreleased source",
+  "sourceCommit": "888f23ce0cfee0342e4628b1f053a64451357250",
+  "baselineCommit": "0deaccce133a267c7a37e50bc5adccbcb6d99bff",
+  "runtime": "Node 24.15.0, native Windows",
+  "fullSuite": {
+    "tests": 357,
+    "pass": 357,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0
+  },
+  "command": "npm test -- --test-concurrency=1 (runner removes inherited MZ_HUD_CONFIG_FILE and MZ_HUD_ORIGIN)",
+  "native": {
+    "verdict": "PASS_SYNTHETIC_PRODUCTION_BACKEND",
+    "checks": [
+      "two real source owners each open an independent waiting HUD before a hook",
+      "both HUDs start at six rows with the backend-specific separator geometry",
+      "compact rows stay adjacent and explicit six/eight-row resizing remains exact after viewport changes without changing the other server",
+      "native hook process ancestry binds A20% and B70% independently (synthetic CLI)",
+      "same thread in two source owners retains two displays; rebind does not duplicate",
+      "closing/reopening one HUD keeps the other source and display alive",
+      "live watch loop follows 3/6/3 content with exact native rows and unchanged neighbour",
+      "pending growth hides the pager and capped overflow restores it",
+      "narrower viewport grows wrapped content to seven rows without changing the other server",
+      "disabling live fitting keeps the manually/currently selected height",
+      "same running viewer updates actual tool running/completed/cancelled symbols as metadata arrives",
+      "verified child task line shows structured action and its own cumulative tokens",
+      "same viewer updates agent lifecycle and retains the reported actual model",
+      "Ctrl+C keeps the HUD alive and q closes only its own viewer",
+      "source exit closes only its owned display"
+    ],
+    "limitations": [
+      "Renamed Node fixture, not official Codex; real hook trust/default shared-daemon behavior and actual interactive desktop use remain unverified."
+    ]
+  },
+  "nativeScope": "Real pinned psmux and ConPTY with renamed Node synthetic CLI. Run preceded final timestamp/config-stat edits and lost-registration-notification recovery. Its native backend/height/provenance inputs were unchanged; recovery is independently covered by the strengthened lifecycle regression.",
+  "performance": {
+    "fixture": "test/support/viewer-probe.mjs; old dist extracted at baselineCommit; same standalone synthetic viewer, fake TTY, no native backend/Git/identity queries",
+    "measurementSourceCommit": "c55e48c; final 888f23c only changes hosted registration recovery, absent from this standalone fixture",
+    "appendMedianLatencyMs": {
+      "baseline": 879.1195,
+      "candidate": 35.54669999999999
+    },
+    "quietThreeSecondCounts": {
+      "baseline": {
+        "configParses": 4,
+        "renders": 3,
+        "paints": 3
+      },
+      "candidate": {
+        "configParses": 1,
+        "renders": 1,
+        "paints": 1
+      }
+    },
+    "notes": [
+      "Counters include the initial frame. Reconciliation and stop endpoint ordering can add one reader call.",
+      "Fingerprint checks remain; immediate notifications can add a reader call before the next necessary reconciliation.",
+      "CPU samples are short and coarse, with zeros and variation; there is no stable evidence of lower total CPU. Events add subscription and dispatch costs.",
+      "Expiry uses a controlled clock; the old one-second cycle does not repaint within that 900ms scenario. The candidate repaints on the deadline without rereading telemetry."
+    ]
+  },
+  "review": {
+    "importantReproducedAndFixed": 5,
+    "focusedAfterFix": {
+      "passed": 39,
+      "failed": 0
+    },
+    "fixes": [
+      "Reattach after directory identity replacement",
+      "Schedule relative session timestamps",
+      "Revalidate complete physical pane scope after async process facts",
+      "Preserve refreshMs discovery fallback while unresolved",
+      "Retain viewer during temporary host registration loss and reverify on recovery"
+    ],
+    "additionalRedGreen": [
+      "Relative minute rounding boundary",
+      "No configuration stat from a clock-only expiry wake",
+      "Host restoration with all host notifications suppressed: isolated c55e48c baseline fails recovery bound, final lifecycle 8/8 passes"
+    ],
+    "deferredMinor": "Some running entries hidden by limits, and count-only ordinary tools, can still schedule cached-state renders. Frame comparison prevents redundant terminal writes."
+  },
+  "retainedTiming": {
+    "integrityAndControlReconciliation": "terminal.refreshMs; default 1000ms",
+    "heartbeatAndElapsedDisplay": "terminal.refreshMs; only relevant display fields tick",
+    "ownerIdentityMs": 5000,
+    "displayedGitStatusMs": 5000,
+    "stablePhysicalGeometryMs": 5000,
+    "growthCoalesceMs": 50,
+    "stableShrinkMs": 2000,
+    "startupAckRetryMs": 50,
+    "startupMetadataFrontendRetryMs": 100
+  },
+  "rulings": [
+    "Native PowerShell/Python bookkeeping substitutes for unavailable standard Git Bash; task bases/results/commits remain in the task ledger.",
+    "Keep fingerprint reconciliation rather than substituting stat-only integrity caches; this costs necessary idle reads.",
+    "Read-only review does not prove installed behavior, native timing or Node20. Native synthetic execution is recorded separately; unavailable/long-term acceptance is not inferred."
+  ],
+  "unverified": [
+    "Node20 runtime not found this run; no Node20 execution claim",
+    "Real installed viewer and long-term desktop acceptance",
+    "Initialization exit root cause; outside this refresh change"
+  ],
+  "deployment": "No version bump, push, publication, reinstall, profile/cache/config migration, or real Codex/model request."
+}

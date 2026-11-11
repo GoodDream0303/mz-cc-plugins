@@ -1,6 +1,6 @@
 # HUD event-driven refresh and necessary polling
 
-Status: proposed design; product implementation has not started.
+Status: approved in conversation; implemented in unreleased source. Validation: `codex-hud/docs/evidence/2026-11-11-event-refresh/summary.json`.
 
 ## Intent and agreed requirements
 

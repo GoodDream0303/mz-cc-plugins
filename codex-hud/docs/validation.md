@@ -1,5 +1,45 @@
 # Validation: exact per-source HUD
 
+## Unreleased: event-driven refresh — 2026-11-11
+
+[Evidence](evidence/2026-11-11-event-refresh/summary.json) records source
+`888f23c` against `0deaccc`, Node 24.15.0 on native Windows.
+Final serial full suite: **357/357**, zero failures,
+cancellations or skips. The suite includes offline distribution and PS5/PS7
+loading checks. Node 20 was not available and is not claimed as verified.
+
+The independent review's five material cases were first reproduced, then fixed;
+the resulting focused pass was 39/39. A strengthened lost-host-notification
+recovery case then reproduced on isolated c55e48c and passed with the final
+lifecycle suite (8/8). Separate RED-to-GREEN checks cover relative
+minute rounding and avoiding a configuration stat on clock-only expiry. The
+native pinned-backend fixture passed 15 checks: actual 3/6/3 geometry, width,
+independent owners, child status/action/model/tokens, Ctrl+C/q and owner closure.
+It uses renamed Node fixtures, not official Codex or a model request. Its scope
+and the reuse boundary after the last clock/recovery edits are recorded in evidence.
+
+The [same-fixture measurements](evidence/2026-11-11-event-refresh/measurements.json)
+show median append-to-visible latency **879.1 ms → 35.5 ms** across
+three runs at refreshMs=1000. In three-second quiet runs, configuration parses
+fell 4→1 and render/paint calls 3→1, counting the initial frame. Fingerprint
+reconciliation remains; immediate changes can cause an additional read. These
+standalone fake-TTY scenarios contain no backend/Git/identity subprocesses.
+CPU totals varied and did not establish a stable reduction; event delivery is
+not free. These results do not establish real installed-session latency or total
+startup improvement.
+
+Necessary reconciliation retains the configured refresh cadence. Owner identity,
+displayed Git status and stable physical geometry retain five-second checks.
+Startup acknowledgement/metadata races retain their bounded 50/100ms retries.
+Growth coalesces for 50ms and shrink waits two stable seconds; each actual resize
+still requires fresh process facts and complete physical scope after awaits.
+
+Known minor: hidden/limited running entries and count-only tools can still cause
+some cached-state renders; identical terminal frames are suppressed. This is
+deferred selection-aware timer optimization. No source/profile/cache migration,
+new dependency, release or reinstall was performed. Long-term/installed use and
+the separate initialization-exit issue remain unverified.
+
 ## 0.7.0: agent task rows and tool status summaries — 2026-11-04
 
 Agents now render independently, including original task name, latest structured

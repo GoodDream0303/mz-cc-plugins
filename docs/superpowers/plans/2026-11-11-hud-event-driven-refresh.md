@@ -1,6 +1,6 @@
 # HUD event-driven refresh Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Remove unnecessary periodic HUD work while preserving responsive necessary polling.
 
@@ -33,11 +33,11 @@
 
 **Interfaces:** `RefreshEvents.request(reason:string,delayMs?:number):void`, `wait(deadline:number):Promise<Set<string>>`, `watch(file:string,reason:string,recursive?:boolean):()=>void`, `close():void`. A deadline wake returns an empty set. Watch errors invalidate the relevant source; fallback runs independently. Shared directory watches filter relevant filenames, handle unknown filenames and retry attachment on reconcile.
 
-- [ ] Add tests proving merged burst wakeups, wake during work, close release, directory atomic replacement, missing directory recovery, and immediate stop priority; measure unchanged viewer with a timed independent stop.
-- [ ] Run `npm run build` then `node --test --test-concurrency=1 test/refresh-events.test.mjs`; expected RED on missing helper, not a test syntax error.
-- [ ] Implement owned wake/deadline and directory subscriptions, bounded event coalescing and cleanup. Avoid general event-bus infrastructure.
-- [ ] Run the focused command; expected all pass, no leaked handles. Save the unchanged 0.7.14 synthetic counts/latency before Task 3.
-- [ ] Commit Task 1 files and generated dist with a change-specific message.
+- [x] Add tests proving merged burst wakeups, wake during work, close release, directory atomic replacement, missing directory recovery, and immediate stop priority; measure unchanged viewer with a timed independent stop.
+- [x] Run `npm run build` then `node --test --test-concurrency=1 test/refresh-events.test.mjs`; expected RED on missing helper, not a test syntax error.
+- [x] Implement owned wake/deadline and directory subscriptions, bounded event coalescing and cleanup. Avoid general event-bus infrastructure.
+- [x] Run the focused command; expected all pass, no leaked handles. Save the unchanged 0.7.14 synthetic counts/latency before Task 3.
+- [x] Commit Task 1 files and generated dist with a change-specific message.
 
 ### Task 2: Responsive and safely timed resizing
 
@@ -45,11 +45,11 @@
 
 **Interfaces:** add async process-facts/backend entry points with the existing arguments, validators and output bounds; existing synchronous startup API remains. `DynamicHeightController.fit(...)` becomes async and accepts an optional current-state guard; expose `nextCheckAt` for 50 ms growth, 2000 ms shrink and 5000 ms stable reconciliation. `readEnvironmentAsync(cwd,signal?)` retains five-second caching and facts shape.
 
-- [ ] Add RED cases for growth at 50 ms with refreshMs=1000, stable shrink at 2000 ms, stop/rebind after an awaited query, and asynchronous child query allowing an unrelated timer to fire.
-- [ ] Run build and serial dynamic-height/async-runtime/psmux tests; expected new behavioral failures.
-- [ ] Implement async recurring subprocess calls, shared validation, exact freshness checks before mutation and independently exposed candidate deadlines. Update existing height callers/tests for async.
-- [ ] Run focused tests including existing provenance/geometry rejection cases; expected all pass.
-- [ ] Commit Task 2 files/dist; record timings and retained polling rationale.
+- [x] Add RED cases for growth at 50 ms with refreshMs=1000, stable shrink at 2000 ms, stop/rebind after an awaited query, and asynchronous child query allowing an unrelated timer to fire.
+- [x] Run build and serial dynamic-height/async-runtime/psmux tests; expected new behavioral failures.
+- [x] Implement async recurring subprocess calls, shared validation, exact freshness checks before mutation and independently exposed candidate deadlines. Update existing height callers/tests for async.
+- [x] Run focused tests including existing provenance/geometry rejection cases; expected all pass.
+- [x] Commit Task 2 files/dist; record timings and retained polling rationale.
 
 ### Task 3: Event-driven viewer and time-only display work
 
@@ -57,12 +57,12 @@
 
 **Interfaces:** Task 1 `RefreshEvents`; Task 2 async runtime/height APIs. `nextDisplayAt(snapshot,config,now):number` returns the next relevant expiry/display tick or Infinity. Agent tracker reports known transcript paths and accepts file invalidation; exact parent checks remain.
 
-- [ ] Add RED cases for unchanged input avoiding parse/paint, atomic append/replacement and config reload, burst latest-state convergence, heartbeat-only notifications without feedback, expiry with no append, and stop/rebind while query pending. Adapt lifecycle fixture to independent stop timing rather than requiring duplicate paints.
-- [ ] Run new viewer/display tests; expected behavioral failures against the old complete refresh loop.
-- [ ] Replace periodic full work with input dirty flags and serialized event/deadline processing. Subscribe before initial read; preserve reader integrity reconciliation, stop/host state, async generation guards and one-shot/noninteractive output.
-- [ ] Separate heartbeat, owner/Git checks and clock-only render. Compare final output before terminal write. Keep fallback at refreshMs, identity/Git at five seconds, startup bounded waits unchanged. Watch unresolved session tree only while needed; release on rebind/exit.
-- [ ] Run viewer-refresh/viewer-lifecycle/display/agent/reader/dynamic-height regression tests serially; expected all pass, no leaked watchers or stale mutation.
-- [ ] Commit Task 3 files/dist and record actual idle/burst/expiry counters against baseline.
+- [x] Add RED cases for unchanged input avoiding parse/paint, atomic append/replacement and config reload, burst latest-state convergence, heartbeat-only notifications without feedback, expiry with no append, and stop/rebind while query pending. Adapt lifecycle fixture to independent stop timing rather than requiring duplicate paints.
+- [x] Run new viewer/display tests; expected behavioral failures against the old complete refresh loop.
+- [x] Replace periodic full work with input dirty flags and serialized event/deadline processing. Subscribe before initial read; preserve reader integrity reconciliation, stop/host state, async generation guards and one-shot/noninteractive output.
+- [x] Separate heartbeat, owner/Git checks and clock-only render. Compare final output before terminal write. Keep fallback at refreshMs, identity/Git at five seconds, startup bounded waits unchanged. Watch unresolved session tree only while needed; release on rebind/exit.
+- [x] Run viewer-refresh/viewer-lifecycle/display/agent/reader/dynamic-height regression tests serially; expected all pass, no leaked watchers or stale mutation.
+- [x] Commit Task 3 files/dist and record actual idle/burst/expiry counters against baseline.
 
 ### Task 4: Validate, document and review
 
@@ -70,8 +70,8 @@
 
 **Interfaces:** final CLI and configuration behavior from Tasks 1-3; no schema/version change or installation.
 
-- [ ] Update help in three languages: refreshMs controls periodic display/heartbeat/fallback, notifications can update earlier; growth 50 ms, shrink 2000 ms, retained necessary polling and native acceptance limitations.
-- [ ] Run `npm test -- --test-concurrency=1` with isolated inherited HUD variables; expected zero failures/cancellations/skips. Run Node20/offline checks if available, otherwise state their precise gap.
-- [ ] Run the same synthetic native file-watcher/parent-child scenarios against baseline and final code; record reads, subprocesses, writes, paints, CPU/wall/latency without claiming installed-runtime results.
-- [ ] Perform one fresh whole-change review against spec, plan and diff. Fix material findings RED→GREEN, rerun affected/full checks after final code changes; do not repeat unchanged reviews.
-- [ ] Commit validated docs/code; report branch, exact evidence, necessary polling cadences and remaining native/user acceptance. Do not publish or merge automatically.
+- [x] Update help in three languages: refreshMs controls periodic display/heartbeat/fallback, notifications can update earlier; growth 50 ms, shrink 2000 ms, retained necessary polling and native acceptance limitations.
+- [x] Run `npm test -- --test-concurrency=1` with isolated inherited HUD variables; expected zero failures/cancellations/skips. Run Node20/offline checks if available, otherwise state their precise gap.
+- [x] Run the same synthetic native file-watcher/parent-child scenarios against baseline and final code; record reads, subprocesses, writes, paints, CPU/wall/latency without claiming installed-runtime results.
+- [x] Perform one fresh whole-change review against spec, plan and diff. Fix material findings RED→GREEN, rerun affected/full checks after final code changes; do not repeat unchanged reviews.
+- [x] Commit validated docs/code; report branch, exact evidence, necessary polling cadences and remaining native/user acceptance. Do not publish or merge automatically.

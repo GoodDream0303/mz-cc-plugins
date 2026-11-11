@@ -1,0 +1,374 @@
+[
+  {
+    "scenario": "append",
+    "run": 1,
+    "baseline": {
+      "counts": {
+        "read": 2,
+        "config": 3,
+        "render": 2,
+        "paint": 2,
+        "runtime": 6,
+        "configStat": 3
+      },
+      "visibleLatencyMs": 891.1162999999999,
+      "stopLatencyMs": 433.0129999999999,
+      "steadyCpu": {
+        "user": 62000,
+        "system": 0
+      },
+      "wallMs": 2161.2632
+    },
+    "candidate": {
+      "counts": {
+        "read": 3,
+        "config": 1,
+        "render": 2,
+        "paint": 2,
+        "runtime": 6,
+        "configStat": 4
+      },
+      "visibleLatencyMs": 35.54669999999999,
+      "stopLatencyMs": 8.787499999999909,
+      "steadyCpu": {
+        "user": 32000,
+        "system": 47000
+      },
+      "wallMs": 1733.9909
+    }
+  },
+  {
+    "scenario": "append",
+    "run": 2,
+    "baseline": {
+      "counts": {
+        "read": 2,
+        "config": 3,
+        "render": 2,
+        "paint": 2,
+        "runtime": 6,
+        "configStat": 3
+      },
+      "visibleLatencyMs": 877.3088,
+      "stopLatencyMs": 409.27279999999996,
+      "steadyCpu": {
+        "user": 0,
+        "system": 0
+      },
+      "wallMs": 2126.0267
+    },
+    "candidate": {
+      "counts": {
+        "read": 3,
+        "config": 1,
+        "render": 2,
+        "paint": 2,
+        "runtime": 6,
+        "configStat": 4
+      },
+      "visibleLatencyMs": 34.99219999999997,
+      "stopLatencyMs": 11.60270000000014,
+      "steadyCpu": {
+        "user": 62000,
+        "system": 15000
+      },
+      "wallMs": 1724.5928000000001
+    }
+  },
+  {
+    "scenario": "append",
+    "run": 3,
+    "baseline": {
+      "counts": {
+        "read": 2,
+        "config": 3,
+        "render": 2,
+        "paint": 2,
+        "runtime": 6,
+        "configStat": 3
+      },
+      "visibleLatencyMs": 879.1195,
+      "stopLatencyMs": 409.5627999999999,
+      "steadyCpu": {
+        "user": 16000,
+        "system": 0
+      },
+      "wallMs": 2133.7209
+    },
+    "candidate": {
+      "counts": {
+        "read": 3,
+        "config": 1,
+        "render": 2,
+        "paint": 2,
+        "runtime": 6,
+        "configStat": 4
+      },
+      "visibleLatencyMs": 37.082299999999975,
+      "stopLatencyMs": 8.2333000000001,
+      "steadyCpu": {
+        "user": 15000,
+        "system": 0
+      },
+      "wallMs": 1735.318
+    }
+  },
+  {
+    "scenario": "quiet",
+    "run": 1,
+    "baseline": {
+      "counts": {
+        "read": 3,
+        "config": 4,
+        "render": 3,
+        "paint": 3,
+        "runtime": 7,
+        "configStat": 4
+      },
+      "stopLatencyMs": 55.563500000000204,
+      "steadyCpu": {
+        "user": 16000,
+        "system": 0
+      },
+      "wallMs": 3167.3396000000002
+    },
+    "candidate": {
+      "counts": {
+        "read": 4,
+        "config": 1,
+        "render": 1,
+        "paint": 1,
+        "runtime": 7,
+        "configStat": 6
+      },
+      "stopLatencyMs": 13.365699999999833,
+      "steadyCpu": {
+        "user": 31000,
+        "system": 15000
+      },
+      "wallMs": 3204.8596000000002
+    }
+  },
+  {
+    "scenario": "quiet",
+    "run": 2,
+    "baseline": {
+      "counts": {
+        "read": 3,
+        "config": 4,
+        "render": 3,
+        "paint": 3,
+        "runtime": 7,
+        "configStat": 4
+      },
+      "stopLatencyMs": 34.1869999999999,
+      "steadyCpu": {
+        "user": 31000,
+        "system": 32000
+      },
+      "wallMs": 3361.5821
+    },
+    "candidate": {
+      "counts": {
+        "read": 3,
+        "config": 1,
+        "render": 1,
+        "paint": 1,
+        "runtime": 7,
+        "configStat": 5
+      },
+      "stopLatencyMs": 8.101100000000315,
+      "steadyCpu": {
+        "user": 32000,
+        "system": 31000
+      },
+      "wallMs": 3119.2119000000002
+    }
+  },
+  {
+    "scenario": "quiet",
+    "run": 3,
+    "baseline": {
+      "counts": {
+        "read": 3,
+        "config": 4,
+        "render": 3,
+        "paint": 3,
+        "runtime": 7,
+        "configStat": 4
+      },
+      "stopLatencyMs": 34.76810000000023,
+      "steadyCpu": {
+        "user": 0,
+        "system": 31000
+      },
+      "wallMs": 3139.6909
+    },
+    "candidate": {
+      "counts": {
+        "read": 3,
+        "config": 1,
+        "render": 1,
+        "paint": 1,
+        "runtime": 7,
+        "configStat": 5
+      },
+      "stopLatencyMs": 8.27350000000024,
+      "steadyCpu": {
+        "user": 0,
+        "system": 0
+      },
+      "wallMs": 3136.9102
+    }
+  },
+  {
+    "scenario": "child",
+    "run": 1,
+    "baseline": {
+      "counts": {
+        "read": 4,
+        "config": 3,
+        "render": 2,
+        "paint": 2,
+        "runtime": 6,
+        "configStat": 3
+      },
+      "visibleLatencyMs": 879.7441999999999,
+      "stopLatencyMs": 411.0902000000001,
+      "steadyCpu": {
+        "user": 16000,
+        "system": 31000
+      },
+      "wallMs": 2140.1115
+    },
+    "candidate": {
+      "counts": {
+        "read": 5,
+        "config": 1,
+        "render": 2,
+        "paint": 2,
+        "runtime": 6,
+        "configStat": 4
+      },
+      "visibleLatencyMs": 35.81120000000004,
+      "stopLatencyMs": 13.686899999999923,
+      "steadyCpu": {
+        "user": 0,
+        "system": 47000
+      },
+      "wallMs": 1771.2830999999999
+    }
+  },
+  {
+    "scenario": "replacement",
+    "run": 1,
+    "baseline": {
+      "counts": {
+        "read": 2,
+        "config": 3,
+        "render": 2,
+        "paint": 2,
+        "runtime": 6,
+        "configStat": 3
+      },
+      "visibleLatencyMs": 879.9075,
+      "stopLatencyMs": 412.6811,
+      "steadyCpu": {
+        "user": 0,
+        "system": 0
+      },
+      "wallMs": 2165.8775
+    },
+    "candidate": {
+      "counts": {
+        "read": 3,
+        "config": 1,
+        "render": 2,
+        "paint": 2,
+        "runtime": 6,
+        "configStat": 4
+      },
+      "visibleLatencyMs": 35.545199999999966,
+      "stopLatencyMs": 6.845199999999977,
+      "steadyCpu": {
+        "user": 0,
+        "system": 31000
+      },
+      "wallMs": 1793.5276
+    }
+  },
+  {
+    "scenario": "burst",
+    "run": 1,
+    "baseline": {
+      "counts": {
+        "read": 2,
+        "config": 3,
+        "render": 2,
+        "paint": 2,
+        "runtime": 6,
+        "configStat": 3
+      },
+      "visibleLatencyMs": 887.0659,
+      "stopLatencyMs": 750.1764000000001,
+      "steadyCpu": {
+        "user": 0,
+        "system": 47000
+      },
+      "wallMs": 2158.2401999999997
+    },
+    "candidate": {
+      "counts": {
+        "read": 3,
+        "config": 1,
+        "render": 2,
+        "paint": 2,
+        "runtime": 5,
+        "configStat": 3
+      },
+      "visibleLatencyMs": 90.58029999999997,
+      "stopLatencyMs": 14.009599999999978,
+      "steadyCpu": {
+        "user": 0,
+        "system": 110000
+      },
+      "wallMs": 617.9522
+    }
+  },
+  {
+    "scenario": "expiry",
+    "run": 1,
+    "baseline": {
+      "counts": {
+        "read": 1,
+        "config": 2,
+        "render": 1,
+        "paint": 1,
+        "runtime": 5,
+        "configStat": 2
+      },
+      "stopLatencyMs": 99.30320000000006,
+      "steadyCpu": {
+        "user": 0,
+        "system": 0
+      },
+      "wallMs": 1180.6681
+    },
+    "candidate": {
+      "counts": {
+        "read": 1,
+        "config": 1,
+        "render": 2,
+        "paint": 2,
+        "runtime": 6,
+        "configStat": 3
+      },
+      "stopLatencyMs": 7.280300000000125,
+      "steadyCpu": {
+        "user": 0,
+        "system": 16000
+      },
+      "wallMs": 1037.2325
+    }
+  }
+]
