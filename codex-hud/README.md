@@ -5,6 +5,24 @@ WT tabs or separate PowerShell windows. The official CLI and native statusline
 remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
 task names retain their original language.
 
+## Version 0.7.15: event-driven refresh
+
+Log, configuration, geometry and page changes wake a serialized refresh worker.
+Dense events are coalesced, unchanged frames are not repainted, and clock-only
+updates do not reread telemetry. Growth uses a 50ms coalescing deadline; shrink
+waits two stable seconds. Native identity/backend queries still add latency and
+run asynchronously with fresh process and complete pane proof before resizing.
+
+Necessary integrity/control reconciliation keeps the configured refresh cadence;
+owner identity, displayed Git and stable physical geometry retain five-second
+checks. Directory replacement and lost notifications recover through validated
+fallbacks. No runtime dependency, Codex/source/profile rewrite or extra model
+request is added. Node 24 validation passed 357 tests and 15 native synthetic
+backend checks; Node 20 and long-term installed use remain unverified. Short
+synthetic measurements show faster updates and fewer idle paints, without
+establishing a stable reduction in total CPU. The separate initialization-exit
+issue is not claimed fixed.
+
 ## Version 0.7.14: tool operation categories
 
 Command and script activity is grouped into Run command / Run script, with minor
@@ -407,7 +425,7 @@ showing a temporary pager. Genuine overflow at the size cap still shows paging.
 Use q to close the HUD, or `stop --launch <launch-id>` to request its exit.
 Ctrl+C does not close the HUD; terminal selection/copy shortcuts remain available.
 
-## Event-driven refresh (unreleased source)
+## Event-driven refresh
 
 File changes, terminal resize and paging keys wake a serialized refresh worker.
 Dense notifications are coalesced; configuration is parsed only when it changes,
@@ -424,8 +442,8 @@ and lock waits remain bounded at their existing rates. Polling is retained where
 needed for correctness and experience, rather than reduced indiscriminately.
 Recurring native queries run asynchronously; each resize still validates current
 process incarnations, registration and exact physical panes. No daemon or runtime
-dependency is added. These source changes require a later authorized release to
-affect installed viewers.
+dependency is added. Already running viewers keep their loaded code until reopened in their own
+verified host; installing a package does not migrate other running sessions.
 
 ## Source development
 
