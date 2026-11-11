@@ -3,18 +3,21 @@ import path from 'node:path';
 /** Owns only wakeups and filesystem hints. Readers still validate their inputs. */
 export class RefreshEvents {
     factory;
+    requested;
     pending = new Map();
     directories = new Map();
     wake;
     closed = false;
-    constructor(factory = (dir, options, listener) => fs.watch(dir, options, listener)) {
+    constructor(factory = (dir, options, listener) => fs.watch(dir, options, listener), requested) {
         this.factory = factory;
+        this.requested = requested;
     }
     request(reason, delayMs = 0) {
         if (this.closed)
             return;
         const at = Date.now() + delayMs;
         this.pending.set(reason, Math.min(this.pending.get(reason) ?? Infinity, at));
+        this.requested?.(reason);
         this.wake?.();
     }
     async wait(deadline) {

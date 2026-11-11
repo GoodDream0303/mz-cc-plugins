@@ -10,12 +10,14 @@ import { configure } from './config-menu.js';
 import { SessionReader } from './reader.js';
 import { codexHome, findSession, listSessions } from './sessions.js';
 import { render } from './render.js';
-import { readEnvironment } from './environment.js';
+import { readEnvironmentAsync } from './environment.js';
 import { sanitize } from './terminal-text.js';
 import { emptySnapshot } from './types.js';
 import { buildTerminalArgs, checkRuntime, createLaunch, readLaunch, requestStop, runtimeRoot, selectSessionId, updateLaunch } from './runtime.js';
 import { loadCurrentHost, ensureHostDisplay, bindHostSession, acknowledgeViewer, readHost } from './host-session.js';
-import { readProcessIdentities } from './psmux.js';
+import { readProcessIdentitiesAsync } from './psmux.js';
+import { RefreshEvents } from './refresh-events.js';
+import { nextDisplayAt } from './display-deadline.js';
 import { decodeInvocation, launchHostedCodex, runHostOwner, runHostFrontend } from './host-launch.js';
 import { profileChange, applyProfileChange, stableEntryPlan, applyStableEntry } from './profile-setup.js';
 import { fileURLToPath } from 'node:url';
@@ -48,11 +50,20 @@ async function chooseSession(root) {
         rl.close();
     }
 }
+function inputStamp(file) {
+    try {
+        const stat = fs.statSync(file, { bigint: true });
+        return [stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs, stat.birthtimeNs].join(':');
+    }
+    catch {
+        return 'missing';
+    }
+}
+function controlState(d) { return JSON.stringify([d.sessionId, d.transcriptPath, d.state, d.hudStop, d.host]); }
 async function watch(args, once = false) {
     const ownedFile = launchFile(args);
     let descriptor = ownedFile ? readLaunch(ownedFile) : undefined;
-    const home = descriptor?.codexHome ?? codexHome();
-    const root = option(args, '--sessions-root') ?? descriptor?.sessionsRoot ?? path.join(home, 'sessions');
+    const home = descriptor?.codexHome ?? codexHome(), root = option(args, '--sessions-root') ?? descriptor?.sessionsRoot ?? path.join(home, 'sessions');
     let selected = descriptor?.host ? descriptor.sessionId : descriptor?.sessionId ?? selectSessionId(option(args, '--session'));
     if (!selected && !descriptor?.host)
         selected = await chooseSession(root);
@@ -60,59 +71,153 @@ async function watch(args, once = false) {
         acknowledgeViewer(ownedFile);
         descriptor = readLaunch(ownedFile);
     }
-    let cfgFile = descriptor?.configFile ?? configFile(args), config = loadConfig(cfgFile);
-    let page = 0, quit = false, reader, nextDiscover = 0, nextOwnerCheck = 0, knownPath = '', statusMessage = '';
-    let lastSnapshot = emptySnapshot(selected ?? 'pending');
-    let exitReason = 'normal', exitErrorCode, sourceMessage = '', sourceVerified = true;
-    let bodyFailed = false;
+    const cfgFile = descriptor?.configFile ?? configFile(args);
+    let quit = false, activeQuery;
+    let exitReason = 'normal', exitErrorCode, bodyFailed = false;
+    let projection = descriptor ? controlState(descriptor) : '', sourceMessage = '', sourceVerified = true;
+    const events = new RefreshEvents(undefined, reason => {
+        if (reason === 'config' || reason === 'geometry')
+            activeQuery?.abort();
+        if (reason === 'control' && ownedFile)
+            try {
+                const next = readLaunch(ownedFile);
+                if (next.hudStop || next.state === 'exited') {
+                    quit = true;
+                    exitReason = 'stop-requested';
+                    activeQuery?.abort();
+                    events.request('quit');
+                }
+                else if (controlState(next) !== projection)
+                    activeQuery?.abort();
+            }
+            catch { /* The worker reports or reconciles invalid control state. */ }
+        if (reason === 'host' && descriptor?.host)
+            try {
+                if (readHost(descriptor.host.recordFile).state === 'closed') {
+                    quit = true;
+                    exitReason = 'source-closed';
+                    activeQuery?.abort();
+                    events.request('quit');
+                }
+            }
+            catch { }
+    });
+    const releases = new Map();
+    const subscribe = (file, reason, recursive = false) => { const key = reason + '\0' + file; if (!releases.has(key))
+        releases.set(key, events.watch(file, reason, recursive)); };
+    const remove = (reason, keep) => { for (const [key, release] of releases)
+        if (key.startsWith(reason + '\0') && !keep.has(key.slice(reason.length + 1))) {
+            release();
+            releases.delete(key);
+        } };
+    subscribe(cfgFile, 'config');
+    if (ownedFile)
+        subscribe(ownedFile, 'control');
+    if (descriptor?.host)
+        subscribe(descriptor.host.recordFile, 'host');
+    let config;
+    let cfgStamp = inputStamp(cfgFile);
+    try {
+        config = loadConfig(cfgFile);
+    }
+    catch (error) {
+        events.close();
+        throw error;
+    }
+    let page = 0, reader, knownPath = '', statusMessage = '', nextDiscover = 0, nextOwnerCheck = 0, nextGit = 0, nextHeartbeat = 0, nextReconcile = 0, nextClock = Infinity;
+    let parentSnapshot = emptySnapshot(selected ?? 'pending'), baseSnapshot = parentSnapshot, telemetry = '', lastFrame = '', lastViewport = '', lastGeometry = '';
+    let environment, environmentCwd = '';
+    const dynamicHeight = new DynamicHeightController();
+    let agentSessions = new AgentSessionTracker(root);
     const recordFailure = (error) => { exitReason = 'error'; const code = error?.code; exitErrorCode = typeof code === 'string' && /^[A-Z0-9_]{1,64}$/.test(code) ? code : undefined; };
     const onKey = (_, key) => { if (key?.name === 'q') {
         quit = true;
         exitReason = 'user-quit';
+        activeQuery?.abort();
+        events.request('quit');
     }
-    else if (key?.name === 'right' || key?.name === 'n')
-        page++;
-    else if (key?.name === 'left' || key?.name === 'p')
-        page = Math.max(0, page - 1); };
+    else if (['right', 'n', 'left', 'p'].includes(key?.name ?? '')) {
+        page = key.name === 'right' || key.name === 'n' ? page + 1 : Math.max(0, page - 1);
+        events.request('page');
+    } };
+    const onResize = () => events.request('geometry');
     const interactive = !once && !!process.stdin.isTTY;
-    const dynamicHeight = new DynamicHeightController();
-    const agentSessions = new AgentSessionTracker(root);
     if (interactive) {
         emitKeypressEvents(process.stdin);
         process.stdin.setRawMode(true);
         process.stdin.on('keypress', onKey);
         process.stdin.resume();
     }
-    if (!once && process.stdout.isTTY)
+    if (!once && process.stdout.isTTY) {
+        process.stdout.on('resize', onResize);
         process.stdout.write('\x1b[?1049h\x1b[?25l');
-    if (descriptor && !descriptor.demo)
-        updateLaunch(ownedFile, d => { d.state = 'running'; d.pid = process.pid; d.heartbeat = Date.now(); });
+    }
+    let reasons = new Set(['initial']);
     try {
-        do {
-            if (descriptor) {
-                descriptor = readLaunch(ownedFile);
-                if (descriptor.hudStop || descriptor.state === 'exited') {
-                    exitReason = 'stop-requested';
-                    break;
+        if (descriptor && !descriptor.demo) {
+            descriptor = updateLaunch(ownedFile, d => { d.state = 'running'; d.pid = process.pid; d.heartbeat = Date.now(); });
+            projection = controlState(descriptor);
+        }
+        while (!quit) {
+            const initial = reasons.has('initial'), now = Date.now(), reconcile = now >= nextReconcile;
+            let dirty = initial || reasons.has('page') || reasons.has('geometry');
+            if (reconcile) {
+                nextReconcile = now + get(config, 'terminal.refreshMs');
+                events.reconcile();
+            }
+            activeQuery = new AbortController();
+            const signal = activeQuery.signal;
+            const current = () => {
+                if (quit || signal.aborted)
+                    return false;
+                if (ownedFile) {
+                    const d = readLaunch(ownedFile);
+                    if (d.hudStop || d.state === 'exited' || controlState(d) !== projection)
+                        return false;
                 }
-                if (selected !== descriptor.sessionId) {
-                    reader = undefined;
-                    knownPath = '';
-                    lastSnapshot = emptySnapshot(descriptor.sessionId ?? 'pending');
-                    page = 0;
+                return true;
+            };
+            try {
+                let bindingChanged = false;
+                if (descriptor && (initial || reconcile || reasons.has('control'))) {
+                    const next = readLaunch(ownedFile);
+                    if (next.hudStop || next.state === 'exited') {
+                        exitReason = 'stop-requested';
+                        break;
+                    }
+                    const changed = controlState(next) !== projection;
+                    projection = controlState(next);
+                    bindingChanged = selected !== next.sessionId || descriptor.transcriptPath !== next.transcriptPath;
+                    descriptor = next;
+                    selected = next.sessionId;
+                    dirty ||= changed;
+                    if (bindingChanged) {
+                        reader = undefined;
+                        knownPath = '';
+                        parentSnapshot = emptySnapshot(selected ?? 'pending');
+                        baseSnapshot = parentSnapshot;
+                        agentSessions = new AgentSessionTracker(root);
+                        remove('log', new Set());
+                        remove('child', new Set());
+                        page = 0;
+                        nextDiscover = 0;
+                    }
                 }
-                selected = descriptor.sessionId;
-                if (descriptor.host) {
-                    try {
+                if (descriptor?.host) {
+                    if (initial || reconcile || reasons.has('host')) {
                         const registered = readHost(descriptor.host.recordFile);
                         if (registered.state === 'closed') {
                             exitReason = 'source-closed';
                             break;
                         }
-                        if (Date.now() >= nextOwnerCheck) {
-                            const expected = descriptor.host.proof.owner;
-                            const values = readProcessIdentities([expected.pid]), actual = values.find(p => p.pid === expected.pid);
-                            nextOwnerCheck = Date.now() + 5000;
+                    }
+                    if (Date.now() >= nextOwnerCheck) {
+                        try {
+                            const expected = descriptor.host.proof.owner, values = await readProcessIdentitiesAsync([expected.pid], signal), actual = values.find(p => p.pid === expected.pid);
+                            if (!current()) {
+                                reasons = new Set(['control']);
+                                continue;
+                            }
                             if (!actual || actual.startedAt !== expected.startedAt) {
                                 exitReason = 'owner-exited';
                                 break;
@@ -120,97 +225,190 @@ async function watch(args, once = false) {
                             sourceVerified = true;
                             sourceMessage = '';
                         }
-                    }
-                    catch {
-                        sourceVerified = false;
-                        sourceMessage = 'Source identity unavailable; keeping HUD open and retrying';
+                        catch (error) {
+                            if (signal.aborted)
+                                throw error;
+                            sourceVerified = false;
+                            sourceMessage = 'Source identity unavailable; keeping HUD open and retrying';
+                        }
                         nextOwnerCheck = Date.now() + 5000;
                     }
                 }
-            }
-            try {
-                config = loadConfig(cfgFile);
-                statusMessage = '';
-            }
-            catch (e) {
-                statusMessage = 'Configuration reload failed: ' + e.message;
-            }
-            let snapshot = emptySnapshot(selected ?? 'pending');
-            if (selected) {
-                if (descriptor?.transcriptPath) {
-                    if (!reader || knownPath !== descriptor.transcriptPath) {
-                        knownPath = descriptor.transcriptPath;
-                        reader = new SessionReader(knownPath, selected);
-                    }
-                }
-                else if (Date.now() >= nextDiscover || !reader) {
-                    const session = await findSession(root, selected);
-                    nextDiscover = Date.now() + 5000;
-                    if (session && (!reader || session.path !== knownPath)) {
-                        knownPath = session.path;
-                        reader = new SessionReader(session.path, session.id);
-                        selected = session.id;
-                    }
-                }
-                if (reader) {
+                const stamp = inputStamp(cfgFile);
+                if (stamp !== cfgStamp || statusMessage) {
                     try {
-                        snapshot = await reader.read();
-                        lastSnapshot = structuredClone(snapshot);
+                        config = loadConfig(cfgFile);
+                        cfgStamp = stamp;
+                        statusMessage = '';
+                        nextGit = 0;
+                        nextReconcile = Math.min(nextReconcile, Date.now() + get(config, 'terminal.refreshMs'));
+                        if (nextHeartbeat)
+                            nextHeartbeat = Math.min(nextHeartbeat, Date.now() + get(config, 'terminal.refreshMs'));
+                        dirty = true;
                     }
-                    catch (e) {
-                        snapshot = structuredClone(lastSnapshot);
-                        snapshot.errors.push('Session log unavailable; showing stale telemetry and retrying');
+                    catch (error) {
+                        statusMessage = 'Configuration reload failed: ' + error.message;
                     }
                 }
+                let readParent = initial || bindingChanged || reconcile || reasons.has('log'), readChildren = reconcile || reasons.has('child');
+                if (selected) {
+                    if (descriptor?.transcriptPath) {
+                        if (!reader || knownPath !== descriptor.transcriptPath) {
+                            knownPath = descriptor.transcriptPath;
+                            subscribe(knownPath, 'log');
+                            reader = new SessionReader(knownPath, selected);
+                            readParent = true;
+                        }
+                    }
+                    else if (initial || reasons.has('discovery') || Date.now() >= nextDiscover) {
+                        subscribe(root, 'discovery', true);
+                        const session = await findSession(root, selected);
+                        nextDiscover = Date.now() + 5000;
+                        if (!current()) {
+                            reasons = new Set(['control']);
+                            continue;
+                        }
+                        if (session && (!reader || session.path !== knownPath)) {
+                            knownPath = session.path;
+                            subscribe(knownPath, 'log');
+                            reader = new SessionReader(knownPath, session.id);
+                            selected = session.id;
+                            readParent = true;
+                            remove('log', new Set([knownPath]));
+                        }
+                    }
+                    if (reader && readParent) {
+                        try {
+                            parentSnapshot = await reader.read();
+                        }
+                        catch {
+                            parentSnapshot = structuredClone(parentSnapshot);
+                            parentSnapshot.errors = ['Session log unavailable; showing stale telemetry and retrying'];
+                        }
+                    }
+                    if (!reader) {
+                        parentSnapshot = emptySnapshot(selected);
+                        parentSnapshot.errors.push('Waiting for the selected session log');
+                    }
+                }
+                else {
+                    parentSnapshot = emptySnapshot('pending');
+                    parentSnapshot.errors.push(descriptor?.host ? 'Waiting for this Codex conversation' : 'Select the existing Codex session to display');
+                }
+                if (!current()) {
+                    reasons = new Set(['control']);
+                    continue;
+                }
+                if (readParent || readChildren || reasons.has('discovery')) {
+                    baseSnapshot = structuredClone(parentSnapshot);
+                    if (reader)
+                        await agentSessions.refresh(baseSnapshot, reader, { invalidate: readChildren, discover: reasons.has('discovery'), onFile: file => subscribe(file, 'child') });
+                    remove('child', new Set(agentSessions.files));
+                }
+                if (!reader || agentSessions.needsDiscovery)
+                    subscribe(root, 'discovery', true);
                 else
-                    snapshot.errors.push('Waiting for the selected session log');
-            }
-            else
-                snapshot.errors.push(descriptor?.host ? 'Waiting for this Codex conversation' : 'Select the existing Codex session to display');
-            if (reader)
-                await agentSessions.refresh(snapshot, reader);
-            if (snapshot.cwd && (get(config, 'gitStatus.enabled') || args.includes('--json')))
-                snapshot.environment = readEnvironment(snapshot.cwd);
-            if (statusMessage)
-                snapshot.errors.push(statusMessage);
-            if (sourceMessage)
-                snapshot.errors.push(sourceMessage);
-            const width = Number(option(args, '--width')) || process.stdout.columns || 100, color = !args.includes('--no-color') && !!process.stdout.isTTY;
-            const now = Date.now();
-            let rows = once ? 1000 : process.stdout.rows || 12, result = render(snapshot, config, { width, height: rows, page, color, now });
-            if (!once && process.stdout.isTTY && descriptor?.host && sourceVerified) {
-                try {
-                    const fitted = await dynamicHeight.fit(descriptor, config, result.totalLines, now, { columns: width, rows });
-                    if (fitted !== undefined && fitted !== rows || dynamicHeight.awaitingGrowth) {
-                        rows = fitted ?? rows;
-                        result = render(snapshot, config, { width, height: rows, page, color, now, showPager: !dynamicHeight.awaitingGrowth });
+                    remove('discovery', new Set());
+                if (!current()) {
+                    reasons = new Set(['control']);
+                    continue;
+                }
+                if (baseSnapshot.cwd && (get(config, 'gitStatus.enabled') || args.includes('--json'))) {
+                    if (environmentCwd !== baseSnapshot.cwd || Date.now() >= nextGit) {
+                        environment = await readEnvironmentAsync(baseSnapshot.cwd, signal);
+                        environmentCwd = baseSnapshot.cwd;
+                        nextGit = Date.now() + 5000;
                     }
                 }
-                catch {
-                    snapshot.errors.push('Automatic height unavailable; keeping the current pane size');
-                    result = render(snapshot, config, { width, height: rows, page, color, now });
+                else {
+                    environment = undefined;
+                    environmentCwd = '';
+                    nextGit = Infinity;
+                }
+                if (!current()) {
+                    reasons = new Set(['control']);
+                    continue;
+                }
+                const snapshot = structuredClone(baseSnapshot);
+                if (environment)
+                    snapshot.environment = environment;
+                if (statusMessage)
+                    snapshot.errors.push(statusMessage);
+                if (sourceMessage)
+                    snapshot.errors.push(sourceMessage);
+                const serialized = JSON.stringify(snapshot);
+                dirty ||= serialized !== telemetry;
+                telemetry = serialized;
+                const width = Number(option(args, '--width')) || process.stdout.columns || 100, color = !args.includes('--no-color') && !!process.stdout.isTTY;
+                let rows = once ? 1000 : process.stdout.rows || 12;
+                const geometry = JSON.stringify([width, rows]);
+                dirty ||= geometry !== lastGeometry;
+                lastGeometry = geometry;
+                if (dirty || Date.now() >= nextClock || Date.now() >= dynamicHeight.nextCheckAt) {
+                    const at = Date.now();
+                    let result = render(snapshot, config, { width, height: rows, page, color, now: at });
+                    if (!once && process.stdout.isTTY && descriptor?.host && sourceVerified) {
+                        try {
+                            const fitted = await dynamicHeight.fit(descriptor, config, result.totalLines, at, { columns: width, rows }, () => current() && (Number(option(args, '--width')) || process.stdout.columns || 100) === width && (process.stdout.rows || 12) === rows, signal);
+                            if (fitted !== undefined && fitted !== rows || dynamicHeight.awaitingGrowth) {
+                                rows = fitted ?? rows;
+                                result = render(snapshot, config, { width, height: rows, page, color, now: at, showPager: !dynamicHeight.awaitingGrowth });
+                            }
+                        }
+                        catch (error) {
+                            if (signal.aborted)
+                                throw error;
+                            dynamicHeight.nextCheckAt = Date.now() + 5000;
+                            snapshot.errors.push('Automatic height unavailable; keeping the current pane size');
+                            result = render(snapshot, config, { width, height: rows, page, color, now: at });
+                        }
+                    }
+                    if (!current()) {
+                        reasons = new Set(['control']);
+                        continue;
+                    }
+                    nextClock = nextDisplayAt(snapshot, config, at);
+                    const frame = result.lines.join('\r\n'), viewport = { columns: process.stdout.columns ?? 100, rows, contentRows: result.totalLines, pages: result.pages }, viewportKey = JSON.stringify(viewport);
+                    if (descriptor && !descriptor.demo && viewportKey !== lastViewport) {
+                        updateLaunch(ownedFile, d => { d.viewport = viewport; });
+                        lastViewport = viewportKey;
+                    }
+                    if (args.includes('--json'))
+                        console.log(JSON.stringify(snapshot));
+                    else if (!once && process.stdout.isTTY) {
+                        if (frame !== lastFrame) {
+                            process.stdout.write('\x1b[H\x1b[2J' + frame);
+                            lastFrame = frame;
+                        }
+                    }
+                    else
+                        console.log(result.lines.join('\n'));
+                }
+                if (once) {
+                    exitReason = 'one-shot';
+                    break;
+                }
+                if (!process.stdout.isTTY) {
+                    exitReason = 'noninteractive';
+                    break;
+                }
+                if (descriptor && !descriptor.demo && Date.now() >= nextHeartbeat) {
+                    updateLaunch(ownedFile, d => { d.heartbeat = Date.now(); });
+                    nextHeartbeat = Date.now() + get(config, 'terminal.refreshMs');
                 }
             }
-            if (descriptor && !descriptor.demo)
-                updateLaunch(ownedFile, d => { d.heartbeat = Date.now(); d.viewport = { columns: process.stdout.columns ?? 100, rows, contentRows: result.totalLines, pages: result.pages }; });
-            if (args.includes('--json'))
-                console.log(JSON.stringify(snapshot));
-            else {
-                if (!once && process.stdout.isTTY)
-                    process.stdout.write('\x1b[H\x1b[2J' + result.lines.join('\r\n'));
-                else
-                    console.log(result.lines.join('\n'));
+            catch (error) {
+                if (!signal.aborted)
+                    throw error;
+                if (quit)
+                    break;
+                reasons = new Set(['control', 'config', 'log', 'geometry']);
+                continue;
             }
-            if (once) {
-                exitReason = 'one-shot';
-                break;
-            }
-            if (!process.stdout.isTTY) {
-                exitReason = 'noninteractive';
-                break;
-            }
-            await delay(get(config, 'terminal.refreshMs'));
-        } while (!quit);
+            activeQuery = undefined;
+            const deadline = Math.min(nextReconcile, descriptor?.host ? nextOwnerCheck : Infinity, nextGit, nextHeartbeat || Infinity, nextClock, sourceVerified ? dynamicHeight.nextCheckAt : Infinity);
+            reasons = await events.wait(deadline);
+        }
     }
     catch (error) {
         bodyFailed = true;
@@ -218,6 +416,8 @@ async function watch(args, once = false) {
         throw error;
     }
     finally {
+        activeQuery?.abort();
+        events.close();
         let cleanupFailed = false, cleanupError;
         const cleanup = (action) => { try {
             action();
@@ -233,6 +433,7 @@ async function watch(args, once = false) {
             cleanup(() => process.stdin.setRawMode(false));
             cleanup(() => process.stdin.pause());
         }
+        process.stdout.off('resize', onResize);
         if (!once && process.stdout.isTTY)
             cleanup(() => { process.stdout.write('\x1b[0m\x1b[?25h\x1b[?1049l'); });
         if (cleanupFailed && !bodyFailed)

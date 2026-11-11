@@ -10,10 +10,10 @@ interface Directory {path:string;recursive:boolean;targets:Set<Subscription>;han
 export class RefreshEvents {
  private pending=new Map<string,number>();private directories=new Map<string,Directory>();
  private wake?:()=>void;private closed=false;
- constructor(private readonly factory:WatchFactory=(dir,options,listener)=>fs.watch(dir,options,listener)){}
+ constructor(private readonly factory:WatchFactory=(dir,options,listener)=>fs.watch(dir,options,listener),private readonly requested?:(reason:string)=>void){}
  request(reason:string,delayMs=0):void {
   if(this.closed)return;
-  const at=Date.now()+delayMs;this.pending.set(reason,Math.min(this.pending.get(reason)??Infinity,at));this.wake?.();
+  const at=Date.now()+delayMs;this.pending.set(reason,Math.min(this.pending.get(reason)??Infinity,at));this.requested?.(reason);this.wake?.();
  }
  async wait(deadline:number):Promise<Set<string>> {
   for(;;){

@@ -5,13 +5,17 @@ import type {HudSnapshot,SessionInfo} from './types.js';
 /** Parent activity is primary; verified child lifecycle fills missing notifications. */
 export class AgentSessionTracker {
  private readers=new Map<string,SessionReader>();private nextDiscovery=0;private discoveryUnavailable=false;
+ private unresolved=false;
+ private snapshots=new Map<string,HudSnapshot>();
  constructor(private readonly root:string){}
- async refresh(snapshot:HudSnapshot,parent:SessionReader):Promise<void> {
+ get files():string[]{return [...this.readers.values()].map(reader=>reader.file);}
+ get needsDiscovery():boolean{return this.unresolved;}
+ async refresh(snapshot:HudSnapshot,parent:SessionReader,options:{invalidate?:boolean;discover?:boolean;onFile?:(file:string)=>void}={}):Promise<void> {
   for(const agent of snapshot.agents){const timing=parent.agentTiming(agent.id);if(Number.isFinite(timing.startedAt))agent.startedAt=timing.startedAt;if(Number.isFinite(timing.endedAt))agent.endedAt=timing.endedAt;}
   const active=snapshot.agents.filter(a=>/^[a-zA-Z0-9_-]{3,100}$/.test(a.id));
-  const retained=new Set(snapshot.agents.map(a=>a.id));for(const id of this.readers.keys())if(!retained.has(id))this.readers.delete(id);
-  if(!active.length){this.discoveryUnavailable=false;return;}
-  if(active.some(a=>!this.readers.has(a.id))&&Date.now()>=this.nextDiscovery){
+  const retained=new Set(snapshot.agents.map(a=>a.id));for(const id of this.readers.keys())if(!retained.has(id)){this.readers.delete(id);this.snapshots.delete(id);}
+  if(!active.length){this.discoveryUnavailable=false;this.unresolved=false;return;}
+  if(active.some(a=>!this.readers.has(a.id))&&(options.discover||Date.now()>=this.nextDiscovery)){
    this.nextDiscovery=Date.now()+5000;let sessions:SessionInfo[]=[];
    try{sessions=await listSessions(this.root);this.discoveryUnavailable=false;}catch{this.discoveryUnavailable=true;}
    for(const agent of active){
@@ -20,10 +24,12 @@ export class AgentSessionTracker {
     if(matches.length===1)this.readers.set(agent.id,new SessionReader(matches[0].path,agent.id));
    }
   }
+  this.unresolved=active.some(a=>!this.readers.has(a.id));
   if(this.discoveryUnavailable)snapshot.errors.push('Agent lifecycle lookup unavailable; showing parent-reported status');
   for(const agent of active){
    const reader=this.readers.get(agent.id);if(!reader)continue;
-   let child:HudSnapshot;try{child=await reader.read();}catch{continue;}
+   options.onFile?.(reader.file);
+   let child=this.snapshots.get(agent.id);if(options.invalidate!==false||!child){try{child=await reader.read();this.snapshots.set(agent.id,child);}catch{continue;}}
    if(child.sessionId!==agent.id||child.parentId!==snapshot.sessionId)continue;
    const pending=['starting','running','interrupted'].includes(agent.status),at=Date.parse(child.activityAt??'');
    const taskStart=parent.agentTiming(agent.id).startedAt??(pending?parent.agentActivityAt(agent.id):undefined)??-Infinity;
