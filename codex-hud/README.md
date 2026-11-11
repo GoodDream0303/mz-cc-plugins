@@ -5,6 +5,19 @@ WT tabs or separate PowerShell windows. The official CLI and native statusline
 remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
 task names retain their original language.
 
+## Version 0.7.16: in-place row updates
+
+Content changes replace only changed visible rows instead of clearing the whole
+HUD pane. Shortened or removed rows erase stale text, full-width ASCII/CJK rows
+retain their final glyph, and resize events invalidate the display even when
+coalesced events return to the same dimensions. Existing event wakeups, integrity
+checks, source ownership and height controls remain in place.
+
+The native fixed-height fixture passed nine checks. A separate narrow-to-wide
+dynamic-height recovery check failed on both this candidate and unchanged
+0.7.15; it remains unresolved. Real installed visual acceptance, Node 20 and
+Codex 0.167.1 compatibility are not claimed verified by these checks.
+
 ## Version 0.7.15: event-driven refresh
 
 Log, configuration, geometry and page changes wake a serialized refresh worker.
