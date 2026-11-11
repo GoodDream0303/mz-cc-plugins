@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { emptySnapshot } from './types.js';
 import { AgentTracker } from './agents.js';
 import { toolOutput } from './tool-output.js';
-import { toolDetails, commandDetails, isAgentAction } from './tool-details.js';
+import { toolDetails, commandDetails, isAgentAction, toolCategory } from './tool-details.js';
 const MAX_LINE = 2 * 1024 * 1024;
 const safe = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 function count(v) { return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0; }
@@ -291,6 +291,8 @@ export class SessionReader {
     annotate(row, details, start, duration, end) {
         if (!row)
             return;
+        if (row.action && details.action && ['node', 'python', 'powershell', 'shell'].includes(details.action.kind) && !['node', 'python', 'powershell', 'shell'].includes(row.action.kind))
+            details = {};
         if (isAgentAction(details.action) && details.action.kind === row.action?.kind && details.action.target === undefined && row.action.target)
             details = { ...details, action: { ...details.action, target: row.action.target } };
         Object.assign(row, details);
@@ -300,7 +302,7 @@ export class SessionReader {
             row.finishedAt = end;
         if (typeof duration === 'number' && Number.isFinite(duration) && duration >= 0)
             row.durationMs = duration;
-        else if (row.status !== 'running' && row.startedAt !== undefined && row.finishedAt !== undefined && row.finishedAt >= row.startedAt)
+        else if (row.durationMs === undefined && row.status !== 'running' && row.startedAt !== undefined && row.finishedAt !== undefined && row.finishedAt >= row.startedAt)
             row.durationMs = row.finishedAt - row.startedAt;
     }
     item(p, timestamp, completed = false, startedAt, completedAt) {
@@ -342,9 +344,9 @@ export class SessionReader {
                 return;
             const args = parse(p.arguments ?? p.input), existing = this.snapshot.tools.find(t => t.id === id);
             if (existing) {
-                const details = toolDetails(name, args ?? p.input);
-                if (isAgentAction(details.action) && toolDetails(existing.name).action?.kind === details.action.kind)
-                    existing.action = details.action;
+                const details = toolDetails(name, args ?? p.input), category = toolCategory(name);
+                if (details.action && (name === existing.name || category && category === toolCategory(existing.name) || isAgentAction(details.action) && toolDetails(existing.name).action?.kind === details.action.kind))
+                    this.annotate(existing, details);
                 return;
             }
             const row = this.tool(id, name, 'running', false, timestamp);

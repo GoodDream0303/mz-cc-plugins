@@ -2,6 +2,34 @@ import test from 'node:test';import assert from 'node:assert/strict';import fs f
 import {SessionReader} from '../dist/reader.js';import {listSessions,findSession} from '../dist/sessions.js';
 const record=(type,payload)=>JSON.stringify({type,payload,timestamp:'2026-11-02T08:00:00Z'})+'\n';
 function fixture(t){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'hud-reader-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));return {dir,file:path.join(dir,'rollout-abc.jsonl')};}
+
+test('late script metadata enriches a completed call without restarting or duplicating it',async t=>{
+ const {file}=fixture(t),completion=record('event_msg',{type:'item_completed',started_at_ms:1000,completed_at_ms:2500,item:{type:'Extension',id:'script-1',kind:'functions.exec',status:'completed',duration_ms:1500}}),call=record('response_item',{type:'custom_tool_call',call_id:'script-1',name:'functions.exec',input:"await tools.exec_command({cmd:'Get-Content C:/private/SECRET.md'});"});
+ for(const events of [completion+call,call+completion]){
+  fs.writeFileSync(file,record('session_meta',{id:'abc'})+events);
+  const reader=new SessionReader(file,'abc'),snapshot=await reader.read();
+  assert.equal(snapshot.tools.length,1);assert.equal(snapshot.tools[0].status,'done');assert.equal(snapshot.tools[0].startedAt,1000);assert.equal(snapshot.tools[0].durationMs,1500);assert.deepEqual(snapshot.tools[0].action,{kind:'read'});assert.ok(!JSON.stringify(snapshot).includes('SECRET'));
+ }
+});
+
+test('canonical wrapped commands retain all operations after response metadata and process polling',async t=>{
+ const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'abc'})+
+  record('response_item',{type:'function_call',call_id:'command-1',name:'exec_command',arguments:JSON.stringify({cmd:'Get-Content SECRET.md; rg needle src'})})+
+  record('event_msg',{type:'item_started',started_at_ms:1000,item:{type:'CommandExecution',id:'command-1',command:['pwsh','-Command','Get-Content SECRET.md; rg needle src'],status:'in_progress'}})+
+  record('response_item',{type:'function_call_output',call_id:'command-1',output:'Script running with cell ID 8'})+
+  record('response_item',{type:'function_call',call_id:'poll-1',name:'wait',arguments:JSON.stringify({cell_id:'8'})})+
+  record('response_item',{type:'function_call_output',call_id:'poll-1',output:'Process exited with code 0'}));
+ const reader=new SessionReader(file,'abc'),snapshot=await reader.read();
+ assert.deepEqual(snapshot.tools.find(tool=>tool.id==='command-1').action,{kind:'mixed',operations:['read','search']});assert.equal(snapshot.tools.filter(tool=>tool.id==='command-1').length,1);assert.ok(!JSON.stringify(snapshot).includes('SECRET'));
+});
+
+test('canonical generic shells cannot erase details and aliases enrich the same completed call',async t=>{
+ const {file}=fixture(t),completion=record('event_msg',{type:'item_completed',started_at_ms:1000,completed_at_ms:2500,item:{type:'CommandExecution',id:'command-1',command:['pwsh','-EncodedCommand','SECRET'],status:'completed',duration_ms:1500}}),call=record('response_item',{type:'function_call',call_id:'command-1',name:'functions.exec_command',arguments:JSON.stringify({cmd:'Get-Content SECRET.md'})});
+ for(const events of [completion+call,call+completion]){
+  fs.writeFileSync(file,record('session_meta',{id:'abc'})+events);
+  const snapshot=await new SessionReader(file,'abc').read();assert.equal(snapshot.tools.length,1);assert.equal(snapshot.tools[0].status,'done');assert.deepEqual(snapshot.tools[0].action,{kind:'read'});assert.equal(snapshot.tools[0].durationMs,1500);
+ }
+});
 test('late agent arguments enrich an existing operation without restarting its completed lifecycle',async t=>{
  const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'abc'})+record('event_msg',{type:'item_completed',started_at_ms:1000,completed_at_ms:2500,item:{type:'Extension',id:'spawn-1',kind:'spawn_agent',status:'completed',duration_ms:900}})+record('response_item',{type:'function_call',call_id:'spawn-1',name:'spawn_agent',arguments:JSON.stringify({task_name:'hud_live_check',message:'SECRET PROMPT'})}));
  const s=await new SessionReader(file,'abc').read();assert.equal(s.tools.length,1);assert.equal(s.tools[0].status,'done');assert.deepEqual(s.tools[0].action,{kind:'agentSpawn',target:'hud_live_check'});assert.equal(s.tools[0].startedAt,1000);assert.equal(s.tools[0].finishedAt,2500);assert.equal(s.tools[0].durationMs,900);assert.ok(!JSON.stringify(s).includes('SECRET'));assert.equal(s.agents.length,0);

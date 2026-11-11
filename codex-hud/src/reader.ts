@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 import {emptySnapshot,type HudSnapshot,type Tokens,type Tool} from './types.js';
 import {AgentTracker} from './agents.js';
 import {toolOutput} from './tool-output.js';
-import {toolDetails,commandDetails,isAgentAction} from './tool-details.js';
+import {toolDetails,commandDetails,isAgentAction,toolCategory} from './tool-details.js';
 const MAX_LINE=2*1024*1024;
 const safe=(v:unknown):v is Record<string,any>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 function count(v:unknown):number{return typeof v==='number'&&Number.isFinite(v)&&v>=0?v:0;}
@@ -123,12 +123,13 @@ export class SessionReader {
  }
  private annotate(row:Tool|undefined,details:Pick<Tool,'action'>,start?:unknown,duration?:unknown,end?:unknown):void {
   if(!row)return;
+  if(row.action&&details.action&&['node','python','powershell','shell'].includes(details.action.kind)&&!['node','python','powershell','shell'].includes(row.action.kind))details={};
   if(isAgentAction(details.action)&&details.action!.kind===row.action?.kind&&details.action!.target===undefined&&row.action.target)details={...details,action:{...details.action!,target:row.action.target}};
   Object.assign(row,details);
   if(typeof start==='number'&&Number.isFinite(start)&&start>=0)row.startedAt=start;
   if(row.status!=='running'&&typeof end==='number'&&Number.isFinite(end)&&end>=0)row.finishedAt=end;
   if(typeof duration==='number'&&Number.isFinite(duration)&&duration>=0)row.durationMs=duration;
-  else if(row.status!=='running'&&row.startedAt!==undefined&&row.finishedAt!==undefined&&row.finishedAt>=row.startedAt)row.durationMs=row.finishedAt-row.startedAt;
+  else if(row.durationMs===undefined&&row.status!=='running'&&row.startedAt!==undefined&&row.finishedAt!==undefined&&row.finishedAt>=row.startedAt)row.durationMs=row.finishedAt-row.startedAt;
  }
  private item(p:any,timestamp:unknown,completed=false,startedAt?:unknown,completedAt?:unknown){
   if(!safe(p))return;
@@ -147,7 +148,7 @@ export class SessionReader {
   if(['function_call','custom_tool_call'].includes(p.type)){
    const id=text(p.call_id??p.id);const name=text(p.name);if(!id||!name)return;
    const args=parse(p.arguments??p.input),existing=this.snapshot.tools.find(t=>t.id===id);
-   if(existing){const details=toolDetails(name,args??p.input);if(isAgentAction(details.action)&&toolDetails(existing.name).action?.kind===details.action!.kind)existing.action=details.action;return;}
+   if(existing){const details=toolDetails(name,args??p.input),category=toolCategory(name);if(details.action&&(name===existing.name||category&&category===toolCategory(existing.name)||isAgentAction(details.action)&&toolDetails(existing.name).action?.kind===details.action.kind))this.annotate(existing,details);return;}
    const row=this.tool(id,name,'running',false,timestamp);
    const leaf=name.split('.').at(-1);
    this.annotate(row,toolDetails(name,args??p.input));
