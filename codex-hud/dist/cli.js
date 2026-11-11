@@ -11,7 +11,7 @@ import { SessionReader } from './reader.js';
 import { codexHome, findSession, listSessions } from './sessions.js';
 import { render } from './render.js';
 import { readEnvironmentAsync } from './environment.js';
-import { sanitize } from './terminal-text.js';
+import { frameUpdate, sanitize } from './terminal-text.js';
 import { emptySnapshot } from './types.js';
 import { buildTerminalArgs, checkRuntime, createLaunch, readLaunch, requestStop, runtimeRoot, selectSessionId, updateLaunch } from './runtime.js';
 import { loadCurrentHost, ensureHostDisplay, bindHostSession, acknowledgeViewer, readHost } from './host-session.js';
@@ -127,7 +127,8 @@ async function watch(args, once = false) {
         throw error;
     }
     let page = 0, reader, knownPath = '', statusMessage = '', nextDiscover = 0, nextOwnerCheck = 0, nextGit = 0, nextHeartbeat = 0, nextReconcile = 0, nextClock = Infinity;
-    let parentSnapshot = emptySnapshot(selected ?? 'pending'), baseSnapshot = parentSnapshot, telemetry = '', lastFrame = '', lastViewport = '', lastGeometry = '';
+    let parentSnapshot = emptySnapshot(selected ?? 'pending'), baseSnapshot = parentSnapshot, telemetry = '', lastViewport = '', lastGeometry = '';
+    let paintedLines = [], paintedGeometry = '', paintInvalidated = true;
     let environment, environmentCwd = '';
     const dynamicHeight = new DynamicHeightController();
     let agentSessions = new AgentSessionTracker(root);
@@ -142,7 +143,7 @@ async function watch(args, once = false) {
         page = key.name === 'right' || key.name === 'n' ? page + 1 : Math.max(0, page - 1);
         events.request('page');
     } };
-    const onResize = () => events.request('geometry');
+    const onResize = () => { paintInvalidated = true; events.request('geometry'); };
     const interactive = !once && !!process.stdin.isTTY;
     if (interactive) {
         emitKeypressEvents(process.stdin);
@@ -384,7 +385,7 @@ async function watch(args, once = false) {
                         continue;
                     }
                     nextClock = nextDisplayAt(snapshot, config, at);
-                    const frame = result.lines.join('\r\n'), viewport = { columns: process.stdout.columns ?? 100, rows, contentRows: result.totalLines, pages: result.pages }, viewportKey = JSON.stringify(viewport);
+                    const viewport = { columns: process.stdout.columns ?? 100, rows, contentRows: result.totalLines, pages: result.pages }, viewportKey = JSON.stringify(viewport);
                     if (descriptor && !descriptor.demo && viewportKey !== lastViewport) {
                         updateLaunch(ownedFile, d => { d.viewport = viewport; });
                         lastViewport = viewportKey;
@@ -392,10 +393,13 @@ async function watch(args, once = false) {
                     if (args.includes('--json'))
                         console.log(JSON.stringify(snapshot));
                     else if (!once && process.stdout.isTTY) {
-                        if (frame !== lastFrame) {
-                            process.stdout.write('\x1b[H\x1b[2J' + frame);
-                            lastFrame = frame;
-                        }
+                        const height = process.stdout.rows || 12, geometry = JSON.stringify([process.stdout.columns ?? 100, height]);
+                        const output = frameUpdate(paintedLines, result.lines, height, paintInvalidated || geometry !== paintedGeometry, process.stdout.columns ?? 100);
+                        if (output)
+                            process.stdout.write(output);
+                        paintedLines = result.lines.slice(0, height);
+                        paintedGeometry = geometry;
+                        paintInvalidated = false;
                     }
                     else
                         console.log(result.lines.join('\n'));

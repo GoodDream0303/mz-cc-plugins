@@ -1,5 +1,38 @@
 # Validation: exact per-source HUD
 
+## 0.7.16: in-place row updates — 2026-11-11
+
+Native Windows, Node 24.15.0: the final `npm test -- --test-concurrency=1`
+passed **366/366**, with zero failures, cancellations or skips. The version
+fields were already 0.7.16 for this run. Focused frame, refresh, recovery,
+lifecycle and terminal-input checks passed 28/28 before release preparation.
+
+The original telemetry-change regression failed because each changed frame
+included `CSI 2 J`. The viewer now overwrites changed visible rows and clears
+only stale suffixes or removed rows. Two review findings were separately
+reproduced and fixed: erasing a wrap-pending right-margin glyph, and missing a
+repaint when coalesced resize events return to the original dimensions.
+Recovery fixtures retain visible rows across differential writes; they no
+longer depend on a whole-pane clear to detect a paint. Their timeouts remain
+unchanged. The final full run includes all these cases.
+
+The pinned psmux/ConPTY fixed-height fixture passed **9 checks**, including
+full-width final ASCII and CJK glyphs, a shortened row without stale text,
+independent owners, reopen/binding, Ctrl+C/q and source closure. This uses
+renamed Node fixtures and synthetic telemetry, not official Codex or a model
+request. Local logs: `.superpowers/sdd/2026-11-11-hud-row-paint/` at the
+repository root (`final-full-suite.log`, `fixed-native-smoke.log`).
+
+The separate dynamic-height smoke failed at narrow-to-wide recovery with
+`Dynamic HUD did not reach 3 actual rows`. An unchanged f9b54ae/0.7.15 runtime
+failed at the same check; this existing issue remains unresolved and is not
+claimed fixed or passed by the nine fixed-height checks. Candidate and control
+logs are `native-smoke.log` and `baseline-native-smoke.log` in the same directory.
+
+Installed visual acceptance, long-term use, Node 20 and Codex 0.167.1
+compatibility remain unverified by these fixtures. The initialization-exit
+issue is not claimed fixed.
+
 ## Unreleased: event-driven refresh — 2026-11-11
 
 [Evidence](evidence/2026-11-11-event-refresh/summary.json) records source

@@ -1,6 +1,17 @@
 const ESC = /\x1b(?:\][^\x07]*(?:\x07|\x1b\\)|\[[0-?]*[ -/]*[@-~]|[@-_])/g;
 const ANSI = /(\x1b\[[0-9;]*m)/g;
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+/** Replace changed visible rows in place; never blank the whole pane between frames. */
+export function frameUpdate(previous, next, height, force = false, width = Infinity) {
+    let output = '';
+    for (let row = 0; row < Math.min(height, Math.max(previous.length, next.length)); row++) {
+        const line = next[row] ?? '';
+        // At the right margin EL would erase the final cell while wrap is pending.
+        if (force || line !== (previous[row] ?? ''))
+            output += '\x1b[' + (row + 1) + ';1H\x1b[0m' + line + '\x1b[0m' + (displayWidth(line) < width ? '\x1b[K' : '');
+    }
+    return output;
+}
 export function sanitize(value) { return String(value ?? '').replace(ESC, '').replace(/[\x00-\x1f\x7f-\x9f]/g, ''); }
 function cellWidth(cluster) {
     if (/^[\p{Mark}\u200d\u200b\ufe0f]+$/u.test(cluster))

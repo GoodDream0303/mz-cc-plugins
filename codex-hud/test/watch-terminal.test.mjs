@@ -6,7 +6,7 @@ test('watch leaves mouse selection to the terminal and Ctrl+C keeps the viewer o
  const input=new PassThrough();input.isTTY=true;input.setRawMode=()=>{};
  const output=new EventEmitter();Object.assign(output,{isTTY:true,columns:80,rows:12});
  const realWrite=process.stdout.write.bind(process.stdout),writes=[];let started=false,quitSent=false;
- output.write=text=>{writes.push(text);if(!started&&text.startsWith('\\x1b[H')){started=true;setImmediate(()=>input.write('\\x03'));setTimeout(()=>{quitSent=true;input.write('q');},350);}return true;};
+ output.write=text=>{writes.push(text);if(!started&&/\\x1b\\[\\d+;1H/.test(text)){started=true;setImmediate(()=>input.write('\\x03'));setTimeout(()=>{quitSent=true;input.write('q');},350);}return true;};
  Object.defineProperty(process,'stdin',{value:input});Object.defineProperty(process,'stdout',{value:output});
  await main(['watch','--session','synthetic-terminal','--sessions-root',process.argv[1],'--config',process.argv[1]+'/config.json']);
  realWrite(JSON.stringify({quitSent,mouseReportingEnabled:writes.some(text=>/\\x1b\\[\\?100[026]h/.test(text))}));

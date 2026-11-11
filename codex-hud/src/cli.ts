@@ -11,7 +11,7 @@ import {SessionReader} from './reader.js';
 import {codexHome,findSession,listSessions} from './sessions.js';
 import {render} from './render.js';
 import {readEnvironmentAsync} from './environment.js';
-import {sanitize} from './terminal-text.js';
+import {frameUpdate,sanitize} from './terminal-text.js';
 import {emptySnapshot,type HudSnapshot} from './types.js';
 import {buildTerminalArgs,checkRuntime,createLaunch,readLaunch,requestStop,runtimeRoot,selectSessionId,updateLaunch,type LaunchDescriptor} from './runtime.js';
 import {loadCurrentHost,ensureHostDisplay,bindHostSession,acknowledgeViewer,readHost} from './host-session.js';
@@ -66,12 +66,13 @@ async function watch(args:string[],once=false):Promise<void>{
  let config:Config;let cfgStamp=inputStamp(cfgFile);
  try{config=loadConfig(cfgFile);}catch(error){events.close();throw error;}
  let page=0,reader:SessionReader|undefined,knownPath='',statusMessage='',nextDiscover=0,nextOwnerCheck=0,nextGit=0,nextHeartbeat=0,nextReconcile=0,nextClock=Infinity;
- let parentSnapshot=emptySnapshot(selected??'pending'),baseSnapshot=parentSnapshot,telemetry='',lastFrame='',lastViewport='',lastGeometry='';
+ let parentSnapshot=emptySnapshot(selected??'pending'),baseSnapshot=parentSnapshot,telemetry='',lastViewport='',lastGeometry='';
+ let paintedLines:string[]=[],paintedGeometry='',paintInvalidated=true;
  let environment:HudSnapshot['environment'],environmentCwd='';
  const dynamicHeight=new DynamicHeightController();let agentSessions=new AgentSessionTracker(root);
  const recordFailure=(error:unknown)=>{exitReason='error';const code=(error as NodeJS.ErrnoException)?.code;exitErrorCode=typeof code==='string'&&/^[A-Z0-9_]{1,64}$/.test(code)?code:undefined;};
  const onKey=(_:unknown,key:{name?:string;ctrl?:boolean})=>{if(key?.name==='q'){quit=true;exitReason='user-quit';activeQuery?.abort();events.request('quit');}else if(['right','n','left','p'].includes(key?.name??'')){page=key.name==='right'||key.name==='n'?page+1:Math.max(0,page-1);events.request('page');}};
- const onResize=()=>events.request('geometry');const interactive=!once&&!!process.stdin.isTTY;
+ const onResize=()=>{paintInvalidated=true;events.request('geometry');};const interactive=!once&&!!process.stdin.isTTY;
  if(interactive){emitKeypressEvents(process.stdin);process.stdin.setRawMode(true);process.stdin.on('keypress',onKey);process.stdin.resume();}
  if(!once&&process.stdout.isTTY){process.stdout.on('resize',onResize);process.stdout.write('\x1b[?1049h\x1b[?25l');}
  let reasons=new Set(['initial']);
@@ -143,9 +144,13 @@ async function watch(args:string[],once=false):Promise<void>{
      }
      if(!current()){reasons=new Set(['control']);continue;}
      nextClock=nextDisplayAt(snapshot,config,at);
-     const frame=result.lines.join('\r\n'),viewport={columns:process.stdout.columns??100,rows,contentRows:result.totalLines,pages:result.pages},viewportKey=JSON.stringify(viewport);
+     const viewport={columns:process.stdout.columns??100,rows,contentRows:result.totalLines,pages:result.pages},viewportKey=JSON.stringify(viewport);
      if(descriptor&&!descriptor.demo&&viewportKey!==lastViewport){updateLaunch(ownedFile!,d=>{d.viewport=viewport;});lastViewport=viewportKey;}
-     if(args.includes('--json'))console.log(JSON.stringify(snapshot));else if(!once&&process.stdout.isTTY){if(frame!==lastFrame){process.stdout.write('\x1b[H\x1b[2J'+frame);lastFrame=frame;}}
+     if(args.includes('--json'))console.log(JSON.stringify(snapshot));else if(!once&&process.stdout.isTTY){
+      const height=process.stdout.rows||12,geometry=JSON.stringify([process.stdout.columns??100,height]);
+      const output=frameUpdate(paintedLines,result.lines,height,paintInvalidated||geometry!==paintedGeometry,process.stdout.columns??100);
+      if(output)process.stdout.write(output);paintedLines=result.lines.slice(0,height);paintedGeometry=geometry;paintInvalidated=false;
+     }
      else console.log(result.lines.join('\n'));
     }
     if(once){exitReason='one-shot';break;}if(!process.stdout.isTTY){exitReason='noninteractive';break;}

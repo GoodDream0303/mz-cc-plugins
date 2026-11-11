@@ -83,6 +83,14 @@ if(process.argv[2]==='--fixture'){
   const launchA=descriptor('A').file;await bind('A','synthetic-shared-thread',30);await bind('B','synthetic-shared-thread',30);assert.equal(descriptor('A').file,launchA);assert.notEqual(descriptor('A').file,descriptor('B').file);checks.push('same thread in two source owners retains two displays; rebind does not duplicate');
   requestStop(descriptor('A').file);await wait(()=>descriptor('A').state==='exited','A HUD did not close');assert.equal(descriptor('B').state,'running');
   await delay(500);await bind('A','synthetic-reopened',45);assert.notEqual(descriptor('A').file,launchA);checks.push('closing/reopening one HUD keeps the other source and display alive');
+  if(process.argv.includes('--row-paint')){
+   const before=loadConfig(configFileA);let live=set(set(set(preset('minimal',before),'display.showContextBar',false),'terminal.dynamicHeight',false),'terminal.margin',0);
+   for(const text of ['a'.repeat(119)+'Z','界'.repeat(59)+'末','ROW-DONE']){
+    live=set(live,'display.customLine',text);saveConfig(configFileA,live);
+    await wait(()=>command('A',['capture-pane','-p','-t',descriptor('A').host.hudPane]).stdout.split(/\r?\n/)[0]===text,'Row update lost a final glyph or retained a stale suffix');
+   }
+   saveConfig(configFileA,before);checks.push('in-place row updates preserve the full-width final ASCII/CJK glyph and erase a shortened row suffix');
+  }
   if(process.argv.includes('--dynamic-height')){
    const neighbour=geometry('B'),sourcePid=descriptor('A').host.proof.owner.pid,viewerPid=descriptor('A').pid;
    let live=set(set(set(set(preset('minimal',loadConfig(configFileA)),'display.showContextBar',false),'terminal.dynamicHeight',true),'terminal.paneSize',0.3),'terminal.refreshMs',250);

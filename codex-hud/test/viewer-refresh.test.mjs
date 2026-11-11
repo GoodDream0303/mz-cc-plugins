@@ -1,4 +1,16 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {viewerProbe} from './support/viewer-probe.mjs';
+test('a telemetry change updates its rows without clearing the pane or repainting unchanged context',()=>{
+ const r=viewerProbe({refreshMs:1000,duration:650});assert.equal(r.frames.length,2);
+ assert.doesNotMatch(r.frames[1],/\x1b\[(?:2|3)?J/);assert.match(r.frames[1],/PROBE-MODEL/);
+ assert.match(r.frames[0],/Context/);assert.doesNotMatch(r.frames[1],/Context/);
+});
+test('a viewport resize repaints identical content without clearing the pane',()=>{
+ const r=viewerProbe({mode:'resize',refreshMs:1000,duration:650});assert.equal(r.frames.length,2);
+ assert.match(r.frames[0],/Context/);assert.match(r.frames[1],/Context/);assert.doesNotMatch(r.frames[1],/\x1b\[(?:2|3)?J/);
+});
+test('coalesced shrinking and restoration still invalidate identical visible content',()=>{
+ const r=viewerProbe({mode:'resize-return',refreshMs:1000,duration:650});assert.equal(r.frames.length,2);assert.match(r.frames[1],/Context/);
+});
 test('native append refreshes before a full interval and idle heartbeat does not repaint or reparse config',()=>{
  const r=viewerProbe({refreshMs:1000,duration:1250});assert.equal(r.counts.config,1);assert.equal(r.counts.paint,2);assert.equal(r.counts.render,2);assert.ok(r.visibleLatency<800,JSON.stringify(r));
 });
