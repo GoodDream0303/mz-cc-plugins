@@ -5,7 +5,7 @@ WT tabs or separate PowerShell windows. The official CLI and native statusline
 remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
 task names retain their original language.
 
-## Tool operation categories
+## Version 0.7.14: tool operation categories
 
 Command and script activity is grouped into Run command / Run script, with minor
 labels such as Read, Search, List, Edit, Test, Build and Environment. Known
