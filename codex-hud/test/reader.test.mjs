@@ -30,6 +30,16 @@ test('canonical generic shells cannot erase details and aliases enrich the same 
   const snapshot=await new SessionReader(file,'abc').read();assert.equal(snapshot.tools.length,1);assert.equal(snapshot.tools[0].status,'done');assert.deepEqual(snapshot.tools[0].action,{kind:'read'});assert.equal(snapshot.tools[0].durationMs,1500);
  }
 });
+
+test('structured native operation classification wins in both event orders and resets on log replacement',async t=>{
+ const {file}=fixture(t),completion=record('event_msg',{type:'item_completed',started_at_ms:1000,completed_at_ms:2500,item:{type:'CommandExecution',id:'command-1',command:['pwsh','-Command','Get-Content a | Select-String b'],command_actions:[{type:'read',path:'a'}],status:'completed',duration_ms:1500}}),call=record('response_item',{type:'function_call',call_id:'command-1',name:'functions.exec_command',arguments:JSON.stringify({cmd:'Get-Content a | Select-String b'})});
+ for(const events of [completion+call,call+completion]){
+  fs.writeFileSync(file,record('session_meta',{id:'abc'})+events);
+  const reader=new SessionReader(file,'abc'),snapshot=await reader.read();assert.equal(snapshot.tools.length,1);assert.equal(snapshot.tools[0].status,'done');assert.deepEqual(snapshot.tools[0].action,{kind:'read',target:'a'});
+  fs.writeFileSync(file,record('session_meta',{id:'abc'})+call);
+  assert.deepEqual((await reader.read()).tools[0].action,{kind:'mixed',operations:['read','search']});
+ }
+});
 test('late agent arguments enrich an existing operation without restarting its completed lifecycle',async t=>{
  const {file}=fixture(t);fs.writeFileSync(file,record('session_meta',{id:'abc'})+record('event_msg',{type:'item_completed',started_at_ms:1000,completed_at_ms:2500,item:{type:'Extension',id:'spawn-1',kind:'spawn_agent',status:'completed',duration_ms:900}})+record('response_item',{type:'function_call',call_id:'spawn-1',name:'spawn_agent',arguments:JSON.stringify({task_name:'hud_live_check',message:'SECRET PROMPT'})}));
  const s=await new SessionReader(file,'abc').read();assert.equal(s.tools.length,1);assert.equal(s.tools[0].status,'done');assert.deepEqual(s.tools[0].action,{kind:'agentSpawn',target:'hud_live_check'});assert.equal(s.tools[0].startedAt,1000);assert.equal(s.tools[0].finishedAt,2500);assert.equal(s.tools[0].durationMs,900);assert.ok(!JSON.stringify(s).includes('SECRET'));assert.equal(s.agents.length,0);

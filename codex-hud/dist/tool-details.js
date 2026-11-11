@@ -1,6 +1,6 @@
 import { sanitize } from './terminal-text.js';
 import { commandDetails, scriptDetails } from './command-details.js';
-export { commandDetails } from './command-details.js';
+export { commandDetails, structuredCommandDetails } from './command-details.js';
 export function toolCategory(name) {
     if (['exec_command', 'functions.exec_command'].includes(name))
         return 'command';

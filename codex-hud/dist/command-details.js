@@ -41,7 +41,7 @@ for (const [kind, names] of Object.entries({
     for (const name of names)
         commands.set(name, kind);
 function shellTokens(source) {
-    if (source.length > maxInput || /[\x00-\x08\x0b\x0c\x0e-\x1f`{}()]/.test(source) || /@['"]|\\['"]/.test(source))
+    if (source.length > maxInput || /[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(source))
         return;
     const tokens = [];
     let i = 0;
@@ -51,6 +51,8 @@ function shellTokens(source) {
             i++;
             continue;
         }
+        if (/[{}()`]/.test(c) || source.startsWith('<#', i) || c === '@' && /["']/.test(source[i + 1] ?? '') || c === '>' && /^>\s*(?:&|\$null\b)/i.test(source.slice(i)))
+            return;
         if (c === '#') {
             while (i < source.length && source[i] !== '\n')
                 i++;
@@ -69,6 +71,8 @@ function shellTokens(source) {
                 i++;
                 let closed = false;
                 while (i < source.length) {
+                    if (quote === '"' && (source.startsWith('$(', i) || source[i] === '`') || source[i] === '\\' && source[i + 1] === quote)
+                        return;
                     if (source[i] === quote) {
                         if (source[i + 1] === quote) {
                             value += quote;
@@ -94,7 +98,10 @@ function shellTokens(source) {
 function argvDetails(args, depth) {
     if (depth > 3 || !args.length || args.length > maxTokens || args.some(arg => arg.length > maxInput))
         return;
-    const executable = args[0].replaceAll('\\', '/').split('/').at(-1).toLowerCase().replace(/\.(?:exe|cmd|ps1|bat)$/, '');
+    const filename = args[0].replaceAll('\\', '/').split('/').at(-1).toLowerCase();
+    if (/\.(?:ps1|bat)$/.test(filename) || filename.endsWith('.cmd') && !['npm.cmd', 'pnpm.cmd', 'yarn.cmd'].includes(filename))
+        return;
+    const executable = filename.replace(/\.(?:exe|cmd)$/, '');
     const rest = args.slice(1), lower = rest.map(arg => arg.toLowerCase());
     if (['powershell', 'pwsh', 'bash', 'sh', 'cmd'].includes(executable)) {
         const powershell = ['powershell', 'pwsh'].includes(executable);
@@ -176,14 +183,19 @@ function shellDetails(source, depth = 0) {
     flush();
     return combine(actions);
 }
-/** Static, bounded classification only. Never retain raw input or execute it. */
-export function commandDetails(command, actions) {
+export function structuredCommandDetails(actions) {
     if (Array.isArray(actions) && actions.length <= maxTokens) {
         const known = actions.filter(action => action && ['read', 'search', 'list'].includes(action.type));
         if (known.length)
             return combine(actions.map(action => { if (!known.includes(action))
                 return; const target = basename(action.path); return { kind: action.type, ...(target ? { target } : {}) }; }));
     }
+}
+/** Static, bounded classification only. Never retain raw input or execute it. */
+export function commandDetails(command, actions) {
+    const structured = structuredCommandDetails(actions);
+    if (structured)
+        return structured;
     if (Array.isArray(command) && command.every(arg => typeof arg === 'string'))
         return argvDetails(command, 0);
     if (typeof command === 'string')
@@ -228,7 +240,7 @@ export function scriptDetails(script) {
     if (typeof script !== 'string')
         return;
     const tokens = scriptTokens(script);
-    if (!tokens || tokens.some(t => !t.quoted && ['function', 'class', 'if', 'for', 'while', 'switch', '=>'].includes(t.value)))
+    if (!tokens || tokens.some(t => !t.quoted && ['function', 'class', 'if', 'for', 'while', 'switch', '=>', '/', '&', '|', '?'].includes(t.value)))
         return;
     const actions = [];
     for (let i = 0; i < tokens.length - 4; i++) {

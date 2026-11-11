@@ -83,6 +83,27 @@ test('classification remains conservative for partial metadata and dynamic comma
  assert.equal(api.commandDetails('Get-Content ' + 'x'.repeat(32768)),undefined);
  assert.equal(api.commandDetails('certutil -urlcache -split -f https://example.invalid/file'),undefined);
 });
+
+test('arbitrary script basenames cannot impersonate built-in operation names',()=>{
+ for(const command of ['./Get-Content.ps1 secret',['C:/scripts/Remove-Item.ps1','secret'],'./Get-Content.bat secret','./Get-Content.cmd secret'])assert.equal(api.commandDetails(command),undefined);
+ assert.deepEqual(api.commandDetails(['C:/Program Files/node/npm.cmd','run','build']),{kind:'build'});
+});
+
+test('unsupported shell comments and stream routing cannot invent file operations',()=>{
+ assert.equal(api.commandDetails('<#\nRemove-Item secret\n#>\nGet-Content real.txt'),undefined);
+ assert.equal(api.commandDetails('Get-Content a 2>&1'),undefined);
+ assert.equal(api.commandDetails('Get-Content a *> $null'),undefined);
+});
+
+test('regex literals and conditional script calls do not claim that their bodies executed',()=>{
+ for(const script of ['const example = /tools.exec_command({cmd:"Remove-Item secret"})/; text(example);','false && tools.exec_command({cmd:"Remove-Item secret"});','true || tools.exec_command({cmd:"Remove-Item secret"});','false ? tools.exec_command({cmd:"Remove-Item secret"}) : undefined;'])assert.deepEqual(api.toolDetails('exec',script),{});
+});
+
+test('literal search patterns and filenames may contain shell syntax without becoming code',()=>{
+ for(const command of ["rg -n '(?:foo|bar){2}' src","rg -n '<#|>&|powershell' src"])assert.deepEqual(api.commandDetails(command),{kind:'search'});
+ assert.deepEqual(api.commandDetails("Get-Content 'report(1).txt'"),{kind:'read'});
+ assert.equal(api.commandDetails('Get-Content "$(Remove-Item secret)"'),undefined);
+});
 test('agent action summaries retain only the declared task target and never prompts or message bodies',()=>{
  for(const [name,args,want]of [
   ['spawn_agent',{task_name:'hud_live_check',message:'SECRET PROMPT'},{action:{kind:'agentSpawn',target:'hud_live_check'}}],

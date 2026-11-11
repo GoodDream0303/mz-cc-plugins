@@ -5,6 +5,32 @@ WT tabs or separate PowerShell windows. The official CLI and native statusline
 remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
 task names retain their original language.
 
+## Tool operation categories
+
+Command and script activity is grouped into Run command / Run script, with minor
+labels such as Read, Search, List, Edit, Test, Build and Environment. Known
+PowerShell/bash/cmd wrappers are inspected for their actual operation rather than
+displaying only the shell name. Structured native command actions take priority;
+literal command calls in orchestration scripts can also supply operation labels.
+Arbitrary code, dynamic expressions and referenced script files are not executed
+or inspected to infer a label; unrecognized activity keeps a generic major label.
+No commands, arguments, file paths, script bodies or output are displayed.
+
+Equal minor operations aggregate by lifecycle status and distinct call ID. A call
+containing multiple operations uses one combined label such as Read+Search and is
+counted once. Success, failure and cancellation remain separate; polling a call
+does not count it again. Individual calls retain available timing; aggregated
+counts do not invent a combined duration.
+
+Current and Recent pack complete major groups together when they fit. A group
+that does not fit the remaining space moves whole to the next row, keeping its
+minor labels together. Categories are not folded by `display.toolsMaxVisible`;
+that setting still limits unrelated tool activity. If a group exceeds a whole
+terminal row, shorter major labels are repeated on continuation rows so no minor
+loses its owner. Extremely narrow rows retain the terminal cell-width limit.
+Reported completions still expire after 60 seconds; paging, automatic height,
+three languages, NO_COLOR and generic MCP activity remain supported.
+
 ## Version 0.7.13: less refresh work and clearer headings
 
 The viewer avoids duplicate renders and unused timestamp/Git work. Idle session

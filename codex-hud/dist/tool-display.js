@@ -89,8 +89,8 @@ export function toolRows(snapshot, config, options) {
         if (item.major) {
             const name = majorName(item, short), entries = item.entries;
             if (entries.length === 1 && entries[0].minor === minorLabels.other) {
-                const entry = entries[0];
-                return ink(glyph(entry.tool.status) + shortened(name) + ' ×' + entry.count, foreground(entry.tool.status));
+                const entry = entries[0], elapsed = entry.count === 1 ? toolTime(entry.tool, now) : '';
+                return ink(glyph(entry.tool.status) + shortened(name) + ' ×' + entry.count + (elapsed ? ' · ' + elapsed : ''), foreground(entry.tool.status));
             }
             return ink(name + ' › ', entries[0].tool.status === 'running' ? 'active' : 'inactive') + entries.map(entryText).join(' · ');
         }
@@ -110,8 +110,8 @@ export function toolRows(snapshot, config, options) {
         if (displayWidth(compact) <= width)
             return [compact];
         const prefix = ink(majorName(item, true) + ' › ', item.entries[0].tool.status === 'running' ? 'active' : 'inactive'), prefixWidth = displayWidth(prefix);
-        if (prefixWidth >= width)
-            return wrapAnsi(compact, width);
+        if (width - prefixWidth < 2)
+            return [ink(majorName(item, true), item.entries[0].tool.status === 'running' ? 'active' : 'inactive'), ...item.entries.flatMap(entry => wrapAnsi(entryText(entry), width))];
         const result = [];
         let current = '';
         for (const entry of item.entries) {

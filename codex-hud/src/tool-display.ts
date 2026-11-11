@@ -65,7 +65,7 @@ export function toolRows(snapshot:HudSnapshot,config:Config,options:{width:numbe
  function format(item:Item,short=false):string {
   if(item.major){
    const name=majorName(item,short),entries=item.entries;
-   if(entries.length===1&&entries[0].minor===minorLabels.other){const entry=entries[0];return ink(glyph(entry.tool.status)+shortened(name)+' ×'+entry.count,foreground(entry.tool.status));}
+   if(entries.length===1&&entries[0].minor===minorLabels.other){const entry=entries[0],elapsed=entry.count===1?toolTime(entry.tool,now):'';return ink(glyph(entry.tool.status)+shortened(name)+' ×'+entry.count+(elapsed?' · '+elapsed:''),foreground(entry.tool.status));}
    return ink(name+' › ',entries[0].tool.status==='running'?'active':'inactive')+entries.map(entryText).join(' · ');
   }
   const entry=item.entries[0],tool=entry.tool,action=tool.action;
@@ -79,7 +79,7 @@ export function toolRows(snapshot:HudSnapshot,config:Config,options:{width:numbe
   if(!item.major)return wrapAnsi(full,width);
   const compact=format(item,true);if(displayWidth(compact)<=width)return [compact];
   const prefix=ink(majorName(item,true)+' › ',item.entries[0].tool.status==='running'?'active':'inactive'),prefixWidth=displayWidth(prefix);
-  if(prefixWidth>=width)return wrapAnsi(compact,width);
+  if(width-prefixWidth<2)return [ink(majorName(item,true),item.entries[0].tool.status==='running'?'active':'inactive'),...item.entries.flatMap(entry=>wrapAnsi(entryText(entry),width))];
   const result:string[]=[];let current='';
   for(const entry of item.entries){
    const text=entryText(entry),joined=current?current+' · '+text:prefix+text;

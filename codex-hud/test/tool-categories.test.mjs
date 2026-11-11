@@ -54,3 +54,15 @@ test('unrecognized work stays a generic category while unrelated tools keep thei
  const tools=[tool('known','read'),{id:'unknown',name:'functions.exec_command',status:'done'},{id:'one',name:'other.exec',status:'done'},{id:'two',name:'mcp__docs__query',status:'done'}];
  const text=output(tools).lines.join('\n');assert.match(text,/Read ×1/);assert.match(text,/Unclassified ×1/);assert.match(text,/mcp__docs__query/);assert.doesNotMatch(text,/other\.exec|PowerShell/);
 });
+
+test('a tiny Chinese pane preserves the minor label when a repeated major prefix cannot fit',()=>{
+ for(const language of ['zh-Hans','zh-Hant']){
+  const lines=output([tool('a','read')],set(config(),'language',language),{width:12}).lines,text=lines.join('');
+  assert.ok(text.includes(language==='zh-Hans'?'读取':'讀取'),text);assert.ok(text.includes('×1'));assert.ok(lines.every(line=>displayWidth(line)<=8));
+ }
+});
+
+test('an individual generic command preserves available elapsed time without naming its shell',()=>{
+ const tools=[{id:'a',name:'exec_command',status:'running',action:{kind:'powershell'},startedAt:now-10000}];
+ const text=output(tools).lines.join('\n');assert.match(text,/Run command ×1 · 10s/);assert.doesNotMatch(text,/PowerShell/);
+});

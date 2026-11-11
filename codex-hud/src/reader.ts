@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 import {emptySnapshot,type HudSnapshot,type Tokens,type Tool} from './types.js';
 import {AgentTracker} from './agents.js';
 import {toolOutput} from './tool-output.js';
-import {toolDetails,commandDetails,isAgentAction,toolCategory} from './tool-details.js';
+import {toolDetails,commandDetails,structuredCommandDetails,isAgentAction,toolCategory} from './tool-details.js';
 const MAX_LINE=2*1024*1024;
 const safe=(v:unknown):v is Record<string,any>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 function count(v:unknown):number{return typeof v==='number'&&Number.isFinite(v)&&v>=0?v:0;}
@@ -22,11 +22,11 @@ export class SessionReader {
  private offset=0;private identity='';private mtime=0;private carry='';private decoder=new StringDecoder('utf8');
  private snapshot:HudSnapshot;private agents:AgentTracker;private mismatch=false;private absolute=false;private discard=false;private canonicalCompleted=new Set<string>();
  private prefix?:Checkpoint;private checkpoint?:Checkpoint;
- private canonicalTools=new Set<string>();private processTools=new Map<string,string>();private pollTargets=new Map<string,string>();
+ private canonicalTools=new Set<string>();private canonicalActions=new Set<string>();private processTools=new Map<string,string>();private pollTargets=new Map<string,string>();
  constructor(public readonly file:string,public readonly sessionId:string){this.snapshot=emptySnapshot(sessionId);this.agents=new AgentTracker(this.snapshot.agents,sessionId);}
  agentActivityAt(id:string):number|undefined{return this.agents.activityAt(id);}
  agentTiming(id:string):{startedAt?:number;endedAt?:number}{return this.agents.timing(id);}
- private reset(){this.offset=0;this.carry='';this.decoder=new StringDecoder('utf8');this.snapshot=emptySnapshot(this.sessionId);this.agents=new AgentTracker(this.snapshot.agents,this.sessionId);this.mismatch=false;this.absolute=false;this.discard=false;this.canonicalCompleted.clear();this.canonicalTools.clear();this.processTools.clear();this.pollTargets.clear();this.prefix=undefined;this.checkpoint=undefined;}
+ private reset(){this.offset=0;this.carry='';this.decoder=new StringDecoder('utf8');this.snapshot=emptySnapshot(this.sessionId);this.agents=new AgentTracker(this.snapshot.agents,this.sessionId);this.mismatch=false;this.absolute=false;this.discard=false;this.canonicalCompleted.clear();this.canonicalTools.clear();this.canonicalActions.clear();this.processTools.clear();this.pollTargets.clear();this.prefix=undefined;this.checkpoint=undefined;}
  private async unchanged(hash:(start:number,length:number)=>Promise<string>):Promise<boolean>{
   for(const point of [this.prefix,this.checkpoint])if(point&&await hash(point.start,point.length)!==point.digest)return false;
   return true;
@@ -115,7 +115,7 @@ export class SessionReader {
   if(canonical){this.canonicalTools.add(id);if(status!=='running')this.canonicalCompleted.add(id);}
   const live=this.snapshot.tools.filter(t=>t.status==='running').slice(-64),finished=this.snapshot.tools.filter(t=>t.status!=='running');
   const retained=new Set([...live,...(live.length<64?finished.slice(-(64-live.length)):[])].map(t=>t.id));this.snapshot.tools=this.snapshot.tools.filter(t=>retained.has(t.id));
-  for(const set of [this.canonicalCompleted,this.canonicalTools])for(const key of set)if(!retained.has(key))set.delete(key);
+  for(const set of [this.canonicalCompleted,this.canonicalTools,this.canonicalActions])for(const key of set)if(!retained.has(key))set.delete(key);
   for(const [key,value]of this.processTools)if(!retained.has(value))this.processTools.delete(key);
   while(this.processTools.size>128)this.processTools.delete(this.processTools.keys().next().value!);
   while(this.pollTargets.size>128)this.pollTargets.delete(this.pollTargets.keys().next().value!);
@@ -141,14 +141,16 @@ export class SessionReader {
    if(p.type==='CommandExecution'&&p.process_id!==undefined&&p.process_id!==null){const key='session:'+String(p.process_id);if(p.source!=='unified_exec_startup')id=this.processTools.get(key)??id;this.processTools.set(key,id);}
    const failed=p.status==='failed'||!!p.error||typeof p.exit_code==='number'&&p.exit_code!==0,cancelled=['cancelled','aborted','interrupted','declined'].includes(p.status),running=['in_progress','inProgress','running'].includes(p.status);
    const row=this.tool(id,name,cancelled?'cancelled':failed?'failed':running?'running':completed||p.status==='completed'?'done':'running',true,timestamp);
-   const action=p.type==='CommandExecution'?commandDetails(p.command,p.command_actions??p.commandActions):undefined;
+   const structured=p.type==='CommandExecution'?structuredCommandDetails(p.command_actions??p.commandActions):undefined;
+   const action=structured??(p.type==='CommandExecution'&&!this.canonicalActions.has(id)?commandDetails(p.command):undefined);
+   if(row&&structured)this.canonicalActions.add(id);
    this.annotate(row,{...toolDetails(name),...(action?{action}:{})},startedAt??p.started_at_ms,p.duration_ms??p.durationMs,completedAt??p.completed_at_ms);
    return;
   }
   if(['function_call','custom_tool_call'].includes(p.type)){
    const id=text(p.call_id??p.id);const name=text(p.name);if(!id||!name)return;
    const args=parse(p.arguments??p.input),existing=this.snapshot.tools.find(t=>t.id===id);
-   if(existing){const details=toolDetails(name,args??p.input),category=toolCategory(name);if(details.action&&(name===existing.name||category&&category===toolCategory(existing.name)||isAgentAction(details.action)&&toolDetails(existing.name).action?.kind===details.action.kind))this.annotate(existing,details);return;}
+   if(existing){const details=toolDetails(name,args??p.input),category=toolCategory(name);if(details.action&&!this.canonicalActions.has(id)&&(name===existing.name||category&&category===toolCategory(existing.name)||isAgentAction(details.action)&&toolDetails(existing.name).action?.kind===details.action.kind))this.annotate(existing,details);return;}
    const row=this.tool(id,name,'running',false,timestamp);
    const leaf=name.split('.').at(-1);
    this.annotate(row,toolDetails(name,args??p.input));
