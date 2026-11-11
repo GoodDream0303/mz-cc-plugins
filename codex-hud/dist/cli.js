@@ -74,7 +74,7 @@ async function watch(args, once = false) {
     const cfgFile = descriptor?.configFile ?? configFile(args);
     let quit = false, activeQuery;
     let exitReason = 'normal', exitErrorCode, bodyFailed = false;
-    let projection = descriptor ? controlState(descriptor) : '', sourceMessage = '', sourceVerified = true;
+    let projection = descriptor ? controlState(descriptor) : '', sourceMessage = '', sourceVerified = true, registrationUnavailable = false;
     const events = new RefreshEvents(undefined, reason => {
         if (reason === 'config' || reason === 'geometry')
             activeQuery?.abort();
@@ -214,9 +214,11 @@ async function watch(args, once = false) {
                                 exitReason = 'source-closed';
                                 break;
                             }
+                            if (registrationUnavailable) {
+                                registrationUnavailable = false;
+                                nextOwnerCheck = 0;
+                            }
                         }
-                        if (!sourceVerified && reasons.has('host'))
-                            nextOwnerCheck = 0;
                         if (Date.now() >= nextOwnerCheck) {
                             try {
                                 const expected = descriptor.host.proof.owner, values = await readProcessIdentitiesAsync([expected.pid], signal), actual = values.find(p => p.pid === expected.pid);
@@ -243,6 +245,7 @@ async function watch(args, once = false) {
                     catch (error) {
                         if (signal.aborted)
                             throw error;
+                        registrationUnavailable = true;
                         sourceVerified = false;
                         sourceMessage = 'Source identity unavailable; keeping HUD open and retrying';
                         nextOwnerCheck = Date.now() + 5000;

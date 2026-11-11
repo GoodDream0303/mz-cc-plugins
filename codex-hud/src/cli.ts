@@ -50,7 +50,7 @@ async function watch(args:string[],once=false):Promise<void>{
  if(descriptor?.host&&!once){acknowledgeViewer(ownedFile!);descriptor=readLaunch(ownedFile!);}
  const cfgFile=descriptor?.configFile??configFile(args);let quit=false,activeQuery:AbortController|undefined;
  let exitReason:NonNullable<LaunchDescriptor['exitReason']>='normal',exitErrorCode:string|undefined,bodyFailed=false;
- let projection=descriptor?controlState(descriptor):'',sourceMessage='',sourceVerified=true;
+ let projection=descriptor?controlState(descriptor):'',sourceMessage='',sourceVerified=true,registrationUnavailable=false;
  const events=new RefreshEvents(undefined,reason=>{
   if(reason==='config'||reason==='geometry')activeQuery?.abort();
   if(reason==='control'&&ownedFile)try{
@@ -96,8 +96,7 @@ async function watch(args:string[],once=false):Promise<void>{
      if(bindingChanged){reader=undefined;knownPath='';parentSnapshot=emptySnapshot(selected??'pending');baseSnapshot=parentSnapshot;agentSessions=new AgentSessionTracker(root);remove('log',new Set());remove('child',new Set());page=0;nextDiscover=0;}
     }
     if(descriptor?.host)try{
-     if(initial||reconcile||reasons.has('host')){const registered=readHost(descriptor.host.recordFile);if(registered.state==='closed'){exitReason='source-closed';break;}}
-     if(!sourceVerified&&reasons.has('host'))nextOwnerCheck=0;
+     if(initial||reconcile||reasons.has('host')){const registered=readHost(descriptor.host.recordFile);if(registered.state==='closed'){exitReason='source-closed';break;}if(registrationUnavailable){registrationUnavailable=false;nextOwnerCheck=0;}}
      if(Date.now()>=nextOwnerCheck){
       try{const expected=descriptor.host.proof.owner,values=await readProcessIdentitiesAsync([expected.pid],signal),actual=values.find(p=>p.pid===expected.pid);
        if(!current()){reasons=new Set(['control']);continue;}
@@ -105,7 +104,7 @@ async function watch(args:string[],once=false):Promise<void>{
       }catch(error){if(signal.aborted)throw error;sourceVerified=false;sourceMessage='Source identity unavailable; keeping HUD open and retrying';}
       nextOwnerCheck=Date.now()+5000;
      }
-    }catch(error){if(signal.aborted)throw error;sourceVerified=false;sourceMessage='Source identity unavailable; keeping HUD open and retrying';nextOwnerCheck=Date.now()+5000;}
+    }catch(error){if(signal.aborted)throw error;registrationUnavailable=true;sourceVerified=false;sourceMessage='Source identity unavailable; keeping HUD open and retrying';nextOwnerCheck=Date.now()+5000;}
     const checkConfig=initial||reconcile||reasons.has('config'),stamp=checkConfig?inputStamp(cfgFile):cfgStamp;
     if(checkConfig&&(stamp!==cfgStamp||statusMessage)){try{config=loadConfig(cfgFile);cfgStamp=stamp;statusMessage='';nextGit=0;nextReconcile=Math.min(nextReconcile,Date.now()+get(config,'terminal.refreshMs'));if(nextHeartbeat)nextHeartbeat=Math.min(nextHeartbeat,Date.now()+get(config,'terminal.refreshMs'));dirty=true;}catch(error){statusMessage='Configuration reload failed: '+(error as Error).message;}}
     let readParent=initial||bindingChanged||reconcile||reasons.has('log'),readChildren=reconcile||reasons.has('child');
