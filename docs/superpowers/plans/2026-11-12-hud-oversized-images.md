@@ -39,3 +39,25 @@
 - [x] Run npm test -- --test-concurrency=1; all tests pass. Record exact evidence in validation.md. Final: 378/378, zero failures/cancellations/skips.
 - [x] Obtain one independent review; fix important findings with RED/GREEN and affected checks/full suite as appropriate.
 - [x] Keep the verified fix on feat/codex-hud as one local change-related commit; publication remains a separate request.
+
+## Authorized 0.7.17 release preparation
+
+The subsequent user request “准备重装” authorizes the repository's formal
+push → refresh official Git marketplace source → targeted reinstall → verify
+workflow. The implementation is e938391; its final 378/378 suite and metadata-only
+real replay remain applicable because preparation changes release metadata and
+README only. Prepare package, lock root/package and manifest versions as 0.7.17;
+run the existing offline package/removal/no-runtime-rewrite checks. Keep all
+other installed plugins, configuration and unrelated untracked files unchanged.
+Use only credentials explicitly supplied in this session for temporary process
+authentication; never retrieve one from prior sessions, logs or a credential manager. Do not
+replace or operate any other active host's viewer.
+
+Release fields agree at 0.7.17. The existing ten release/package checks had nine
+first-run passes; the Unicode-path packaged-loader check returned null rather
+than its synthetic status 23 under high observed machine load. A timing-only
+diagnostic rerun passed unchanged assertions/15-second child timeouts: PS5 status
+23 in 9575 ms, PS7 status 23 in 4623 ms. Reuse the nine unchanged passing checks
+and the final 378-test behavior suite; do not repeat them or claim the earlier
+single release run was green. Evidence: release-0717.log and
+release-loader-diagnostic.log in the task's ignored validation directory.

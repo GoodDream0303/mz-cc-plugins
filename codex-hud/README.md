@@ -5,6 +5,17 @@ WT tabs or separate PowerShell windows. The official CLI and native statusline
 remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
 task names retain their original language.
 
+## Version 0.7.17: large image tool results
+
+Large inline image results retain tool completion and executor metadata without
+buffering image bodies or leaving a permanent oversized-record warning. The
+existing record-text limit remains in place; other oversized records still warn.
+Partial reads, malformed image strings, session identity and recovery after a
+discarded record are covered by regressions. The final source suite passed 378
+tests and read-only replay of the affected transcript preserved token/context
+telemetry while removing its warning and stuck tool. Installed visual acceptance
+and Node 20 runtime coverage remain separate.
+
 ## Version 0.7.16: in-place row updates
 
 Content changes replace only changed visible rows instead of clearing the whole
