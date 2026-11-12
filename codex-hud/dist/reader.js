@@ -5,6 +5,7 @@ import { emptySnapshot } from './types.js';
 import { AgentTracker } from './agents.js';
 import { toolOutput } from './tool-output.js';
 import { toolDetails, commandDetails, structuredCommandDetails, isAgentAction, toolCategory } from './tool-details.js';
+import { ImageRecord } from './image-record.js';
 const MAX_LINE = 2 * 1024 * 1024;
 const safe = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 function count(v) { return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0; }
@@ -44,6 +45,7 @@ export class SessionReader {
     canonicalCompleted = new Set();
     prefix;
     checkpoint;
+    imageRecord;
     canonicalTools = new Set();
     canonicalActions = new Set();
     processTools = new Map();
@@ -56,7 +58,29 @@ export class SessionReader {
     }
     agentActivityAt(id) { return this.agents.activityAt(id); }
     agentTiming(id) { return this.agents.timing(id); }
-    reset() { this.offset = 0; this.carry = ''; this.decoder = new StringDecoder('utf8'); this.snapshot = emptySnapshot(this.sessionId); this.agents = new AgentTracker(this.snapshot.agents, this.sessionId); this.mismatch = false; this.absolute = false; this.discard = false; this.canonicalCompleted.clear(); this.canonicalTools.clear(); this.canonicalActions.clear(); this.processTools.clear(); this.pollTargets.clear(); this.prefix = undefined; this.checkpoint = undefined; }
+    reset() { this.offset = 0; this.carry = ''; this.decoder = new StringDecoder('utf8'); this.snapshot = emptySnapshot(this.sessionId); this.agents = new AgentTracker(this.snapshot.agents, this.sessionId); this.mismatch = false; this.absolute = false; this.discard = false; this.canonicalCompleted.clear(); this.canonicalTools.clear(); this.canonicalActions.clear(); this.processTools.clear(); this.pollTargets.clear(); this.prefix = undefined; this.checkpoint = undefined; this.imageRecord = undefined; }
+    line(line) {
+        if (this.discard) {
+            this.discard = false;
+            this.imageRecord = undefined;
+            return;
+        }
+        const image = this.imageRecord ?? (line.length > MAX_LINE ? new ImageRecord(MAX_LINE) : undefined);
+        this.imageRecord = undefined;
+        if (image) {
+            image.write(line);
+            const projected = image.finish();
+            if (projected === undefined) {
+                this.error('oversized record ignored');
+                return;
+            }
+            line = projected;
+        }
+        try {
+            this.apply(JSON.parse(line));
+        }
+        catch { /* a partially damaged record does not invalidate earlier telemetry */ }
+    }
     async unchanged(hash) {
         for (const point of [this.prefix, this.checkpoint])
             if (point && await hash(point.start, point.length) !== point.digest)
@@ -94,23 +118,19 @@ export class SessionReader {
                 while ((end = this.carry.indexOf('\n')) >= 0) {
                     const line = this.carry.slice(0, end);
                     this.carry = this.carry.slice(end + 1);
-                    if (this.discard) {
-                        this.discard = false;
-                        continue;
-                    }
-                    if (line.length > MAX_LINE) {
-                        this.error('oversized record ignored');
-                        continue;
-                    }
-                    try {
-                        this.apply(JSON.parse(line));
-                    }
-                    catch { /* a partially damaged record does not invalidate earlier telemetry */ }
+                    this.line(line);
                 }
-                if (this.carry.length > MAX_LINE) {
+                if (this.discard)
                     this.carry = '';
-                    this.discard = true;
-                    this.error('oversized record ignored');
+                else if (this.imageRecord || this.carry.length > MAX_LINE) {
+                    this.imageRecord ??= new ImageRecord(MAX_LINE);
+                    this.imageRecord.write(this.carry);
+                    this.carry = '';
+                    if (this.imageRecord.failed) {
+                        this.imageRecord = undefined;
+                        this.discard = true;
+                        this.error('oversized record ignored');
+                    }
                 }
             }
             // Hash anchors, not raw log text, are retained. Revalidate across the read too.

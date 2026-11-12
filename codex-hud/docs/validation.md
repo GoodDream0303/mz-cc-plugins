@@ -1,5 +1,53 @@
 # Validation: exact per-source HUD
 
+## Unreleased: oversized image tool results — 2026-11-12
+
+Final `npm test -- --test-concurrency=1` on native Windows / Node 24.15.0
+passed **378/378**, zero failures, cancellations or skips (326003.8452 ms).
+This run includes the independent review's recovery fix and all twelve new
+regressions. Evidence: `final-full-suite.log` in the directory below.
+
+A real custom-tool result contained four inline images (~2.97 MiB). The old
+2 MiB record limit dropped its completion, left the call running, and retained
+`oversized record ignored`. Overflow now projects inline `image_url` data out
+while retaining the same 2 MiB limit on parsed record text. Ordinary records
+keep the existing fast path; other oversized records still warn.
+
+The initial seven integration regressions produced four expected failures on
+the old reader, then all passed alongside the 45 existing reader tests (52/52).
+Four additional projection tests cover every split boundary, escaped property
+names/data prefixes, invalid escapes/controls, non-inline URLs and the retained
+size limit. The independent review found a discarded-record recovery bug;
+an exact read-boundary regression reproduced the lost next record before its
+fix. The reader now stays in discard mode until the newline and clears that
+projection before reading the next record.
+
+Read-only replay of the exact affected transcript removes the warning and
+releases the formerly stuck call to normal history eviction, preserving
+context and cumulative token counts. The original viewer had exited by replay;
+this does not claim an installed live-window test. Replay artifacts contain
+metadata only. No transcript bodies or images were persisted by this check.
+
+Evidence: repository-root `.superpowers/sdd/2026-11-12-hud-oversized-images/`
+(`red.log`, `green.log`, `boundaries.log`, `review-red.log`, `real-replay.json`).
+After the review fix, the build and all 57 projection/image/reader tests passed
+with no failures, cancellations or skips (`review-green.log`).
+
+The first full run was 374/377: the unchanged lifecycle tests for transient
+identity recovery, rebinding during lookup and temporary host registration
+recovery failed timing/frame assertions. A paired run of the unchanged lifecycle
+tests against installed 0.7.16 dist and the candidate produced 7/8 in each:
+both failed transient identity recovery (one frame instead of two), while the
+other two cases passed. The final full run passed all three unchanged cases;
+the earlier failures remain recorded without claiming stable timing across
+machine loads. These results are recorded in `full-suite.log`,
+`baseline-lifecycle.log` and `candidate-lifecycle.log`. No timing threshold or
+test was relaxed. Full-suite results must be read separately from the image
+fix's passing regression evidence.
+
+No release, installation, other-host operation, Codex change, or Node 20 runtime
+verification is included in this change.
+
 ## 0.7.16: in-place row updates — 2026-11-11
 
 Native Windows, Node 24.15.0: the final `npm test -- --test-concurrency=1`
