@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 import {spawn,type ChildProcessWithoutNullStreams} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {processBirthMicros} from './process-birth.js';
-import type {HostProof,ProcessFact} from './psmux.js';
+import {sameProcess,type HostProof,type ProcessFact} from './psmux.js';
 
 export type ProcessMonitorStatus='starting'|'verified'|'unknown'|'source-exited'|'closed';
 interface Request {ids:Set<number>;resolve:(value:ProcessFact[])=>void;reject:(error:Error)=>void;timer:ReturnType<typeof setTimeout>;release:()=>void}
@@ -15,7 +15,8 @@ const aborted=()=>Object.assign(new Error('Native process query cancelled'),{nam
 export function processHelperPath(root=directory):string {
  try{
   const manifest=path.join(root,'process-events.json'),binary=path.join(root,'process-events.exe');
-  if(fs.statSync(manifest).size>8192||fs.lstatSync(binary).isSymbolicLink()||!fs.statSync(binary).isFile())throw Error();
+  const artifact=fs.lstatSync(binary);
+  if(fs.statSync(manifest).size>8192||artifact.isSymbolicLink()||!artifact.isFile()||artifact.size<64||artifact.size>1024*1024)throw Error();
   const pin=JSON.parse(fs.readFileSync(manifest,'utf8'));
   if(pin.format!==1||pin.protocol!==1||pin.platform!=='win32-x64'||! /^[a-f0-9]{64}$/.test(pin.sha256)||createHash('sha256').update(fs.readFileSync(binary)).digest('hex')!==pin.sha256)throw Error();
   return binary;
@@ -28,18 +29,19 @@ export class ProcessMonitor {
  private retryAt=0;private generation=0;private sequence=0;
  private child?:ChildProcessWithoutNullStreams;
  private startup?:ReturnType<typeof setTimeout>;
+ private draining=false;private drainTimeout?:ReturnType<typeof setTimeout>;
  private requests=new Map<number,Request>();
  private expected=new Map<number,ProcessFact>();
  constructor(proof:HostProof,viewer:ProcessFact,private readonly wake:()=>void){
   if(viewer.pid!==process.pid)throw new Error('Only this viewer may own its native process observer');
-  for(const fact of [viewer,proof.owner,proof.server,...(proof.frontend?[proof.frontend]:[])]){
+  for(const fact of [viewer,proof.owner,proof.server,...(proof.frontend?[proof.frontend]:[]),...(proof.appServer?[proof.appServer.process]:[])]){
    const old=this.expected.get(fact.pid);
-   if(!positive(fact.pid)||!Number.isSafeInteger(fact.parentPid)||fact.parentPid<0||typeof fact.name!=='string'||processBirthMicros(fact.startedAt)===undefined||old&&JSON.stringify(old)!==JSON.stringify(fact))throw new Error('Invalid native process identity scope');
+   if(!positive(fact.pid)||!Number.isSafeInteger(fact.parentPid)||fact.parentPid<0||typeof fact.name!=='string'||processBirthMicros(fact.startedAt)===undefined||old&&!sameProcess(old,fact))throw new Error('Invalid native process identity scope');
    this.expected.set(fact.pid,fact);
   }
   if(this.expected.size>8)throw new Error('Native process identity scope is too large');
  }
- get status():ProcessMonitorStatus{return this.state;}
+ get status():ProcessMonitorStatus{return this.draining&&this.state!=='closed'&&this.state!=='source-exited'?'unknown':this.state;}
  get nextRetryAt():number{return this.retryAt;}
  private change(state:ProcessMonitorStatus):void {if(this.state!==state){this.state=state;this.wake();}}
  private finish(id:number,error?:Error,values?:ProcessFact[]):void {
@@ -48,6 +50,7 @@ export class ProcessMonitor {
  }
  private retire(error:Error):void {
   this.generation++;if(this.startup)clearTimeout(this.startup);this.startup=undefined;
+  if(this.drainTimeout)clearTimeout(this.drainTimeout);this.drainTimeout=undefined;this.draining=false;
   for(const id of this.requests.keys())this.finish(id,error);
   const child=this.child;this.child=undefined;
   if(child){child.stdin.destroy();child.stdout.destroy();child.stderr.destroy();child.kill();}
@@ -56,6 +59,13 @@ export class ProcessMonitor {
   if(generation!==this.generation||this.state==='closed'||this.state==='source-exited')return;
   this.retire(new Error('Native process observer unavailable'));
   this.retryAt=Date.now()+5000;this.change('unknown');
+ }
+ private drain(generation:number):void {
+  if(generation!==this.generation||this.draining||this.state==='closed'||this.state==='source-exited')return;
+  // Exit may precede delivery of the helper's final source-exit record.
+  this.draining=true;this.retryAt=Infinity;
+  for(const id of this.requests.keys())this.finish(id,new Error('Native process observer ended'));
+  this.drainTimeout=setTimeout(()=>this.fail(generation),6000);this.wake();
  }
  reconcile(now=Date.now()):void {
   if(this.state!=='unknown'||now<this.retryAt)return;
@@ -76,9 +86,10 @@ export class ProcessMonitor {
    });
    // Consume, bound and discard native stderr; never surface/persist its contents.
    child.stderr.on('data',(chunk:Buffer)=>{stderrBytes+=chunk.length;if(stderrBytes>65536)this.fail(generation);});
-   child.once('error',()=>this.fail(generation));child.once('exit',()=>this.fail(generation));
+   child.once('error',()=>this.fail(generation));child.once('exit',()=>this.drain(generation));
+   child.once('close',()=>{if(child.stdout.readableEnded||child.stdout.destroyed)this.fail(generation);else child.stdout.resume();});
    child.stdout.on('error',()=>this.fail(generation));child.stderr.on('error',()=>this.fail(generation));
-   child.stdout.once('end',()=>this.fail(generation));child.stdin.on('error',()=>this.fail(generation));
+   child.stdout.once('end',()=>this.fail(generation));child.stdin.on('error',()=>this.drain(generation));
   }catch{this.fail(generation);}
  }
  private message(message:any,generation:number):void {
@@ -93,7 +104,12 @@ export class ProcessMonitor {
   }
   if(message.type==='error'){
    if(typeof message.code!=='string'||! /^[A-Z0-9_]{1,32}$/.test(message.code))throw Error();
-   if(positive(message.id)&&this.requests.has(message.id)){this.finish(message.id,new Error('Native process query unavailable'));return;}
+   if(positive(message.id)){
+    if(message.id>this.sequence)throw Error();
+    if(this.requests.has(message.id))this.finish(message.id,new Error('Native process query unavailable'));
+    return; // Cancelled/completed requests may also return a late error.
+   }
+   if(message.id!==0)throw Error();
    this.fail(generation);return;
   }
   if(message.type!=='facts'||!positive(message.id)||message.id>this.sequence||!Array.isArray(message.values)||message.values.length>8)throw Error();
@@ -107,7 +123,7 @@ export class ProcessMonitor {
  }
  facts(pids:number[],signal?:AbortSignal):Promise<ProcessFact[]> {
   if(signal?.aborted)return Promise.reject(aborted());
-  if(this.state!=='verified'||!this.child)return Promise.reject(new Error('Native process observer is not verified'));
+  if(this.status!=='verified'||!this.child)return Promise.reject(new Error('Native process observer is not verified'));
   if(!pids.length||pids.length>8||pids.some(pid=>!positive(pid)||!this.expected.has(pid))||new Set(pids).size!==pids.length)return Promise.reject(new Error('Requested processes are outside this observer scope'));
   if(this.requests.size>=32||this.sequence>=2147483647)return Promise.reject(new Error('Native process observer request limit reached'));
   const id=++this.sequence,generation=this.generation;
@@ -116,7 +132,7 @@ export class ProcessMonitor {
    const timer=setTimeout(()=>{this.finish(id,new Error('Native process query timed out'));this.fail(generation);},6000);
    this.requests.set(id,{ids:new Set(pids),resolve,reject,timer,release:()=>signal?.removeEventListener('abort',cancel)});
    signal?.addEventListener('abort',cancel,{once:true});
-   this.child!.stdin.write('F '+id+' '+pids.join(' ')+'\n',error=>{if(error)this.fail(generation);});
+   this.child!.stdin.write('F '+id+' '+pids.join(' ')+'\n',error=>{if(error)this.drain(generation);});
   });
  }
  close():void {

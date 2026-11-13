@@ -55,7 +55,9 @@ compiler. Build tooling checks the checked-in artifact and supports an explicit
 portable Zig compiler path. Never download or compile during product startup.
 
 The child receives only validated numeric process IDs and expected creation times
-for the current viewer and its already-proven owner/server/optional frontend.
+for the current viewer and its already-proven owner/server/optional frontend and
+any existing App Server process proof. This preserves legacy source formats without
+creating a service, probing its endpoint or restoring withdrawn MCP features.
 It opens query/synchronization handles and verifies creation times before ready.
 The parent's handle is included, so an abruptly terminated viewer cannot orphan
 the observer. Monitor and snapshot failures carry bounded codes, never raw error
@@ -67,6 +69,7 @@ private stdout pipe. Pipe loss ends the child. It cannot terminate processes,
 resize panes, inspect unrelated conversations or execute arbitrary commands.
 Snapshot request IDs and per-client generations reject late/stale responses.
 Bound line length, PID count, request count, startup/request timeout and retries.
+Reject helper executables outside 64 bytes..1 MiB before reading/hashing them.
 
 Wire format: command-line `--parent PID --scope PID:MICRO_FILETIME ...`;
 stdin `F REQUEST_ID PID ...` and `Q`; stdout JSON lines with `type` equal to
@@ -88,6 +91,10 @@ timeouts and teardown. Its states are starting, verified, unknown, source-exited
 and closed. Failure clears authority to resize, wakes the viewer, closes the old
 child and schedules a five-second retry. Rebinding replaces the entire monitor;
 old callbacks never affect the replacement. It is not a system-wide singleton.
+Process exit suspends authority while the final stdout messages drain; it does not
+destroy the stream before a possible confirmed-exit record. Drain is bounded to
+six seconds. Cancelled requests ignore their late scoped errors as well as values;
+unknown/future IDs and global protocol failures still invalidate the channel.
 
 The existing file-event subscriptions remain wakeups, not ownership or liveness
 proof. Keep their integrity reconciliation and exact thread/transcript binding.

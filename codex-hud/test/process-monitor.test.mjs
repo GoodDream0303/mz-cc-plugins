@@ -7,7 +7,7 @@ import cp from 'node:child_process';
 import {syncBuiltinESMExports} from 'node:module';
 import {createInterface} from 'node:readline';
 import {pathToFileURL} from 'node:url';
-import {readProcessIdentities} from '../dist/psmux.js';
+import {readProcessIdentities,hostProcessIds} from '../dist/psmux.js';
 import {processBirthMicros} from '../dist/process-birth.js';
 const api=await import('../dist/process-monitor.js').catch(()=>({}));
 
@@ -19,7 +19,7 @@ async function until(check,message){
 
 test('native monitoring keeps real process incarnations independent and recovers only its own observer',{skip:process.platform!=='win32'},async t=>{
  assert.equal(typeof api.ProcessMonitor,'function','native process observer is missing');
- const children=[],observers=[],monitors=[];
+ const children=[],observers=[],monitors=[],legacyRoot=fs.mkdtempSync(path.join(os.tmpdir(),'hud-legacy-observer-'));
  const originalSpawn=cp.spawn;
  cp.spawn=(file,args,options)=>{const child=originalSpawn(file,args,options);if(path.basename(String(file)).toLowerCase()==='process-events.exe')observers.push(child);return child;};syncBuiltinESMExports();
  t.after(async()=>{
@@ -27,8 +27,10 @@ test('native monitoring keeps real process incarnations independent and recovers
   for(const child of children)if(child.exitCode===null&&child.signalCode===null)child.kill();
   cp.spawn=originalSpawn;syncBuiltinESMExports();
   await until(()=>observers.every(p=>p.exitCode!==null||p.signalCode!==null),'native observer leaked after close');
+  fs.rmSync(legacyRoot,{recursive:true,force:true,maxRetries:5,retryDelay:50});
  });
  for(let i=0;i<5;i++)children.push(cp.spawn(process.execPath,['-e','process.stdin.resume()'],{stdio:['pipe','ignore','ignore'],windowsHide:true}));
+ const legacyExe=path.join(legacyRoot,'codex.exe');fs.copyFileSync(process.execPath,legacyExe);children.push(cp.spawn(legacyExe,['-e','process.stdin.resume()'],{stdio:['pipe','ignore','ignore'],windowsHide:true}));
  const facts=readProcessIdentities(children.map(c=>c.pid)),viewer=facts.find(p=>p.pid===process.pid);assert.ok(viewer);
  const owners=children.map(c=>facts.find(p=>p.pid===c.pid));assert.ok(owners.every(Boolean));
  const proof=owner=>({origin:{originId:'00112233-4455-4677-8899-aabbccddeeff'},owner,server:viewer,window:'@1'});
@@ -45,6 +47,16 @@ test('native monitoring keeps real process incarnations independent and recovers
   const a=monitors[0],b=create(owners[1]);await until(()=>b.status==='verified','second observer did not become verified');
   children[0].kill();await until(()=>a.status==='source-exited','source exit was not observed');assert.equal(b.status,'verified');
  });
+ await t.test('final source-exit data is honored even when process exit precedes pipe delivery',async()=>{
+  const monitor=create(owners[1]);await until(()=>monitor.status==='verified','drain observer did not start');const child=observers.at(-1);child.stdout.pause();
+  children[1].kill();await until(()=>child.exitCode!==null||child.signalCode!==null,'native source-exit helper did not terminate');child.stdout.resume();
+  await until(()=>monitor.status==='source-exited','final source exit was lost before stdout drained');
+ });
+ await t.test('an accepted legacy App Server incarnation stays in the fresh resize scope',async()=>{
+  const legacy={...proof(viewer),appServer:{endpoint:'ws://127.0.0.1:53003/',process:owners[5]}},monitor=new api.ProcessMonitor(legacy,viewer,()=>{});monitors.push(monitor);monitor.reconcile();
+  await until(()=>monitor.status==='verified','legacy observer did not start');assert.equal(owners[5].name.toLowerCase(),'codex.exe');assert.equal(owners[5].parentPid,viewer.pid);
+  const values=await monitor.facts(hostProcessIds(legacy,[viewer.pid]));assert.deepEqual(values.find(p=>p.pid===owners[5].pid),owners[5]);
+ });
  await t.test('a reused PID with a different expected birth cannot become verified',async()=>{
   const stale=create({...owners[2],startedAt:'2026-01-01T00:00:00.0000000Z'});
   await until(()=>stale.status==='source-exited','different process incarnation was not rejected');
@@ -60,6 +72,12 @@ test('native monitoring keeps real process incarnations independent and recovers
   const monitor=create(owners[3]);await until(()=>monitor.status==='verified','pipe-error observer did not start');const child=observers.at(-1);
   assert.doesNotThrow(()=>child.stdout.emit('error',Object.assign(Error('PRIVATE_PIPE_DETAIL'),{code:'EPIPE'})));
   assert.equal(monitor.status,'unknown');assert.ok(monitor.nextRetryAt>Date.now());
+ });
+ await t.test('a canceled request late error cannot retire a healthy observer',async()=>{
+  const monitor=create(owners[3]);await until(()=>monitor.status==='verified','late-error observer did not start');const child=observers.at(-1);child.stdout.pause();
+  const controller=new AbortController(),pending=monitor.facts([owners[3].pid],controller.signal);controller.abort();await assert.rejects(pending,{name:'AbortError'});
+  child.stdout.emit('data','{"type":"error","code":"SNAPSHOT","id":1}\n');assert.equal(monitor.status,'verified');child.stdout.resume();
+  const values=await monitor.facts([owners[3].pid]);assert.deepEqual(values[0],owners[3]);
  });
  await t.test('cancellation and close reject pending facts without accepting retired results',async()=>{
   const monitor=create(owners[4]);await until(()=>monitor.status==='verified','cancellation observer did not become verified');
@@ -108,4 +126,13 @@ test('native helper refuses modified package artifacts before execution',{skip:p
  fs.copyFileSync(original,path.join(root,'process-events.exe'));fs.copyFileSync(path.join(path.dirname(original),'process-events.json'),path.join(root,'process-events.json'));
  assert.equal(api.processHelperPath(root),path.join(root,'process-events.exe'));
  fs.appendFileSync(path.join(root,'process-events.exe'),'changed');assert.throws(()=>api.processHelperPath(root),/verified|checksum|integrity|artifact/i);
+});
+
+test('an oversized replacement is rejected before its bytes are read',{skip:process.platform!=='win32'},t=>{
+ assert.equal(typeof api.processHelperPath,'function','native helper verification is missing');
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'hud-helper-size-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));const binary=path.join(root,'process-events.exe'),original=api.processHelperPath();
+ fs.copyFileSync(path.join(path.dirname(original),'process-events.json'),path.join(root,'process-events.json'));fs.writeFileSync(binary,Buffer.alloc(2*1024*1024));
+ const read=fs.readFileSync;let oversizedReads=0;fs.readFileSync=(file,...args)=>{if(String(file)===binary)oversizedReads++;return read(file,...args);};
+ try{assert.throws(()=>api.processHelperPath(root),/verified|checksum|integrity|artifact/i);}finally{fs.readFileSync=read;}
+ assert.equal(oversizedReads,0,'unreasonable native artifact bytes were read before rejection');
 });

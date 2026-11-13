@@ -1,2 +1,3 @@
 psmux.exe binary
+process-events.exe binary
 patches/*.patch -text -whitespace

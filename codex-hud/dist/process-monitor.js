@@ -4,13 +4,15 @@ import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { processBirthMicros } from './process-birth.js';
+import { sameProcess } from './psmux.js';
 const directory = fileURLToPath(new URL('../backend/', import.meta.url));
 const positive = (value) => typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 const aborted = () => Object.assign(new Error('Native process query cancelled'), { name: 'AbortError', code: 'ABORT_ERR' });
 export function processHelperPath(root = directory) {
     try {
         const manifest = path.join(root, 'process-events.json'), binary = path.join(root, 'process-events.exe');
-        if (fs.statSync(manifest).size > 8192 || fs.lstatSync(binary).isSymbolicLink() || !fs.statSync(binary).isFile())
+        const artifact = fs.lstatSync(binary);
+        if (fs.statSync(manifest).size > 8192 || artifact.isSymbolicLink() || !artifact.isFile() || artifact.size < 64 || artifact.size > 1024 * 1024)
             throw Error();
         const pin = JSON.parse(fs.readFileSync(manifest, 'utf8'));
         if (pin.format !== 1 || pin.protocol !== 1 || pin.platform !== 'win32-x64' || !/^[a-f0-9]{64}$/.test(pin.sha256) || createHash('sha256').update(fs.readFileSync(binary)).digest('hex') !== pin.sha256)
@@ -30,22 +32,24 @@ export class ProcessMonitor {
     sequence = 0;
     child;
     startup;
+    draining = false;
+    drainTimeout;
     requests = new Map();
     expected = new Map();
     constructor(proof, viewer, wake) {
         this.wake = wake;
         if (viewer.pid !== process.pid)
             throw new Error('Only this viewer may own its native process observer');
-        for (const fact of [viewer, proof.owner, proof.server, ...(proof.frontend ? [proof.frontend] : [])]) {
+        for (const fact of [viewer, proof.owner, proof.server, ...(proof.frontend ? [proof.frontend] : []), ...(proof.appServer ? [proof.appServer.process] : [])]) {
             const old = this.expected.get(fact.pid);
-            if (!positive(fact.pid) || !Number.isSafeInteger(fact.parentPid) || fact.parentPid < 0 || typeof fact.name !== 'string' || processBirthMicros(fact.startedAt) === undefined || old && JSON.stringify(old) !== JSON.stringify(fact))
+            if (!positive(fact.pid) || !Number.isSafeInteger(fact.parentPid) || fact.parentPid < 0 || typeof fact.name !== 'string' || processBirthMicros(fact.startedAt) === undefined || old && !sameProcess(old, fact))
                 throw new Error('Invalid native process identity scope');
             this.expected.set(fact.pid, fact);
         }
         if (this.expected.size > 8)
             throw new Error('Native process identity scope is too large');
     }
-    get status() { return this.state; }
+    get status() { return this.draining && this.state !== 'closed' && this.state !== 'source-exited' ? 'unknown' : this.state; }
     get nextRetryAt() { return this.retryAt; }
     change(state) { if (this.state !== state) {
         this.state = state;
@@ -68,6 +72,10 @@ export class ProcessMonitor {
         if (this.startup)
             clearTimeout(this.startup);
         this.startup = undefined;
+        if (this.drainTimeout)
+            clearTimeout(this.drainTimeout);
+        this.drainTimeout = undefined;
+        this.draining = false;
         for (const id of this.requests.keys())
             this.finish(id, error);
         const child = this.child;
@@ -85,6 +93,17 @@ export class ProcessMonitor {
         this.retire(new Error('Native process observer unavailable'));
         this.retryAt = Date.now() + 5000;
         this.change('unknown');
+    }
+    drain(generation) {
+        if (generation !== this.generation || this.draining || this.state === 'closed' || this.state === 'source-exited')
+            return;
+        // Exit may precede delivery of the helper's final source-exit record.
+        this.draining = true;
+        this.retryAt = Infinity;
+        for (const id of this.requests.keys())
+            this.finish(id, new Error('Native process observer ended'));
+        this.drainTimeout = setTimeout(() => this.fail(generation), 6000);
+        this.wake();
     }
     reconcile(now = Date.now()) {
         if (this.state !== 'unknown' || now < this.retryAt)
@@ -129,11 +148,15 @@ export class ProcessMonitor {
             child.stderr.on('data', (chunk) => { stderrBytes += chunk.length; if (stderrBytes > 65536)
                 this.fail(generation); });
             child.once('error', () => this.fail(generation));
-            child.once('exit', () => this.fail(generation));
+            child.once('exit', () => this.drain(generation));
+            child.once('close', () => { if (child.stdout.readableEnded || child.stdout.destroyed)
+                this.fail(generation);
+            else
+                child.stdout.resume(); });
             child.stdout.on('error', () => this.fail(generation));
             child.stderr.on('error', () => this.fail(generation));
             child.stdout.once('end', () => this.fail(generation));
-            child.stdin.on('error', () => this.fail(generation));
+            child.stdin.on('error', () => this.drain(generation));
         }
         catch {
             this.fail(generation);
@@ -162,10 +185,15 @@ export class ProcessMonitor {
         if (message.type === 'error') {
             if (typeof message.code !== 'string' || !/^[A-Z0-9_]{1,32}$/.test(message.code))
                 throw Error();
-            if (positive(message.id) && this.requests.has(message.id)) {
-                this.finish(message.id, new Error('Native process query unavailable'));
-                return;
+            if (positive(message.id)) {
+                if (message.id > this.sequence)
+                    throw Error();
+                if (this.requests.has(message.id))
+                    this.finish(message.id, new Error('Native process query unavailable'));
+                return; // Cancelled/completed requests may also return a late error.
             }
+            if (message.id !== 0)
+                throw Error();
             this.fail(generation);
             return;
         }
@@ -185,7 +213,7 @@ export class ProcessMonitor {
     facts(pids, signal) {
         if (signal?.aborted)
             return Promise.reject(aborted());
-        if (this.state !== 'verified' || !this.child)
+        if (this.status !== 'verified' || !this.child)
             return Promise.reject(new Error('Native process observer is not verified'));
         if (!pids.length || pids.length > 8 || pids.some(pid => !positive(pid) || !this.expected.has(pid)) || new Set(pids).size !== pids.length)
             return Promise.reject(new Error('Requested processes are outside this observer scope'));
@@ -198,7 +226,7 @@ export class ProcessMonitor {
             this.requests.set(id, { ids: new Set(pids), resolve, reject, timer, release: () => signal?.removeEventListener('abort', cancel) });
             signal?.addEventListener('abort', cancel, { once: true });
             this.child.stdin.write('F ' + id + ' ' + pids.join(' ') + '\n', error => { if (error)
-                this.fail(generation); });
+                this.drain(generation); });
         });
     }
     close() {
