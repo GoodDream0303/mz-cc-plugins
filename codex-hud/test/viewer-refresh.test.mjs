@@ -1,4 +1,10 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {viewerProbe} from './support/viewer-probe.mjs';
+
+test('a slow Git query cannot hold initial telemetry or prevent prompt stopping',()=>{
+ const r=viewerProbe({mode:'slow-git',refreshMs:1000,duration:650});
+ assert.ok(r.firstPaintLatency<800,JSON.stringify(r));assert.ok(r.visibleLatency<800,JSON.stringify(r));assert.ok(r.stopLatency<800,JSON.stringify(r));
+ assert.match(r.frames.at(-1),/PROBE-MODEL/);
+});
 test('a telemetry change updates its rows without clearing the pane or repainting unchanged context',()=>{
  const r=viewerProbe({refreshMs:1000,duration:650});assert.equal(r.frames.length,2);
  assert.doesNotMatch(r.frames[1],/\x1b\[(?:2|3)?J/);assert.match(r.frames[1],/PROBE-MODEL/);

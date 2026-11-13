@@ -105,6 +105,11 @@ replace its recurring PowerShell lookup through its dependency interface. Slow
 checks never use a newer generation's authority to mutate an older binding.
 Investigate the known narrow-to-wide native fixture using physical backend data;
 Node's cached `getWindowSize` is not independent physical evidence.
+While a verified source's new height assessment is pending, suppress the pager
+until capacity is known, then retain suppression only during actual growth.
+Confirmed caps and query failure restore normal paging. This is display policy,
+never authority to resize; it avoids a paging flash caused by painting before
+the formerly blocking physical query finishes.
 
 ## Compatibility and failure policy
 

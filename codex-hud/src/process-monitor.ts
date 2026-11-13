@@ -77,6 +77,7 @@ export class ProcessMonitor {
    // Consume, bound and discard native stderr; never surface/persist its contents.
    child.stderr.on('data',(chunk:Buffer)=>{stderrBytes+=chunk.length;if(stderrBytes>65536)this.fail(generation);});
    child.once('error',()=>this.fail(generation));child.once('exit',()=>this.fail(generation));
+   child.stdout.on('error',()=>this.fail(generation));child.stderr.on('error',()=>this.fail(generation));
    child.stdout.once('end',()=>this.fail(generation));child.stdin.on('error',()=>this.fail(generation));
   }catch{this.fail(generation);}
  }

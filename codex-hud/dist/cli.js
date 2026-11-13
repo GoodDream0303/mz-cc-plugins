@@ -15,7 +15,7 @@ import { frameUpdate, sanitize } from './terminal-text.js';
 import { emptySnapshot } from './types.js';
 import { buildTerminalArgs, checkRuntime, createLaunch, readLaunch, requestStop, runtimeRoot, selectSessionId, updateLaunch } from './runtime.js';
 import { loadCurrentHost, ensureHostDisplay, bindHostSession, acknowledgeViewer, readHost } from './host-session.js';
-import { readProcessIdentitiesAsync } from './psmux.js';
+import { ProcessMonitor } from './process-monitor.js';
 import { RefreshEvents } from './refresh-events.js';
 import { nextDisplayAt } from './display-deadline.js';
 import { decodeInvocation, launchHostedCodex, runHostOwner, runHostFrontend } from './host-launch.js';
@@ -26,6 +26,7 @@ import { inspectSetup } from './setup-readiness.js';
 import { sessionMetadata, isMainSession } from './autostart.js';
 import { DynamicHeightController } from './dynamic-height.js';
 import { AgentSessionTracker } from './agent-sessions.js';
+import { BackgroundJob } from './background-job.js';
 function option(args, key) { const i = args.indexOf(key); return i >= 0 ? args[i + 1] : args.find(v => v.startsWith(key + '='))?.slice(key.length + 1); }
 function launchFile(args) { const encoded = option(args, '--launch64'); return encoded ? Buffer.from(encoded, 'base64').toString('utf8') : option(args, '--launch'); }
 function configFile(args) { return option(args, '--config') ?? configPath(); }
@@ -74,10 +75,18 @@ async function watch(args, once = false) {
     const cfgFile = descriptor?.configFile ?? configFile(args);
     let quit = false, activeQuery;
     let exitReason = 'normal', exitErrorCode, bodyFailed = false;
-    let projection = descriptor ? controlState(descriptor) : '', sourceMessage = '', sourceVerified = true, registrationUnavailable = false;
+    let projection = descriptor ? controlState(descriptor) : '', sourceMessage = '', sourceVerified = !descriptor?.host || once, registrationUnavailable = false;
+    let processMonitor, monitorKey = '', monitorState;
+    let invalidateWork = () => { };
     const events = new RefreshEvents(undefined, reason => {
-        if (reason === 'config' || reason === 'geometry')
+        if (reason === 'config' || reason === 'geometry') {
             activeQuery?.abort();
+            invalidateWork(reason);
+        }
+        if (reason === 'source' && processMonitor?.status !== 'verified') {
+            sourceVerified = false;
+            invalidateWork('source');
+        }
         if (reason === 'control' && ownedFile)
             try {
                 const next = readLaunch(ownedFile);
@@ -85,12 +94,14 @@ async function watch(args, once = false) {
                     quit = true;
                     exitReason = 'stop-requested';
                     activeQuery?.abort();
+                    invalidateWork('quit');
                     events.request('quit');
                     return false;
                 }
                 if (controlState(next) === projection)
                     return false;
                 activeQuery?.abort();
+                invalidateWork('control');
             }
             catch { /* The worker reports or reconciles invalid control state. */ }
         if (reason === 'host' && descriptor?.host)
@@ -99,6 +110,7 @@ async function watch(args, once = false) {
                     quit = true;
                     exitReason = 'source-closed';
                     activeQuery?.abort();
+                    invalidateWork('quit');
                     events.request('quit');
                 }
             }
@@ -126,17 +138,44 @@ async function watch(args, once = false) {
         events.close();
         throw error;
     }
-    let page = 0, reader, knownPath = '', statusMessage = '', nextDiscover = 0, nextOwnerCheck = 0, nextGit = 0, nextHeartbeat = 0, nextReconcile = 0, nextClock = Infinity;
+    let page = 0, reader, knownPath = '', statusMessage = '', nextDiscover = 0, nextGit = 0, nextHeartbeat = 0, nextReconcile = 0, nextClock = Infinity;
     let parentSnapshot = emptySnapshot(selected ?? 'pending'), baseSnapshot = parentSnapshot, telemetry = '', lastViewport = '', lastGeometry = '';
     let paintedLines = [], paintedGeometry = '', paintInvalidated = true;
     let environment, environmentCwd = '';
-    const dynamicHeight = new DynamicHeightController();
+    const gitJob = new BackgroundJob(() => events.request('git'));
+    const heightJob = new BackgroundJob(() => events.request('height'));
+    let heightEpoch = 0, heightJobKey = '', heightAssessedKey = '', heightMessage = '', heightGrowing = false, fittedHeight;
+    const createHeight = () => { const observer = processMonitor; return new DynamicHeightController({ processesAsync: (pids, _pid, querySignal) => observer ? observer.facts(pids, querySignal) : Promise.reject(new Error('Source identity is not verified')) }); };
+    let dynamicHeight = createHeight();
     let agentSessions = new AgentSessionTracker(root);
+    invalidateWork = reason => {
+        if (['control', 'config', 'quit'].includes(reason)) {
+            gitJob.cancel();
+            nextGit = 0;
+        }
+        heightJob.cancel();
+        heightEpoch++;
+        heightJobKey = '';
+        heightAssessedKey = '';
+        heightMessage = '';
+        heightGrowing = false;
+        fittedHeight = undefined;
+        dynamicHeight = createHeight();
+        dynamicHeight.nextCheckAt = 0;
+        if (reason === 'control' || reason === 'quit') {
+            processMonitor?.close();
+            processMonitor = undefined;
+            monitorKey = '';
+            monitorState = undefined;
+            sourceVerified = !descriptor?.host || once;
+        }
+    };
     const recordFailure = (error) => { exitReason = 'error'; const code = error?.code; exitErrorCode = typeof code === 'string' && /^[A-Z0-9_]{1,64}$/.test(code) ? code : undefined; };
     const onKey = (_, key) => { if (key?.name === 'q') {
         quit = true;
         exitReason = 'user-quit';
         activeQuery?.abort();
+        invalidateWork('quit');
         events.request('quit');
     }
     else if (['right', 'n', 'left', 'p'].includes(key?.name ?? '')) {
@@ -195,6 +234,8 @@ async function watch(args, once = false) {
                     descriptor = next;
                     selected = next.sessionId;
                     dirty ||= changed;
+                    if (changed)
+                        invalidateWork('control');
                     if (bindingChanged) {
                         reader = undefined;
                         knownPath = '';
@@ -207,57 +248,46 @@ async function watch(args, once = false) {
                         nextDiscover = 0;
                     }
                 }
-                if (descriptor?.host)
-                    try {
-                        if (initial || reconcile || reasons.has('host')) {
+                if (descriptor?.host && !once) {
+                    if (initial || reconcile || reasons.has('host'))
+                        try {
                             const registered = readHost(descriptor.host.recordFile);
                             if (registered.state === 'closed') {
                                 exitReason = 'source-closed';
                                 break;
                             }
-                            if (registrationUnavailable) {
-                                registrationUnavailable = false;
-                                nextOwnerCheck = 0;
-                            }
+                            registrationUnavailable = false;
                         }
-                        if (Date.now() >= nextOwnerCheck) {
-                            try {
-                                const expected = descriptor.host.proof.owner, values = await readProcessIdentitiesAsync([expected.pid], signal), actual = values.find(p => p.pid === expected.pid);
-                                if (!current()) {
-                                    reasons = new Set(['control']);
-                                    continue;
-                                }
-                                if (!actual || actual.startedAt !== expected.startedAt) {
-                                    exitReason = 'owner-exited';
-                                    break;
-                                }
-                                sourceVerified = true;
-                                sourceMessage = '';
-                            }
-                            catch (error) {
-                                if (signal.aborted)
-                                    throw error;
-                                sourceVerified = false;
-                                sourceMessage = 'Source identity unavailable; keeping HUD open and retrying';
-                            }
-                            nextOwnerCheck = Date.now() + 5000;
+                        catch {
+                            registrationUnavailable = true;
+                            invalidateWork('source');
                         }
+                    if (!processMonitor || monitorKey !== projection) {
+                        processMonitor?.close();
+                        monitorKey = projection;
+                        monitorState = undefined;
+                        processMonitor = new ProcessMonitor(descriptor.host.proof, descriptor.host.hudProcess, () => events.request('source'));
                     }
-                    catch (error) {
-                        if (signal.aborted)
-                            throw error;
-                        registrationUnavailable = true;
-                        sourceVerified = false;
-                        sourceMessage = 'Source identity unavailable; keeping HUD open and retrying';
-                        nextOwnerCheck = Date.now() + 5000;
+                    processMonitor.reconcile();
+                    const state = processMonitor.status;
+                    if (state === 'source-exited') {
+                        exitReason = 'owner-exited';
+                        break;
                     }
+                    if (state !== monitorState) {
+                        monitorState = state;
+                        invalidateWork('source');
+                    }
+                    sourceVerified = !registrationUnavailable && state === 'verified';
+                    sourceMessage = registrationUnavailable || state === 'unknown' ? 'Source identity unavailable; keeping HUD open and retrying' : '';
+                }
                 const checkConfig = initial || reconcile || reasons.has('config'), stamp = checkConfig ? inputStamp(cfgFile) : cfgStamp;
                 if (checkConfig && (stamp !== cfgStamp || statusMessage)) {
                     try {
                         config = loadConfig(cfgFile);
                         cfgStamp = stamp;
                         statusMessage = '';
-                        nextGit = 0;
+                        invalidateWork('config');
                         nextReconcile = Math.min(nextReconcile, Date.now() + get(config, 'terminal.refreshMs'));
                         if (nextHeartbeat)
                             nextHeartbeat = Math.min(nextHeartbeat, Date.now() + get(config, 'terminal.refreshMs'));
@@ -331,13 +361,30 @@ async function watch(args, once = false) {
                     continue;
                 }
                 if (baseSnapshot.cwd && (get(config, 'gitStatus.enabled') || args.includes('--json'))) {
-                    if (environmentCwd !== baseSnapshot.cwd || Date.now() >= nextGit) {
-                        environment = await readEnvironmentAsync(baseSnapshot.cwd, signal);
-                        environmentCwd = baseSnapshot.cwd;
+                    const cwd = baseSnapshot.cwd, key = JSON.stringify([projection, cwd, cfgStamp]);
+                    if (environmentCwd !== cwd) {
+                        gitJob.cancel();
+                        environment = undefined;
+                        environmentCwd = cwd;
+                        nextGit = 0;
+                    }
+                    if (once) {
+                        environment = await readEnvironmentAsync(cwd, signal);
                         nextGit = Date.now() + 5000;
+                    }
+                    else {
+                        const ready = gitJob.take(key);
+                        if (ready) {
+                            if ('value' in ready)
+                                environment = ready.value.git || ready.value.errors.length ? ready.value : undefined;
+                            nextGit = Date.now() + 5000;
+                        }
+                        if (Date.now() >= nextGit && !gitJob.busy)
+                            gitJob.start(key, querySignal => readEnvironmentAsync(cwd, querySignal));
                     }
                 }
                 else {
+                    gitJob.cancel();
                     environment = undefined;
                     environmentCwd = '';
                     nextGit = Infinity;
@@ -346,6 +393,25 @@ async function watch(args, once = false) {
                     reasons = new Set(['control']);
                     continue;
                 }
+                const heightReady = heightJob.take(heightJobKey);
+                if (heightReady) {
+                    if ('value' in heightReady) {
+                        heightAssessedKey = heightJobKey;
+                        heightMessage = '';
+                        heightGrowing = heightReady.value.growing;
+                        if (heightReady.value.rows !== undefined)
+                            fittedHeight = { geometry: heightReady.value.geometry, rows: heightReady.value.rows };
+                    }
+                    else if (heightReady.error?.name !== 'AbortError') {
+                        heightAssessedKey = heightJobKey;
+                        heightGrowing = false;
+                        heightMessage = 'Automatic height unavailable; keeping the current pane size';
+                        dynamicHeight.nextCheckAt = Date.now() + 5000;
+                    }
+                    else
+                        dynamicHeight.nextCheckAt = Date.now() + get(config, 'terminal.refreshMs');
+                    dirty = true;
+                }
                 const snapshot = structuredClone(baseSnapshot);
                 if (environment)
                     snapshot.environment = environment;
@@ -353,31 +419,44 @@ async function watch(args, once = false) {
                     snapshot.errors.push(statusMessage);
                 if (sourceMessage)
                     snapshot.errors.push(sourceMessage);
+                if (heightMessage)
+                    snapshot.errors.push(heightMessage);
                 const serialized = JSON.stringify(snapshot);
                 dirty ||= serialized !== telemetry;
                 telemetry = serialized;
                 const width = Number(option(args, '--width')) || process.stdout.columns || 100, color = !args.includes('--no-color') && !!process.stdout.isTTY;
-                let rows = once ? 1000 : process.stdout.rows || 12;
+                const nodeRows = process.stdout.rows || 12, nodeGeometry = JSON.stringify([width, nodeRows]);
+                const rows = once ? 1000 : fittedHeight?.geometry === nodeGeometry ? fittedHeight.rows : nodeRows;
                 const geometry = JSON.stringify([width, rows]);
                 dirty ||= geometry !== lastGeometry;
                 lastGeometry = geometry;
-                if (dirty || Date.now() >= nextClock || Date.now() >= dynamicHeight.nextCheckAt) {
+                const autoHeight = !once && !!process.stdout.isTTY && !!descriptor?.host && sourceVerified && get(config, 'terminal.dynamicHeight');
+                if (dirty || Date.now() >= nextClock || autoHeight && !heightJob.busy && Date.now() >= dynamicHeight.nextCheckAt) {
                     const at = Date.now();
-                    let result = render(snapshot, config, { width, height: rows, page, color, now: at });
-                    if (!once && process.stdout.isTTY && descriptor?.host && sourceVerified) {
-                        try {
-                            const fitted = await dynamicHeight.fit(descriptor, config, result.totalLines, at, { columns: width, rows }, () => current() && (Number(option(args, '--width')) || process.stdout.columns || 100) === width && (process.stdout.rows || 12) === rows, signal);
-                            if (fitted !== undefined && fitted !== rows || dynamicHeight.awaitingGrowth) {
-                                rows = fitted ?? rows;
-                                result = render(snapshot, config, { width, height: rows, page, color, now: at, showPager: !dynamicHeight.awaitingGrowth });
+                    let result = render(snapshot, config, { width, height: rows, page, color, now: at, showPager: !heightGrowing });
+                    if (autoHeight) {
+                        const key = JSON.stringify([projection, cfgStamp, nodeGeometry, result.totalLines]), changedKey = heightJobKey !== key;
+                        if (!heightGrowing && heightAssessedKey !== key && result.pages > 1)
+                            result = render(snapshot, config, { width, height: rows, page, color, now: at, showPager: false });
+                        if (changedKey) {
+                            const pending = heightJob.busy;
+                            heightJob.cancel();
+                            heightJobKey = key;
+                            if (pending) {
+                                heightEpoch++;
+                                dynamicHeight = createHeight();
+                                dynamicHeight.nextCheckAt = 0;
                             }
                         }
-                        catch (error) {
-                            if (signal.aborted)
-                                throw error;
-                            dynamicHeight.nextCheckAt = Date.now() + 5000;
-                            snapshot.errors.push('Automatic height unavailable; keeping the current pane size');
-                            result = render(snapshot, config, { width, height: rows, page, color, now: at });
+                        if (!heightJob.busy && (changedKey || Date.now() >= dynamicHeight.nextCheckAt)) {
+                            const controller = dynamicHeight, epoch = heightEpoch, observer = processMonitor, binding = projection, configStamp = cfgStamp, bound = descriptor, settings = config;
+                            heightJob.start(key, async (querySignal) => {
+                                const stillCurrent = () => !quit && !querySignal.aborted && epoch === heightEpoch && controller === dynamicHeight && observer === processMonitor && observer?.status === 'verified' && sourceVerified && !registrationUnavailable && inputStamp(cfgFile) === configStamp && (Number(option(args, '--width')) || process.stdout.columns || 100) === width && (process.stdout.rows || 12) === nodeRows && !!ownedFile && controlState(readLaunch(ownedFile)) === binding;
+                                const fitted = await controller.fit(bound, settings, result.totalLines, at, { columns: width, rows: nodeRows }, stillCurrent, querySignal);
+                                if (!stillCurrent())
+                                    throw Object.assign(new Error('Height observation superseded'), { name: 'AbortError' });
+                                return { rows: controller.observedRows ?? fitted, growing: controller.awaitingGrowth, geometry: nodeGeometry };
+                            });
                         }
                     }
                     if (!current()) {
@@ -393,7 +472,7 @@ async function watch(args, once = false) {
                     if (args.includes('--json'))
                         console.log(JSON.stringify(snapshot));
                     else if (!once && process.stdout.isTTY) {
-                        const height = process.stdout.rows || 12, geometry = JSON.stringify([process.stdout.columns ?? 100, height]);
+                        const height = rows, geometry = JSON.stringify([process.stdout.columns ?? 100, height]);
                         const output = frameUpdate(paintedLines, result.lines, height, paintInvalidated || geometry !== paintedGeometry, process.stdout.columns ?? 100);
                         if (output)
                             process.stdout.write(output);
@@ -426,7 +505,7 @@ async function watch(args, once = false) {
                 continue;
             }
             activeQuery = undefined;
-            const deadline = Math.min(nextReconcile, descriptor?.host ? nextOwnerCheck : Infinity, nextGit, nextHeartbeat || Infinity, nextClock, sourceVerified ? dynamicHeight.nextCheckAt : Infinity);
+            const deadline = Math.min(nextReconcile, processMonitor?.nextRetryAt ?? Infinity, gitJob.busy ? Infinity : nextGit, nextHeartbeat || Infinity, nextClock, !once && descriptor?.host && process.stdout.isTTY && sourceVerified && get(config, 'terminal.dynamicHeight') && !heightJob.busy ? dynamicHeight.nextCheckAt : Infinity);
             reasons = await events.wait(deadline);
         }
     }
@@ -437,6 +516,9 @@ async function watch(args, once = false) {
     }
     finally {
         activeQuery?.abort();
+        gitJob.cancel();
+        heightJob.cancel();
+        processMonitor?.close();
         events.close();
         let cleanupFailed = false, cleanupError;
         const cleanup = (action) => { try {

@@ -84,6 +84,13 @@ test('stable height avoids repeated backend queries but periodically rechecks ma
  assert.deepEqual(state.resizes,[6]);
 });
 
+test('physical height observations remain usable when Node reports cached terminal rows',async t=>{
+ const {controller,d,config,state}=await fixture(t);
+ await controller.fit(d,config,6,0,{columns:120,rows:12});assert.equal(controller.observedRows,6);
+ state.rows=4;await controller.fit(d,config,6,5000,{columns:120,rows:12});assert.equal(controller.observedRows,4);assert.deepEqual(state.resizes,[]);
+ await controller.fit(d,config,6,5050,{columns:120,rows:12});assert.equal(controller.observedRows,6);assert.deepEqual(state.resizes,[6]);
+});
+
 test('content, terminal geometry and ratio changes invalidate a stable height observation',async t=>{
  for(const change of ['content','columns','rows','ratio']){
   const {controller,d,config,state}=await fixture(t),geometry={columns:120,rows:6};

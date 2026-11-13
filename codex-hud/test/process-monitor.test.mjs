@@ -5,7 +5,10 @@ import os from 'node:os';
 import path from 'node:path';
 import cp from 'node:child_process';
 import {syncBuiltinESMExports} from 'node:module';
+import {createInterface} from 'node:readline';
+import {pathToFileURL} from 'node:url';
 import {readProcessIdentities} from '../dist/psmux.js';
+import {processBirthMicros} from '../dist/process-birth.js';
 const api=await import('../dist/process-monitor.js').catch(()=>({}));
 
 async function until(check,message){
@@ -53,6 +56,11 @@ test('native monitoring keeps real process incarnations independent and recovers
   assert.ok(monitor.nextRetryAt>Date.now());
   monitor.reconcile(monitor.nextRetryAt);await until(()=>monitor.status==='verified','retry did not verify the still-live source');
  });
+ await t.test('a native pipe error becomes unknown without throwing through the viewer',async()=>{
+  const monitor=create(owners[3]);await until(()=>monitor.status==='verified','pipe-error observer did not start');const child=observers.at(-1);
+  assert.doesNotThrow(()=>child.stdout.emit('error',Object.assign(Error('PRIVATE_PIPE_DETAIL'),{code:'EPIPE'})));
+  assert.equal(monitor.status,'unknown');assert.ok(monitor.nextRetryAt>Date.now());
+ });
  await t.test('cancellation and close reject pending facts without accepting retired results',async()=>{
   const monitor=create(owners[4]);await until(()=>monitor.status==='verified','cancellation observer did not become verified');
   const child=observers.at(-1);child.stdout.pause();
@@ -60,6 +68,37 @@ test('native monitoring keeps real process incarnations independent and recovers
   const pending=monitor.facts([owners[4].pid]);monitor.close();await assert.rejects(pending,/closed|stopped|observer/i);child.stdout.resume();
   await new Promise(resolve=>setTimeout(resolve,30));assert.equal(monitor.status,'closed');
  });
+ await t.test('malformed and oversized native commands terminate without reporting a source exit',async()=>{
+  for(const input of ['INVALID\n','x'.repeat(8192)+'\n']){
+   const raw=cp.spawn(api.processHelperPath(),['--parent',String(process.pid),'--scope',viewer.pid+':'+processBirthMicros(viewer.startedAt)],{windowsHide:true,stdio:['pipe','pipe','pipe']});
+   const messages=[];raw.stdin.on('error',()=>{});raw.stderr.resume();
+   const lines=createInterface({input:raw.stdout});lines.on('line',line=>messages.push(JSON.parse(line)));
+   await until(()=>messages.some(m=>m.type==='ready'),'raw native observer did not start');raw.stdin.write(input);
+   await until(()=>raw.exitCode!==null,'malformed native command did not terminate');
+   assert.equal(raw.exitCode,2);assert.ok(messages.some(m=>m.type==='error'&&m.code==='PROTOCOL'));assert.ok(messages.every(m=>m.type!=='exited'));
+  }
+ });
+ await t.test('bounded pending queries reject overload and close releases every request',async()=>{
+  const monitor=create(owners[4]);await until(()=>monitor.status==='verified','bounded observer did not start');const child=observers.at(-1);child.stdout.pause();
+  const requests=Array.from({length:32},()=>monitor.facts([owners[4].pid]).then(()=>false,()=>true));
+  await assert.rejects(monitor.facts([owners[4].pid]),/limit/i);monitor.close();child.stdout.resume();assert.ok((await Promise.all(requests)).every(Boolean));
+ });
+});
+
+test('the native observer terminates when its real viewer parent is forcibly ended',{skip:process.platform!=='win32'},async t=>{
+ assert.equal(typeof api.ProcessMonitor,'function','native process observer is missing');
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'hud-observer-parent-')),script=path.join(root,'parent.mjs');let relay,identity;
+ t.after(()=>{
+  if(relay&&relay.exitCode===null&&relay.signalCode===null)relay.kill();
+  if(identity){const fresh=readProcessIdentities([identity.pid]).find(p=>p.pid===identity.pid);if(fresh&&fresh.startedAt===identity.startedAt&&fresh.parentPid===identity.parentPid&&fresh.name===identity.name)process.kill(identity.pid);}
+  fs.rmSync(root,{recursive:true,force:true});
+ });
+ const psmux=pathToFileURL(path.resolve(import.meta.dirname,'../dist/psmux.js')).href,birth=pathToFileURL(path.resolve(import.meta.dirname,'../dist/process-birth.js')).href;
+ fs.writeFileSync(script,`import {spawn} from 'node:child_process';import {createInterface} from 'node:readline';import {readProcessIdentities} from ${JSON.stringify(psmux)};import {processBirthMicros} from ${JSON.stringify(birth)};const self=readProcessIdentities([process.pid]).find(p=>p.pid===process.pid);const child=spawn(${JSON.stringify(api.processHelperPath())},['--parent',String(process.pid),'--scope',self.pid+':'+processBirthMicros(self.startedAt)],{windowsHide:true,stdio:['pipe','pipe','pipe']});child.stderr.resume();const lines=createInterface({input:child.stdout});lines.on('line',line=>{if(JSON.parse(line).type==='ready'){process.send({type:'ready'});setImmediate(()=>process.send({type:'identity',fact:readProcessIdentities([child.pid]).find(p=>p.pid===child.pid)}));}});process.on('message',()=>{});`);
+ relay=cp.fork(script,[],{windowsHide:true,stdio:['ignore','ignore','pipe','ipc']});relay.stderr.resume();let ready=false;
+ relay.on('message',message=>{if(message.type==='ready')ready=true;if(message.type==='identity')identity=message.fact;});
+ await until(()=>ready,'synthetic viewer did not open its native observer');await until(()=>identity,'synthetic observer identity was not reported');
+ relay.kill();await until(()=>{try{process.kill(identity.pid,0);return false;}catch(error){return error.code==='ESRCH';}},'native observer remained after its viewer parent terminated');
 });
 
 test('native helper refuses modified package artifacts before execution',{skip:process.platform!=='win32'},t=>{

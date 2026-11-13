@@ -1,14 +1,16 @@
 import {get,type Config} from './config.js';
 import {readHost} from './host-session.js';
-import {PsmuxClient,readProcessIdentitiesAsync,samePath,verifyHost,hostProcessIds,type HostDependencies,type PaneFact} from './psmux.js';
+import {PsmuxClient,readProcessIdentitiesAsync,samePath,sameProcess,verifyHost,hostProcessIds,type HostDependencies,type PaneFact} from './psmux.js';
 import type {LaunchDescriptor} from './runtime.js';
 
 /** Resize only this viewer's registered two-pane stack; fixed sizing is untouched. */
 export class DynamicHeightController {
  private candidate?:number;private since=0;private growing=false;
  private stable?:{key:string;at:number};
+ private physicalRows?:number;
  nextCheckAt=Infinity;
  get awaitingGrowth():boolean{return this.growing;}
+ get observedRows():number|undefined{return this.physicalRows;}
  constructor(private readonly dependencies:HostDependencies={}){}
  async fit(d:LaunchDescriptor,config:Config,contentRows:number,now=Date.now(),geometry?:{columns:number;rows:number},current=()=>true,signal?:AbortSignal):Promise<number|undefined> {
   this.growing=false;
@@ -33,22 +35,25 @@ export class DynamicHeightController {
   };
   const client=new PsmuxClient(host.proof.origin,this.dependencies),{owner,hud,cap,target}=inspect(await client.panesAsync(signal));
   if(!current())return;
+  this.physicalRows=hud.height;
   if(cap<1){this.candidate=undefined;this.nextCheckAt=now+5000;return;}
   if(target===hud.height){this.candidate=undefined;this.stable={key,at:now};this.nextCheckAt=now+5000;return;}
   this.growing=target>hud.height;
   if(target!==this.candidate){this.candidate=target;this.since=now;}
   const debounce=target<hud.height?2000:50;this.nextCheckAt=this.since+debounce;
   if(now<this.nextCheckAt)return;
-  const ids=hostProcessIds(host.proof,[viewer.pid]),values=await(this.dependencies.processesAsync?this.dependencies.processesAsync(ids,pid):this.dependencies.processes?this.dependencies.processes(ids,pid):readProcessIdentitiesAsync(ids,signal)),actual=values.find(p=>p.pid===pid);
+  const ids=hostProcessIds(host.proof,[viewer.pid]),values=await(this.dependencies.processesAsync?this.dependencies.processesAsync(ids,pid,signal):this.dependencies.processes?this.dependencies.processes(ids,pid):readProcessIdentitiesAsync(ids,signal)),actual=values.find(p=>p.pid===pid);
   if(!current())return;
-  if(!actual||actual.startedAt!==viewer.startedAt||actual.parentPid!==viewer.parentPid||actual.name!==viewer.name)throw new Error('HUD viewer process incarnation changed');
+  if(!sameProcess(actual,viewer))throw new Error('HUD viewer process incarnation changed');
   const fresh=inspect(await client.panesAsync(signal));if(!current())return;
+  this.physicalRows=fresh.hud.height;
   if(fresh.cap<1||fresh.target===fresh.hud.height){this.candidate=undefined;this.growing=false;this.nextCheckAt=now+5000;return;}
   if(fresh.target!==target){this.candidate=fresh.target;this.since=now;this.growing=fresh.target>fresh.hud.height;this.nextCheckAt=now+(this.growing?50:2000);return;}
   verifyHost(host.proof,'viewer',{...this.dependencies,processes:()=>values},fresh.owner);
   registered();if(!current())return;await client.resizePaneAsync(hud.pane,target,signal);
   const resized=await client.paneAsync(hud.pane,signal);
   if(resized.pid!==pid||resized.window!==owner.window)throw new Error('Resized HUD viewer identity changed');
+  this.physicalRows=resized.height;
   this.candidate=undefined;this.growing=false;this.nextCheckAt=now+5000;return resized.height;
  }
 }

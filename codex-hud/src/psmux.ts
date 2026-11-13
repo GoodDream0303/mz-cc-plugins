@@ -10,7 +10,7 @@ export interface HostOrigin {binary:string;dataDir:string;hostDir:string;namespa
 export interface LocalAppServerProof {endpoint:string;process:ProcessFact}
 export interface HostProof {origin:HostOrigin;owner:ProcessFact;server:ProcessFact;window:string;frontend?:ProcessFact;appServer?:LocalAppServerProof}
 export interface PaneFact {session:string;window:string;pane:string;pid:number;width:number;height:number;serverPid:number}
-export interface HostDependencies {pid?:number;run?:(args:string[])=>string;processes?:(pids:number[],rootPid:number)=>ProcessFact[];runAsync?:(args:string[])=>Promise<string>;processesAsync?:(pids:number[],rootPid:number)=>Promise<ProcessFact[]>}
+export interface HostDependencies {pid?:number;run?:(args:string[])=>string;processes?:(pids:number[],rootPid:number)=>ProcessFact[];runAsync?:(args:string[])=>Promise<string>;processesAsync?:(pids:number[],rootPid:number,signal?:AbortSignal)=>Promise<ProcessFact[]>}
 export const hostIdPattern=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const panePattern=/^%[1-9]\d*$/;
 const paneFormat='#{session_name}\t#{window_id}\t#{pane_id}\t#{pane_pid}\t#{pane_width}\t#{pane_height}\t#{pid}';

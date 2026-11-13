@@ -1,6 +1,6 @@
 import { get } from './config.js';
 import { readHost } from './host-session.js';
-import { PsmuxClient, readProcessIdentitiesAsync, samePath, verifyHost, hostProcessIds } from './psmux.js';
+import { PsmuxClient, readProcessIdentitiesAsync, samePath, sameProcess, verifyHost, hostProcessIds } from './psmux.js';
 /** Resize only this viewer's registered two-pane stack; fixed sizing is untouched. */
 export class DynamicHeightController {
     dependencies;
@@ -8,8 +8,10 @@ export class DynamicHeightController {
     since = 0;
     growing = false;
     stable;
+    physicalRows;
     nextCheckAt = Infinity;
     get awaitingGrowth() { return this.growing; }
+    get observedRows() { return this.physicalRows; }
     constructor(dependencies = {}) {
         this.dependencies = dependencies;
     }
@@ -48,6 +50,7 @@ export class DynamicHeightController {
         const client = new PsmuxClient(host.proof.origin, this.dependencies), { owner, hud, cap, target } = inspect(await client.panesAsync(signal));
         if (!current())
             return;
+        this.physicalRows = hud.height;
         if (cap < 1) {
             this.candidate = undefined;
             this.nextCheckAt = now + 5000;
@@ -68,14 +71,15 @@ export class DynamicHeightController {
         this.nextCheckAt = this.since + debounce;
         if (now < this.nextCheckAt)
             return;
-        const ids = hostProcessIds(host.proof, [viewer.pid]), values = await (this.dependencies.processesAsync ? this.dependencies.processesAsync(ids, pid) : this.dependencies.processes ? this.dependencies.processes(ids, pid) : readProcessIdentitiesAsync(ids, signal)), actual = values.find(p => p.pid === pid);
+        const ids = hostProcessIds(host.proof, [viewer.pid]), values = await (this.dependencies.processesAsync ? this.dependencies.processesAsync(ids, pid, signal) : this.dependencies.processes ? this.dependencies.processes(ids, pid) : readProcessIdentitiesAsync(ids, signal)), actual = values.find(p => p.pid === pid);
         if (!current())
             return;
-        if (!actual || actual.startedAt !== viewer.startedAt || actual.parentPid !== viewer.parentPid || actual.name !== viewer.name)
+        if (!sameProcess(actual, viewer))
             throw new Error('HUD viewer process incarnation changed');
         const fresh = inspect(await client.panesAsync(signal));
         if (!current())
             return;
+        this.physicalRows = fresh.hud.height;
         if (fresh.cap < 1 || fresh.target === fresh.hud.height) {
             this.candidate = undefined;
             this.growing = false;
@@ -97,6 +101,7 @@ export class DynamicHeightController {
         const resized = await client.paneAsync(hud.pane, signal);
         if (resized.pid !== pid || resized.window !== owner.window)
             throw new Error('Resized HUD viewer identity changed');
+        this.physicalRows = resized.height;
         this.candidate = undefined;
         this.growing = false;
         this.nextCheckAt = now + 5000;

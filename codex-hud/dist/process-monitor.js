@@ -130,6 +130,8 @@ export class ProcessMonitor {
                 this.fail(generation); });
             child.once('error', () => this.fail(generation));
             child.once('exit', () => this.fail(generation));
+            child.stdout.on('error', () => this.fail(generation));
+            child.stderr.on('error', () => this.fail(generation));
             child.stdout.once('end', () => this.fail(generation));
             child.stdin.on('error', () => this.fail(generation));
         }
