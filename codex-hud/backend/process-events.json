@@ -1,0 +1,25 @@
+{
+  "format": 1,
+  "protocol": 1,
+  "platform": "win32-x64",
+  "sha256": "d14595376eb1d5558bc9f96ecd707359e665a796c1ad89cf2bd58142efc06ccc",
+  "sourceSha256": "1ea0ea6dbb968a23378a42553299d23671f2acfc549497bf6404d45199f07154",
+  "compiler": {
+    "name": "Zig",
+    "version": "0.17.1",
+    "sha256": "8d6f248cdb0fc2ecd5e17c5282ef3f8a4b614beac12e6d27d12462cde59fe56b",
+    "command": [
+      "cc",
+      "-target",
+      "x86_64-windows-gnu",
+      "-Os",
+      "-s",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "native/process-events.c",
+      "-o",
+      "backend/process-events.exe"
+    ]
+  }
+}

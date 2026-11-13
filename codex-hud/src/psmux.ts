@@ -3,6 +3,7 @@ import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {effectiveBackendPath} from './backend-version.js';
 import {runText} from './subprocess.js';
+import {sameProcessBirth} from './process-birth.js';
 
 export interface ProcessFact {pid:number;parentPid:number;name:string;startedAt:string}
 export interface HostOrigin {binary:string;dataDir:string;hostDir:string;namespace:string;tmux:string;session:string;pane:string;originId:string}
@@ -56,7 +57,7 @@ function parseProcessFacts(raw:string):ProcessFact[] {
  return value;
 }
 function validFact(value:any):value is ProcessFact{return !!value&&positive(value.pid)&&Number.isSafeInteger(value.parentPid)&&value.parentPid>=0&&typeof value.name==='string'&&value.name.length<260&&typeof value.startedAt==='string'&&Number.isFinite(Date.parse(value.startedAt));}
-export function sameProcess(actual:ProcessFact|undefined,expected:ProcessFact):boolean{return !!actual&&validFact(expected)&&actual.pid===expected.pid&&actual.startedAt===expected.startedAt&&actual.name.toLowerCase()===expected.name.toLowerCase()&&actual.parentPid===expected.parentPid;}
+export function sameProcess(actual:ProcessFact|undefined,expected:ProcessFact):boolean{return !!actual&&validFact(expected)&&actual.pid===expected.pid&&sameProcessBirth(actual.startedAt,expected.startedAt)&&actual.name.toLowerCase()===expected.name.toLowerCase()&&actual.parentPid===expected.parentPid;}
 export function hostProcessIds(proof:HostProof,extra:number[]=[]):number[]{return [...new Set([proof.owner.pid,proof.server.pid,...(proof.frontend?[proof.frontend.pid]:[]),...(proof.appServer?[proof.appServer.process.pid]:[]),...extra])];}
 export function verifyLocalAppServer(proof:LocalAppServerProof,owner:ProcessFact,values:ProcessFact[]):void {
  const endpoint=/^ws:\/\/127\.0\.0\.1:([1-9]\d{0,4})\/?$/.exec(proof.endpoint);

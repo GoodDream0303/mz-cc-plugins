@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { effectiveBackendPath } from './backend-version.js';
 import { runText } from './subprocess.js';
+import { sameProcessBirth } from './process-birth.js';
 export const hostIdPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const panePattern = /^%[1-9]\d*$/;
 const paneFormat = '#{session_name}\t#{window_id}\t#{pane_id}\t#{pane_pid}\t#{pane_width}\t#{pane_height}\t#{pid}';
@@ -59,7 +60,7 @@ function parseProcessFacts(raw) {
     return value;
 }
 function validFact(value) { return !!value && positive(value.pid) && Number.isSafeInteger(value.parentPid) && value.parentPid >= 0 && typeof value.name === 'string' && value.name.length < 260 && typeof value.startedAt === 'string' && Number.isFinite(Date.parse(value.startedAt)); }
-export function sameProcess(actual, expected) { return !!actual && validFact(expected) && actual.pid === expected.pid && actual.startedAt === expected.startedAt && actual.name.toLowerCase() === expected.name.toLowerCase() && actual.parentPid === expected.parentPid; }
+export function sameProcess(actual, expected) { return !!actual && validFact(expected) && actual.pid === expected.pid && sameProcessBirth(actual.startedAt, expected.startedAt) && actual.name.toLowerCase() === expected.name.toLowerCase() && actual.parentPid === expected.parentPid; }
 export function hostProcessIds(proof, extra = []) { return [...new Set([proof.owner.pid, proof.server.pid, ...(proof.frontend ? [proof.frontend.pid] : []), ...(proof.appServer ? [proof.appServer.process.pid] : []), ...extra])]; }
 export function verifyLocalAppServer(proof, owner, values) {
     const endpoint = /^ws:\/\/127\.0\.0\.1:([1-9]\d{0,4})\/?$/.exec(proof.endpoint);
