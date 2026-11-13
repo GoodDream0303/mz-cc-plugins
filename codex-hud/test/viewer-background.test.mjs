@@ -43,17 +43,17 @@ cp.execFile=(binary,args,options,callback)=>{
  if(binary===host.proof.origin.binary&&args.includes('resize-pane'))resizes.push(args);
  try{const raw=cp.execFileSync(binary,args,options);queueMicrotask(()=>callback(null,raw,''));}catch(error){queueMicrotask(()=>callback(error,'',''));}return {};
 };syncBuiltinESMExports();
-installNativeObserverFixture({facts,readyDelay:mode==='identity'?3000:0});
+installNativeObserverFixture({facts,readyDelay:mode==='identity'?3000:0,onSpawn:()=>{observerSpawnAt??=performance.now()-started;}});
 const {main}=await import(${JSON.stringify(pathToFileURL(path.join(runtime,'cli.js')).href)}),{updateLaunch,readLaunch}=await import(${JSON.stringify(pathToFileURL(path.join(runtime,'runtime.js')).href)});
 updateLaunch(file,v=>{v.pid=process.pid;v.host.hudProcess=self;});
 Object.assign(process.env,{MZ_HUD_ORIGIN:host.id,MZ_HUD_PSMUX:host.proof.origin.binary,MZ_HUD_HOST_DIR:host.proof.origin.hostDir,MZ_HUD_NAMESPACE:host.proof.origin.namespace,PSMUX_DATA_DIR:host.proof.origin.dataDir,TMUX:host.proof.origin.tmux,TMUX_PANE:'%2',PSMUX_SESSION:'codex'});
 Object.defineProperties(process.stdout,{isTTY:{value:true},columns:{value:120,writable:true},rows:{value:mode==='pending'?3:12,writable:true}});
-const frames=[],screens=[],screen=frameScreen(),started=performance.now();let firstPaintMs,visibleMs,stoppedAt,geometryStartedAt,append;
+const frames=[],screens=[],screen=frameScreen(),started=performance.now();let firstPaintMs,visibleMs,stoppedAt,geometryStartedAt,append,observerSpawnAt;
 process.stdout.write=value=>{const text=String(value);if(/\\x1b\\[\\d+;1H/.test(text)){firstPaintMs??=performance.now()-started;frames.push(text);screens.push({text:screen(text),geometryPending:geometryStartedAt!==undefined});if(text.includes('NEW-BACKGROUND-MODEL'))visibleMs=performance.now()-started;}return true;};
 if(mode!=='pending')append=setTimeout(()=>fs.appendFileSync(transcript,JSON.stringify({type:'turn_context',payload:{model:'NEW-BACKGROUND-MODEL'}})+'\\n'),120);
 const stop=setTimeout(()=>{stoppedAt=performance.now();updateLaunch(file,v=>v.hudStop=true);},650);
 try{await main(['watch','--launch',file,'--no-color']);}finally{clearTimeout(append);clearTimeout(stop);}
-fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({frames,screens,firstPaintMs,visibleMs,stopLatency:performance.now()-stoppedAt,resizes,descriptor:readLaunch(file)}));
+fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({frames,screens,firstPaintMs,visibleMs,observerSpawnAt,stopLatency:performance.now()-stoppedAt,resizes,descriptor:readLaunch(file)}));
 `);
  const env={...process.env};delete env.MZ_HUD_ORIGIN;delete env.MZ_HUD_CONFIG_FILE;
  const child=spawnSync(process.execPath,[script],{encoding:'utf8',timeout:10000,env});assert.equal(child.status,0,child.stderr);
@@ -63,6 +63,7 @@ fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({frames,screens,firstP
 for(const mode of ['identity','geometry'])test('a stalled '+mode+' check cannot hold telemetry, stop or authorize a resize',t=>{
  const r=probe(t,mode);
  assert.ok(r.firstPaintMs<800,JSON.stringify(r));assert.ok(r.visibleMs<800,JSON.stringify(r));assert.ok(r.stopLatency<800,JSON.stringify(r));
+ assert.ok(r.firstPaintMs<=r.observerSpawnAt,JSON.stringify(r));
  assert.ok(r.frames.some(frame=>frame.includes('NEW-BACKGROUND-MODEL')));assert.deepEqual(r.resizes,[]);assert.equal(r.descriptor.exitReason,'stop-requested');
 });
 

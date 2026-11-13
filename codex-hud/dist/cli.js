@@ -167,6 +167,7 @@ async function watch(args, once = false) {
             processMonitor = undefined;
             monitorKey = '';
             monitorState = undefined;
+            sourceMessage = '';
             sourceVerified = !descriptor?.host || once;
         }
     };
@@ -195,6 +196,8 @@ async function watch(args, once = false) {
         process.stdout.write('\x1b[?1049h\x1b[?25l');
     }
     let reasons = new Set(['initial']);
+    // A cancelled pass may have consumed reader state without publishing its snapshot.
+    const retryInputs = () => new Set(['control', 'config', 'log', 'child', 'discovery', 'geometry']);
     try {
         if (descriptor && !descriptor.demo) {
             descriptor = updateLaunch(ownedFile, d => { d.state = 'running'; d.pid = process.pid; d.heartbeat = Date.now(); });
@@ -249,7 +252,7 @@ async function watch(args, once = false) {
                     }
                 }
                 if (descriptor?.host && !once) {
-                    if (initial || reconcile || reasons.has('host'))
+                    if (initial || reconcile || reasons.has('host') || reasons.has('control'))
                         try {
                             const registered = readHost(descriptor.host.recordFile);
                             if (registered.state === 'closed') {
@@ -268,7 +271,6 @@ async function watch(args, once = false) {
                         monitorState = undefined;
                         processMonitor = new ProcessMonitor(descriptor.host.proof, descriptor.host.hudProcess, () => events.request('source'));
                     }
-                    processMonitor.reconcile();
                     const state = processMonitor.status;
                     if (state === 'source-exited') {
                         exitReason = 'owner-exited';
@@ -279,7 +281,10 @@ async function watch(args, once = false) {
                         invalidateWork('source');
                     }
                     sourceVerified = !registrationUnavailable && state === 'verified';
-                    sourceMessage = registrationUnavailable || state === 'unknown' ? 'Source identity unavailable; keeping HUD open and retrying' : '';
+                    if (registrationUnavailable || state === 'unknown' && processMonitor.nextRetryAt !== 0)
+                        sourceMessage = 'Source identity unavailable; keeping HUD open and retrying';
+                    else if (state === 'verified')
+                        sourceMessage = '';
                 }
                 const checkConfig = initial || reconcile || reasons.has('config'), stamp = checkConfig ? inputStamp(cfgFile) : cfgStamp;
                 if (checkConfig && (stamp !== cfgStamp || statusMessage)) {
@@ -312,7 +317,7 @@ async function watch(args, once = false) {
                         const session = await findSession(root, selected);
                         nextDiscover = Date.now() + 5000;
                         if (!current()) {
-                            reasons = new Set(['control']);
+                            reasons = retryInputs();
                             continue;
                         }
                         if (session && (!reader || session.path !== knownPath)) {
@@ -343,7 +348,7 @@ async function watch(args, once = false) {
                     parentSnapshot.errors.push(descriptor?.host ? 'Waiting for this Codex conversation' : 'Select the existing Codex session to display');
                 }
                 if (!current()) {
-                    reasons = new Set(['control']);
+                    reasons = retryInputs();
                     continue;
                 }
                 if (readParent || readChildren || reasons.has('discovery')) {
@@ -357,7 +362,7 @@ async function watch(args, once = false) {
                 else
                     remove('discovery', new Set());
                 if (!current()) {
-                    reasons = new Set(['control']);
+                    reasons = retryInputs();
                     continue;
                 }
                 if (baseSnapshot.cwd && (get(config, 'gitStatus.enabled') || args.includes('--json'))) {
@@ -390,7 +395,7 @@ async function watch(args, once = false) {
                     nextGit = Infinity;
                 }
                 if (!current()) {
-                    reasons = new Set(['control']);
+                    reasons = retryInputs();
                     continue;
                 }
                 const heightReady = heightJob.take(heightJobKey);
@@ -460,7 +465,7 @@ async function watch(args, once = false) {
                         }
                     }
                     if (!current()) {
-                        reasons = new Set(['control']);
+                        reasons = retryInputs();
                         continue;
                     }
                     nextClock = nextDisplayAt(snapshot, config, at);
@@ -501,10 +506,18 @@ async function watch(args, once = false) {
                     throw error;
                 if (quit)
                     break;
-                reasons = new Set(['control', 'config', 'log', 'geometry']);
+                reasons = retryInputs();
                 continue;
             }
             activeQuery = undefined;
+            // Launch/retry observation only after publishing this binding's telemetry.
+            if (!quit && processMonitor) {
+                if (!current()) {
+                    reasons = retryInputs();
+                    continue;
+                }
+                processMonitor.reconcile();
+            }
             const deadline = Math.min(nextReconcile, processMonitor?.nextRetryAt ?? Infinity, gitJob.busy ? Infinity : nextGit, nextHeartbeat || Infinity, nextClock, !once && descriptor?.host && process.stdout.isTTY && sourceVerified && get(config, 'terminal.dynamicHeight') && !heightJob.busy ? dynamicHeight.nextCheckAt : Infinity);
             reasons = await events.wait(deadline);
         }

@@ -81,7 +81,7 @@ async function watch(args:string[],once=false):Promise<void>{
  invalidateWork=reason=>{
   if(['control','config','quit'].includes(reason)){gitJob.cancel();nextGit=0;}
   heightJob.cancel();heightEpoch++;heightJobKey='';heightAssessedKey='';heightMessage='';heightGrowing=false;fittedHeight=undefined;dynamicHeight=createHeight();dynamicHeight.nextCheckAt=0;
-  if(reason==='control'||reason==='quit'){processMonitor?.close();processMonitor=undefined;monitorKey='';monitorState=undefined;sourceVerified=!descriptor?.host||once;}
+  if(reason==='control'||reason==='quit'){processMonitor?.close();processMonitor=undefined;monitorKey='';monitorState=undefined;sourceMessage='';sourceVerified=!descriptor?.host||once;}
  };
  const recordFailure=(error:unknown)=>{exitReason='error';const code=(error as NodeJS.ErrnoException)?.code;exitErrorCode=typeof code==='string'&&/^[A-Z0-9_]{1,64}$/.test(code)?code:undefined;};
  const onKey=(_:unknown,key:{name?:string;ctrl?:boolean})=>{if(key?.name==='q'){quit=true;exitReason='user-quit';activeQuery?.abort();invalidateWork('quit');events.request('quit');}else if(['right','n','left','p'].includes(key?.name??'')){page=key.name==='right'||key.name==='n'?page+1:Math.max(0,page-1);events.request('page');}};
@@ -89,6 +89,8 @@ async function watch(args:string[],once=false):Promise<void>{
  if(interactive){emitKeypressEvents(process.stdin);process.stdin.setRawMode(true);process.stdin.on('keypress',onKey);process.stdin.resume();}
  if(!once&&process.stdout.isTTY){process.stdout.on('resize',onResize);process.stdout.write('\x1b[?1049h\x1b[?25l');}
  let reasons=new Set(['initial']);
+ // A cancelled pass may have consumed reader state without publishing its snapshot.
+ const retryInputs=()=>new Set(['control','config','log','child','discovery','geometry']);
  try{
   if(descriptor&&!descriptor.demo){descriptor=updateLaunch(ownedFile!,d=>{d.state='running';d.pid=process.pid;d.heartbeat=Date.now();});projection=controlState(descriptor);nextHeartbeat=Date.now()+get(config,'terminal.refreshMs');}
   while(!quit){
@@ -110,18 +112,18 @@ async function watch(args:string[],once=false):Promise<void>{
      if(bindingChanged){reader=undefined;knownPath='';parentSnapshot=emptySnapshot(selected??'pending');baseSnapshot=parentSnapshot;agentSessions=new AgentSessionTracker(root);remove('log',new Set());remove('child',new Set());page=0;nextDiscover=0;}
     }
     if(descriptor?.host&&!once){
-     if(initial||reconcile||reasons.has('host'))try{
+     if(initial||reconcile||reasons.has('host')||reasons.has('control'))try{
       const registered=readHost(descriptor.host.recordFile);if(registered.state==='closed'){exitReason='source-closed';break;}registrationUnavailable=false;
      }catch{registrationUnavailable=true;invalidateWork('source');}
      if(!processMonitor||monitorKey!==projection){
       processMonitor?.close();monitorKey=projection;monitorState=undefined;
       processMonitor=new ProcessMonitor(descriptor.host.proof,descriptor.host.hudProcess!,()=>events.request('source'));
      }
-     processMonitor.reconcile();
      const state=processMonitor.status;if(state==='source-exited'){exitReason='owner-exited';break;}
      if(state!==monitorState){monitorState=state;invalidateWork('source');}
      sourceVerified=!registrationUnavailable&&state==='verified';
-     sourceMessage=registrationUnavailable||state==='unknown'?'Source identity unavailable; keeping HUD open and retrying':'';
+     if(registrationUnavailable||state==='unknown'&&processMonitor.nextRetryAt!==0)sourceMessage='Source identity unavailable; keeping HUD open and retrying';
+     else if(state==='verified')sourceMessage='';
     }
     const checkConfig=initial||reconcile||reasons.has('config'),stamp=checkConfig?inputStamp(cfgFile):cfgStamp;
     if(checkConfig&&(stamp!==cfgStamp||statusMessage)){try{config=loadConfig(cfgFile);cfgStamp=stamp;statusMessage='';invalidateWork('config');nextReconcile=Math.min(nextReconcile,Date.now()+get(config,'terminal.refreshMs'));if(nextHeartbeat)nextHeartbeat=Math.min(nextHeartbeat,Date.now()+get(config,'terminal.refreshMs'));dirty=true;}catch(error){statusMessage='Configuration reload failed: '+(error as Error).message;}}
@@ -130,20 +132,20 @@ async function watch(args:string[],once=false):Promise<void>{
      if(descriptor?.transcriptPath){if(!reader||knownPath!==descriptor.transcriptPath){knownPath=descriptor.transcriptPath;subscribe(knownPath,'log');reader=new SessionReader(knownPath,selected);readParent=true;}}
      else if(initial||reasons.has('discovery')||!reader&&reconcile||Date.now()>=nextDiscover){
       subscribe(root,'discovery',true);const session=await findSession(root,selected);nextDiscover=Date.now()+5000;
-      if(!current()){reasons=new Set(['control']);continue;}
+      if(!current()){reasons=retryInputs();continue;}
       if(session&&(!reader||session.path!==knownPath)){knownPath=session.path;subscribe(knownPath,'log');reader=new SessionReader(knownPath,session.id);selected=session.id;readParent=true;remove('log',new Set([knownPath]));}
      }
      if(reader&&readParent){try{parentSnapshot=await reader.read();}catch{parentSnapshot=structuredClone(parentSnapshot);parentSnapshot.errors=['Session log unavailable; showing stale telemetry and retrying'];}}
      if(!reader){parentSnapshot=emptySnapshot(selected);parentSnapshot.errors.push('Waiting for the selected session log');}
     }else{parentSnapshot=emptySnapshot('pending');parentSnapshot.errors.push(descriptor?.host?'Waiting for this Codex conversation':'Select the existing Codex session to display');}
-    if(!current()){reasons=new Set(['control']);continue;}
+    if(!current()){reasons=retryInputs();continue;}
     if(readParent||readChildren||reasons.has('discovery')){
      baseSnapshot=structuredClone(parentSnapshot);
      if(reader)await agentSessions.refresh(baseSnapshot,reader,{invalidate:readChildren,discover:reasons.has('discovery'),onFile:file=>subscribe(file,'child')});
      remove('child',new Set(agentSessions.files));
     }
     if(!reader||agentSessions.needsDiscovery)subscribe(root,'discovery',true);else remove('discovery',new Set());
-    if(!current()){reasons=new Set(['control']);continue;}
+    if(!current()){reasons=retryInputs();continue;}
     if(baseSnapshot.cwd&&(get(config,'gitStatus.enabled')||args.includes('--json'))){
      const cwd=baseSnapshot.cwd,key=JSON.stringify([projection,cwd,cfgStamp]);
      if(environmentCwd!==cwd){gitJob.cancel();environment=undefined;environmentCwd=cwd;nextGit=0;}
@@ -154,7 +156,7 @@ async function watch(args:string[],once=false):Promise<void>{
       if(Date.now()>=nextGit&&!gitJob.busy)gitJob.start(key,querySignal=>readEnvironmentAsync(cwd,querySignal));
      }
     }else{gitJob.cancel();environment=undefined;environmentCwd='';nextGit=Infinity;}
-    if(!current()){reasons=new Set(['control']);continue;}
+    if(!current()){reasons=retryInputs();continue;}
     const heightReady=heightJob.take(heightJobKey);
     if(heightReady){
      if('value'in heightReady){heightAssessedKey=heightJobKey;heightMessage='';heightGrowing=heightReady.value.growing;if(heightReady.value.rows!==undefined)fittedHeight={geometry:heightReady.value.geometry,rows:heightReady.value.rows};}
@@ -185,7 +187,7 @@ async function watch(args:string[],once=false):Promise<void>{
        });
       }
      }
-     if(!current()){reasons=new Set(['control']);continue;}
+     if(!current()){reasons=retryInputs();continue;}
      nextClock=nextDisplayAt(snapshot,config,at);
      const viewport={columns:process.stdout.columns??100,rows,contentRows:result.totalLines,pages:result.pages},viewportKey=JSON.stringify(viewport);
      if(descriptor&&!descriptor.demo&&viewportKey!==lastViewport){updateLaunch(ownedFile!,d=>{d.viewport=viewport;});lastViewport=viewportKey;}
@@ -198,8 +200,10 @@ async function watch(args:string[],once=false):Promise<void>{
     }
     if(once){exitReason='one-shot';break;}if(!process.stdout.isTTY){exitReason='noninteractive';break;}
     if(descriptor&&!descriptor.demo&&Date.now()>=nextHeartbeat){updateLaunch(ownedFile!,d=>{d.heartbeat=Date.now();});nextHeartbeat=Date.now()+get(config,'terminal.refreshMs');}
-   }catch(error){if(!signal.aborted)throw error;if(quit)break;reasons=new Set(['control','config','log','geometry']);continue;}
+   }catch(error){if(!signal.aborted)throw error;if(quit)break;reasons=retryInputs();continue;}
    activeQuery=undefined;
+   // Launch/retry observation only after publishing this binding's telemetry.
+   if(!quit&&processMonitor){if(!current()){reasons=retryInputs();continue;}processMonitor.reconcile();}
    const deadline=Math.min(nextReconcile,processMonitor?.nextRetryAt??Infinity,gitJob.busy?Infinity:nextGit,nextHeartbeat||Infinity,nextClock,!once&&descriptor?.host&&process.stdout.isTTY&&sourceVerified&&get(config,'terminal.dynamicHeight')&&!heightJob.busy?dynamicHeight.nextCheckAt:Infinity);
    reasons=await events.wait(deadline);
   }

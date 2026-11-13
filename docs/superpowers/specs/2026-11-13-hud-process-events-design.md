@@ -98,6 +98,10 @@ and painting do not await them. Jobs coalesce identical pending work, invalidate
 on binding/config/geometry changes and discard results after cancellation. Their
 completion wakes the main loop; pending deadlines never cause a busy loop.
 Use existing visible telemetry while auxiliary work is pending or unknown.
+Launch/retry the observer after publishing the current binding's telemetry, so
+artifact verification and synchronous OS process creation cannot consume its first
+paint window. A cancelled main-loop pass requeues its inputs: a stateful reader may
+already have consumed a record before its derived display snapshot was committed.
 
 The dynamic-height controller retains growth/shrink debounce, manual-size support,
 the source's ten-row floor, ratio limits and fresh full-scope checks. Native facts

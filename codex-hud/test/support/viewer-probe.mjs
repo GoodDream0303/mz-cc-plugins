@@ -7,14 +7,14 @@ export function viewerProbe({duration=1050,refreshMs=250,appendAt=120,mode='appe
   const copy=path.join(root,'dist');fs.cpSync(dist,copy,{recursive:true});
   for(const [name,exports]of [['render',['render']],['config',['loadConfig']],['reader',['SessionReader']],['runtime',['updateLaunch']]]){
    fs.renameSync(path.join(copy,name+'.js'),path.join(copy,name+'-body.js'));
-   const text=name==='reader'?`export * from './reader-body.js';import {SessionReader as Original} from './reader-body.js';export class SessionReader extends Original{async read(){globalThis.counts.read++;return super.read();}}`:
+   const text=name==='reader'?`export * from './reader-body.js';import {SessionReader as Original} from './reader-body.js';export class SessionReader extends Original{async read(){globalThis.counts.read++;const value=await super.read();if(${JSON.stringify(mode)}==='interrupted'&&value.model==='PROBE-MODEL'&&!globalThis.didInterrupt){globalThis.didInterrupt=true;process.stdout.emit('resize');}return value;}}`:
     `export * from './${name}-body.js';import {${exports[0]} as original} from './${name}-body.js';export function ${exports[0]}(...args){globalThis.counts.${name}++;return original(...args);}`;
    fs.writeFileSync(path.join(copy,name+'.js'),text);
   }
   const script=path.join(root,'probe.mjs');
   fs.writeFileSync(script,`import fs from 'node:fs';import path from 'node:path';import cp from 'node:child_process';import {syncBuiltinESMExports} from 'node:module';
 if(${JSON.stringify(mode)}==='slow-git'){const original=cp.execFile;cp.execFile=(file,args,options,callback)=>{if(file!=='git')return original(file,args,options,callback);const timer=setTimeout(()=>callback(null,'## synthetic\\n',''),3000);options.signal?.addEventListener('abort',()=>{clearTimeout(timer);callback(Object.assign(Error('cancelled'),{name:'AbortError'}),'','');},{once:true});return {};};syncBuiltinESMExports();}
-if(${JSON.stringify(mode)}==='fallback')fs.watch=()=>{throw Error('watch unavailable');};if(['lost','discovery'].includes(${JSON.stringify(mode)}))fs.watch=()=>({on(){return this;},close(){}});syncBuiltinESMExports();
+if(${JSON.stringify(mode)}==='fallback')fs.watch=()=>{throw Error('watch unavailable');};if(['lost','discovery'].includes(${JSON.stringify(mode)}))fs.watch=()=>({on(){return this;},close(){}});if(${JSON.stringify(mode)}==='interrupted'){const original=fs.watch;fs.watch=(directory,options,listener)=>original(directory,options,(event,name)=>{if(globalThis.didInterrupt&&String(name)==='session.jsonl')return;listener(event,name);});}syncBuiltinESMExports();
 globalThis.counts={read:0,config:0,render:0,paint:0,runtime:0,configStat:0};const realNow=Date.now,clockBase=Date.now();if(${JSON.stringify(mode)}==='expiry')Date.now=()=>clockBase;
 const root=${JSON.stringify(root)},start=performance.now(),cpu=process.cpuUsage();
 const {main}=await import(${JSON.stringify(pathToFileURL(path.join(copy,'cli.js')).href)});

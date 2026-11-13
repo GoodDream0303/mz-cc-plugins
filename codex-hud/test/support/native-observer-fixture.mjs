@@ -12,12 +12,13 @@ export function copyObserverRuntime(dist,destination){
  for(const file of ['process-events.exe','process-events.json'])fs.copyFileSync(path.join(source,file),path.join(target,file));
 }
 
-export function installNativeObserverFixture({facts,readyDelay=0,queryDelay=0,firstFailure=false}){
+export function installNativeObserverFixture({facts,readyDelay=0,queryDelay=0,firstFailure=false,onSpawn=()=>{}}){
  const original=cp.spawn;let launches=0;
  cp.spawn=(binary,args,options)=>{
   if(path.basename(String(binary)).toLowerCase()!=='process-events.exe')return original(binary,args,options);
   const fixture={facts,readyDelay,queryDelay,fail:firstFailure&&launches++===0};
-  return original(process.execPath,[self,'--worker',Buffer.from(JSON.stringify(fixture)).toString('base64')],options);
+  const started=performance.now(),child=original(process.execPath,[self,'--worker',Buffer.from(JSON.stringify(fixture)).toString('base64')],options);
+  onSpawn({elapsedMs:performance.now()-started});return child;
  };
  syncBuiltinESMExports();
  return ()=>{cp.spawn=original;syncBuiltinESMExports();};
