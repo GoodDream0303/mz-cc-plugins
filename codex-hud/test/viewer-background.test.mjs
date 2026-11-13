@@ -39,7 +39,7 @@ cp.execFileSync=(binary,args,options)=>{
 };
 cp.execFile=(binary,args,options,callback)=>{
  const slow=mode==='identity'&&args.includes('-IdentitiesOnly')||['geometry','pending'].includes(mode)&&binary===host.proof.origin.binary&&args.includes('list-panes');
- if(slow){if(mode==='pending'){geometryStartedAt=performance.now();append=setTimeout(()=>fs.appendFileSync(transcript,JSON.stringify({type:'turn_context',payload:{model:'NEW-BACKGROUND-MODEL'}})+'\\n'),30);}const timer=setTimeout(()=>callback(null,JSON.stringify(facts),''),3000);options.signal?.addEventListener('abort',()=>{clearTimeout(timer);callback(Object.assign(Error('cancelled'),{name:'AbortError'}),'','');},{once:true});return {};}
+ if(slow){if(mode==='pending'){geometryStartedAt=performance.now();stop=setTimeout(()=>{stoppedAt=performance.now();updateLaunch(file,v=>v.hudStop=true);},650);append=setTimeout(()=>fs.appendFileSync(transcript,JSON.stringify({type:'turn_context',payload:{model:'NEW-BACKGROUND-MODEL'}})+'\\n'),30);}const timer=setTimeout(()=>callback(null,JSON.stringify(facts),''),3000);options.signal?.addEventListener('abort',()=>{clearTimeout(timer);callback(Object.assign(Error('cancelled'),{name:'AbortError'}),'','');},{once:true});return {};}
  if(binary===host.proof.origin.binary&&args.includes('resize-pane'))resizes.push(args);
  try{const raw=cp.execFileSync(binary,args,options);queueMicrotask(()=>callback(null,raw,''));}catch(error){queueMicrotask(()=>callback(error,'',''));}return {};
 };syncBuiltinESMExports();
@@ -51,9 +51,9 @@ Object.defineProperties(process.stdout,{isTTY:{value:true},columns:{value:120,wr
 const frames=[],screens=[],screen=frameScreen(),started=performance.now();let firstPaintMs,visibleMs,stoppedAt,geometryStartedAt,append,observerSpawnAt;
 process.stdout.write=value=>{const text=String(value);if(/\\x1b\\[\\d+;1H/.test(text)){firstPaintMs??=performance.now()-started;frames.push(text);screens.push({text:screen(text),geometryPending:geometryStartedAt!==undefined});if(text.includes('NEW-BACKGROUND-MODEL'))visibleMs=performance.now()-started;}return true;};
 if(mode!=='pending')append=setTimeout(()=>fs.appendFileSync(transcript,JSON.stringify({type:'turn_context',payload:{model:'NEW-BACKGROUND-MODEL'}})+'\\n'),120);
-const stop=setTimeout(()=>{stoppedAt=performance.now();updateLaunch(file,v=>v.hudStop=true);},650);
+let stop;if(mode!=='pending')stop=setTimeout(()=>{stoppedAt=performance.now();updateLaunch(file,v=>v.hudStop=true);},650);
 try{await main(['watch','--launch',file,'--no-color']);}finally{clearTimeout(append);clearTimeout(stop);}
-fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({frames,screens,firstPaintMs,visibleMs,observerSpawnAt,stopLatency:performance.now()-stoppedAt,resizes,descriptor:readLaunch(file)}));
+fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({frames,screens,firstPaintMs,visibleMs,observerSpawnAt,geometryStartedMs:geometryStartedAt===undefined?undefined:geometryStartedAt-started,stopLatency:performance.now()-stoppedAt,resizes,descriptor:readLaunch(file)}));
 `);
  const env={...process.env};delete env.MZ_HUD_ORIGIN;delete env.MZ_HUD_CONFIG_FILE;
  const child=spawnSync(process.execPath,[script],{encoding:'utf8',timeout:10000,env});assert.equal(child.status,0,child.stderr);
@@ -69,5 +69,5 @@ for(const mode of ['identity','geometry'])test('a stalled '+mode+' check cannot 
 
 test('a pending height assessment does not flash a pager before growth capacity is known',t=>{
  const r=probe(t,'pending'),pending=r.screens.filter(s=>s.geometryPending&&s.text.includes('NEW-BACKGROUND-MODEL'));
- assert.ok(pending.length>0,JSON.stringify(r));assert.ok(pending.every(s=>!s.text.includes('←/→ page')),JSON.stringify(pending));assert.deepEqual(r.resizes,[]);
+ assert.ok(pending.length>0,JSON.stringify(r));assert.ok(r.visibleMs-r.geometryStartedMs<800,JSON.stringify(r));assert.ok(pending.every(s=>!s.text.includes('←/→ page')),JSON.stringify(pending));assert.deepEqual(r.resizes,[]);
 });

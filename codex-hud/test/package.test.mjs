@@ -13,6 +13,16 @@ test('marketplace package runs offline without node_modules or a build step',t=>
 test('CLI help exposes commands on separate readable lines',()=>{
  const result=spawnSync(process.execPath,['bin/hud.mjs','help'],{cwd:root,encoding:'utf8'});assert.equal(result.status,0);assert.match(result.stdout,/\n  start /);assert.match(result.stdout,/\n  configure\n/);
 });
+
+test('packaged native observer runs offline from a Unicode path without native source',{skip:process.platform!=='win32'},t=>{
+ const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'hud-native-package-'));t.after(()=>fs.rmSync(tmp,{recursive:true,force:true,maxRetries:5,retryDelay:50}));
+ const installed=path.join(tmp,'观察器 space','codex-hud');copyPackagedRuntime(root,installed);
+ for(const absent of ['src','native','node_modules'])assert.equal(fs.existsSync(path.join(installed,absent)),false,absent);
+ const url=file=>'file:///'+path.join(installed,'dist',file).replaceAll('\\','/');
+ const script=`import {ProcessMonitor} from ${JSON.stringify(url('process-monitor.js'))};import {readProcessIdentities} from ${JSON.stringify(url('psmux.js'))};const self=readProcessIdentities([process.pid]).find(p=>p.pid===process.pid);const monitor=new ProcessMonitor({owner:self,server:self},self,()=>{});try{monitor.reconcile();const expires=Date.now()+6000;while(monitor.status!=='verified'&&Date.now()<expires)await new Promise(r=>setTimeout(r,10));if(monitor.status!=='verified')throw Error('Packaged native observer did not verify');const facts=await monitor.facts([process.pid]);if(facts.length!==1||facts[0].pid!==process.pid||facts[0].name.toLowerCase()!=='node.exe')throw Error('Packaged native facts are invalid');console.log('native-observer-ok');}finally{monitor.close();}`;
+ const result=spawnSync(process.execPath,['--input-type=module','-e',script],{cwd:installed,env:cleanEnvironment(tmp),encoding:'utf8',timeout:15000});
+ assert.equal(result.status,0,result.stderr);assert.equal(result.stdout.trim(),'native-observer-ok');
+});
 test('packaged ASCII profile loader runs from a Unicode path without node_modules',{skip:process.platform!=='win32'},t=>{
  const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'hud-packed-loader-'));t.after(()=>fs.rmSync(tmp,{recursive:true,force:true,maxRetries:5,retryDelay:50}));const installed=path.join(tmp,'插件 space','codex-hud');
  copyPackagedRuntime(root,installed);

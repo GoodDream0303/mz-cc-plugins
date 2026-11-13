@@ -1,7 +1,7 @@
 import fs from 'node:fs';import path from 'node:path';
 export function copyPackagedRuntime(source,target){
  const base=path.toNamespacedPath(path.resolve(source));
- fs.cpSync(source,target,{recursive:true,filter:file=>!['node_modules','src','test','scripts'].includes(path.relative(base,path.toNamespacedPath(file)).split(path.sep)[0])});
+ fs.cpSync(source,target,{recursive:true,filter:file=>!['node_modules','src','native','test','scripts'].includes(path.relative(base,path.toNamespacedPath(file)).split(path.sep)[0])});
 }
 export function cleanEnvironment(root,overrides={}){
  const env={};for(const key of ['SystemRoot','SYSTEMROOT','SystemDrive','WINDIR','ComSpec','COMSPEC','PATHEXT','OS','PROCESSOR_ARCHITECTURE','NUMBER_OF_PROCESSORS'])if(process.env[key]!==undefined)env[key]=process.env[key];

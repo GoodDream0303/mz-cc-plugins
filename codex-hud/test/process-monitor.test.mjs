@@ -25,6 +25,7 @@ test('native monitoring keeps real process incarnations independent and recovers
  t.after(async()=>{
   for(const monitor of monitors)monitor.close();
   for(const child of children)if(child.exitCode===null&&child.signalCode===null)child.kill();
+  await until(()=>children.every(p=>p.exitCode!==null||p.signalCode!==null),'synthetic process remained before executable cleanup');
   cp.spawn=originalSpawn;syncBuiltinESMExports();
   await until(()=>observers.every(p=>p.exitCode!==null||p.signalCode!==null),'native observer leaked after close');
   fs.rmSync(legacyRoot,{recursive:true,force:true,maxRetries:5,retryDelay:50});
