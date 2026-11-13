@@ -2,6 +2,24 @@
 
 Native Codex statusline is unchanged. Model, effort, project and session-name fields default off. Exact-host automatic opening requires the one-time PowerShell entry and a configured portable psmux backend. The source bootstrap opens a waiting HUD; native SessionStart binds main-conversation data. Existing intentional false startup settings are preserved.
 
+The unreleased process-observation update ships a checksum-verified win32-x64 C
+helper alongside the existing native backend. It needs Windows system libraries,
+not .NET, a compiler, an installed service or a PowerShell daemon. Each viewer owns
+its observer; exact process handles detect source exit and fresh native snapshots
+serve actual resize checks. Initial full ancestry/source proof still uses the
+existing host path. Native and older WMI birth times compare at microsecond
+precision; existing configuration and registration formats are retained.
+
+Native observation failure keeps the HUD and telemetry visible, suspends automatic
+height changes and retries after five seconds. It does not fall back to recurring
+PowerShell/WMI queries. A confirmed source exit still closes only its own display.
+Git, identity and physical-height work are scheduled independently of telemetry
+painting; file notifications retain their integrity reconciliation. Fixed sizing,
+manual resizing, q and Ctrl+C behavior remain supported. During a verified source's
+pending height assessment/growth, paging is deferred until actual capacity is known;
+confirmed caps and query failures restore the pager. Fresh complete physical scope
+and process facts remain mandatory before any automatic resize.
+
 | Key | Default | Availability |
 |---|---|---|
 | language | "en" | Supported |

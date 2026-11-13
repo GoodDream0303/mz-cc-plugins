@@ -1,5 +1,121 @@
 # Validation: exact per-source HUD
 
+## Unreleased: native observation and independent display work — 2026-11-13
+
+Native Windows, Node 24.15.0. Local development only: no release, installed-cache
+change, official Codex launch/model request or migration of other live hosts.
+Final frozen behavior/tests at `4367037`: **408/408** full serial checks passed,
+zero failures, cancellations or skips (254011.1968 ms). The post-review real
+psmux/ConPTY fixture then passed **16 checks**, including source exit and isolation.
+Evidence: `verified-full-suite.log`, `verified-native-smoke.log`.
+The first full serial suite was **402/403**, with one rebind-display failure and
+zero cancellations/skips (256797.0713 ms). Investigation reproduced an interrupted
+reader update that consumed the new model without publishing its derived snapshot.
+Retry now requeues inputs. A timing trace also caught observer launch preceding
+the first paint; launch now follows publication of the current binding's telemetry.
+The request limits remain. The affected refresh,
+background, lifecycle and recovery group then passed **26/26**. The first run is
+not described as all green; its failures and fixes remain recorded.
+
+The fresh whole-change review found three Important issues: legacy App Server
+process scope, final source-exit messages lost when process exit precedes pipe
+drain, and late errors for cancelled requests retiring a healthy observer. It
+also identified unbounded replacement-artifact hashing, treated as a resource
+safety issue. All four had precise RED regressions before the fix pass and then
+passed. Observation becomes unknown while remaining stdout drains, rather than
+granting resize authority during shutdown; drain is bounded to six seconds.
+Existing legacy process proof is retained without creating/probing an App Server.
+
+The review-check group's sole remaining failure (41/42) was the rebind fixture's
+startup-relative timers: measured callback delay left only 118ms of its nominal
+330ms activity interval. The fixture now starts that same 330ms interval at the
+actual rebind and explicitly asserts render latency below 330ms, with its 10s outer
+guard unchanged. Lifecycle subsequently passed 8/8. This does not increase the
+six-second native request/startup bounds or weaken source/geometry assertions.
+
+The next full run was **406/408** (237614.1103 ms): one temporary executable
+cleanup hook ran before all child exits, and the pending-assessment fixture's
+startup-relative stop fired before its query began. Cleanup now waits for owned
+child exit events. The same 650ms pending-query observation window starts when
+that query actually begins, with an update-latency assertion and unchanged 10s
+outer guard. The affected observer/background group then passed **18/18**.
+Both original partial-run logs remain. Final frozen-code verification at
+`4367037` passed **408/408**, zero failures, cancellations or skips
+(254011.1968 ms), with `npm test -- --test-concurrency=1` on native Windows /
+Node 24.15.0. Evidence: `verified-full-suite.log`. No later behavior change is
+included in that result. The post-review native revalidation also passed all
+16 checks: `%TEMP%/hud-production-host-ZoQS3e/summary.json` and
+`verified-native-smoke.log`.
+
+The recurring source check now uses a private native C observer with exact
+process handles and requested Toolhelp/query-handle snapshots. Git and height
+checks no longer hold telemetry painting. Initial full ancestry/source proof,
+actual resize authorization, fixed/manual sizing and safe unknown-state behavior
+remain. The 63,488-byte win32-x64 binary and its source/compiler hashes are pinned.
+It has no PowerShell/WMI or managed-runtime requirement for recurring observation.
+
+Focused behavior checks passed 32/32 before the pager refinement, followed by
+17/17 viewer/background/height checks including that refinement. The separate
+native-boundary/recovery/lifecycle/offline-package group passed 26/26. These are
+overlapping scopes, not additive test totals. New regressions were observed RED
+before fixes: microsecond births, background work, first paint during slow Git,
+telemetry during stalled identity/geometry, physical rows despite cached Node
+dimensions, native pipe error containment and a pending-assessment pager flash.
+
+The real pinned psmux/ConPTY fixture passed **16 checks**, including independent
+sources, same-thread separate viewers, close/reopen, in-place ASCII/CJK rows,
+3/6/3 fitting, pending/capped pager behavior, narrow 60-column to restored
+120-column recovery, fixed sizing, live tools/agents/tasks, Ctrl+C/q and source
+exit. It uses renamed Node fixtures and synthetic metadata, not official Codex or
+visual/long-term acceptance. The first native run caught a pager flash because
+painting could precede capacity assessment; the focused screen regression also
+failed before the pending-assessment fix. No debounce, timeout or assertion was
+relaxed to make the native fixture pass. Actual rows were checked through psmux
+physical pane top/bottom/height, not Node's cached `getWindowSize`.
+
+The shipped helper's read-only four-source measurement recorded:
+
+| Measurement | Actual result and scope |
+|---|---|
+| Four observers' private committed memory | 31.043 MiB total; not net resident RAM |
+| Idle CPU | 15.625 ms summed over 20.001 s; helper processes only |
+| Requested facts | 12 samples, 18.537 ms median / 22.506 ms P95 round trip, two requested PIDs per sample |
+| Requested-fact CPU | 15.625 ms median / 31.25 ms maximum, subject to Windows counter granularity |
+| Synthetic normal/forced exits | 20/20, 5.287 ms median / 7.865 ms P95 exit-to-reader delivery |
+| Startup | Four samples, 203.533 ms median / 286.573 ms maximum, observed caller timing |
+| Cleanup | Zero experiment children remaining |
+
+Exit-to-reader timing includes OS signaling, native pipe output and Python reader
+scheduling, not HUD painting. Earlier PowerShell/.NET measurements were separate
+runs under varying load; they do not establish a same-time speedup or total HUD
+CPU reduction. Node 20, fresh-machine and long-term installed/visual acceptance
+are not claimed by these measurements. The old initialization-exit cause remains
+separate; the shelved exit/resume-prompt question is unchanged.
+
+Evidence: repository-root `.superpowers/sdd/2026-11-13-hud-process-events/`:
+`birth-red.log`, `birth-green.log`, `monitor-red.log`, `monitor-green.log`,
+`jobs-red.log`, `jobs-birth-green.log`, `viewer-git-red.log`, `git-green.log`,
+`viewer-background-red.log`, `physical-rows-red.log`, `integration-green.log`,
+`pipe-red.log`, `recovery-package-green.log`, `package-native-red.log`,
+`pager-red.log`, `pager-green.log`, `native-smoke.log`, `native-smoke-pager.log`,
+`native-cost.json` and `progress.md`. Native fixture metadata:
+`%TEMP%/hud-production-host-9tHOkC/summary.json`; only synthetic capture text was
+used. No real transcript body or image was exported.
+Additional evidence: `full-suite.log`, `interrupted-red.log`,
+`interrupted-green.log` (25/26 before the publication-order correction),
+`rebind-timing.log`, `rebind-publication-green.log`, `publication-green.log`
+and `native-artifact.json` (x86_64 PE, no CLR header, only Windows CRT/kernel imports).
+Review evidence: `review-findings.md`, `review-red.log`, `review-green.log`,
+`lifecycle-final-green.log`; the original partial runs remain recorded. Node 20
+execution is still unverified: the official metadata download failed Windows
+certificate revocation checking; no TLS/revocation checks were disabled.
+Fixture corrections and their final affected checks are in
+`fixture-final-green.log` (18/18); `verified-full-suite.log` records the complete
+subsequent 408/408 run rather than an inferred sum of partial results.
+The fresh review's three Important findings and resource-bound finding were all
+fixed with precise RED-to-GREEN coverage; no unresolved review finding remains.
+No second review or unchanged full-suite repetition was used as an acceptance gate.
+
 ## Unreleased: oversized image tool results — 2026-11-12
 
 Final `npm test -- --test-concurrency=1` on native Windows / Node 24.15.0
