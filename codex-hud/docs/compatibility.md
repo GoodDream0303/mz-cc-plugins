@@ -2,7 +2,7 @@
 
 Native Codex statusline is unchanged. Model, effort, project and session-name fields default off. Exact-host automatic opening requires the one-time PowerShell entry and a configured portable psmux backend. The source bootstrap opens a waiting HUD; native SessionStart binds main-conversation data. Existing intentional false startup settings are preserved.
 
-The unreleased process-observation update ships a checksum-verified win32-x64 C
+The 0.8.0 process-observation update ships a checksum-verified win32-x64 C
 helper alongside the existing native backend. It needs Windows system libraries,
 not .NET, a compiler, an installed service or a PowerShell daemon. Each viewer owns
 its observer; exact process handles detect source exit and fresh native snapshots

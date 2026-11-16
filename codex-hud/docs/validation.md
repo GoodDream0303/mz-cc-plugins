@@ -1,6 +1,6 @@
 # Validation: exact per-source HUD
 
-## Unreleased: native observation and independent display work — 2026-11-13
+## 0.8.0: native observation and independent display work — 2026-11-13
 
 Native Windows, Node 24.15.0. Local development only: no release, installed-cache
 change, official Codex launch/model request or migration of other live hosts.

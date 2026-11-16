@@ -5,6 +5,22 @@ WT tabs or separate PowerShell windows. The official CLI and native statusline
 remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
 task names retain their original language.
 
+## Version 0.8.0: responsive process observation
+
+Source liveness uses exact Windows process handles instead of recurring
+PowerShell/WMI queries. Telemetry remains responsive while identity, Git or height
+checks are pending. Initial source proof and fresh full scope before resizing are
+preserved, including existing legacy source registrations; q and Ctrl+C retain
+their behavior. Pending height assessment no longer flashes the pager, and native
+narrow-to-wide height recovery is covered.
+
+The final source suite passed 408/408; the real psmux/ConPTY fixture passed 16 checks
+with synthetic CLI/data. Four shipped native observers measured about 31 MiB
+private committed memory; requested facts returned in 18.5 ms median. These are
+helper-only short measurements, not whole-HUD CPU or visual/long-term acceptance.
+Node 20 execution and fresh-machine acceptance remain unverified. See
+[validation](docs/validation.md) for scope and retained failure evidence.
+
 ## Version 0.7.17: large image tool results
 
 Large inline image results retain tool completion and executor metadata without
