@@ -12,8 +12,10 @@ function directoryStamp(directory:string):string|undefined {
 /** Owns only wakeups and filesystem hints. Readers still validate their inputs. */
 export class RefreshEvents {
  private pending=new Map<string,number>();private directories=new Map<string,Directory>();
+ private discoveryFiles=new Set<string>();
  private wake?:()=>void;private closed=false;
  constructor(private readonly factory:WatchFactory=(dir,options,listener)=>fs.watch(dir,options,listener),private readonly requested?:(reason:string)=>boolean|void){}
+ takeDiscoveryFiles():string[]{const files=[...this.discoveryFiles];this.discoveryFiles.clear();return files;}
  request(reason:string,delayMs=0):void {
   if(this.closed||this.requested?.(reason)===false)return;
   const at=Date.now()+delayMs;this.pending.set(reason,Math.min(this.pending.get(reason)??Infinity,at));this.wake?.();
@@ -45,7 +47,14 @@ export class RefreshEvents {
   try{
    const stamp=directoryStamp(entry.path);
    const handle=this.factory(entry.path,{recursive:entry.recursive},(_event,name)=>{
-    for(const target of entry.targets)if(name===null||target.file===undefined||String(name).toLowerCase()===target.file.toLowerCase())this.request(target.reason,25);
+    if(this.closed||entry.handle!==handle)return;
+    for(const target of entry.targets)if(name===null||target.file===undefined||String(name).toLowerCase()===target.file.toLowerCase()){
+     if(target.reason==='discovery'&&entry.recursive&&name!==null&&this.discoveryFiles.size<256){
+      const file=path.resolve(entry.path,String(name)),relative=path.relative(entry.path,file);
+      if(file.endsWith('.jsonl')&&relative&&!path.isAbsolute(relative)&&relative!=='..'&&!relative.startsWith('..'+path.sep))this.discoveryFiles.add(file);
+     }
+     this.request(target.reason,25);
+    }
    });entry.handle=handle;entry.stamp=stamp;
    const lost=()=>{if(entry.handle!==handle)return;entry.handle=undefined;handle.close();invalidate();};
    handle.on('error',lost);handle.on('close',lost);
@@ -63,6 +72,6 @@ export class RefreshEvents {
  close():void {
   if(this.closed)return;this.closed=true;
   for(const entry of this.directories.values()){const handle=entry.handle;entry.handle=undefined;handle?.close();}
-  this.directories.clear();this.pending.clear();this.wake?.();
+  this.directories.clear();this.discoveryFiles.clear();this.pending.clear();this.wake?.();
  }
 }

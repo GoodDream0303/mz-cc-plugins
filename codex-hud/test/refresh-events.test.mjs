@@ -47,3 +47,24 @@ test('replacing an attached directory retires the old handle and subscribes to t
  assert.equal(handles.length,2);assert.equal(handles[0].h.closed,true);await events.wait(Date.now()+40);
  handles[1].listener('change','config.json');assert.equal((await events.wait(Date.now()+1000)).has('config'),true);
 });
+
+test('discovery paths are bounded, deduplicated and drained without inventing paths for nameless hints',async()=>{
+ const root=path.resolve('discovery-root');let listener;const events=create((_directory,_options,callback)=>{listener=callback;const handle=new EventEmitter();handle.close=()=>{};return handle;});
+ try{
+  events.watch(root,'discovery',true);assert.equal(typeof events.takeDiscoveryFiles,'function','bounded discovery paths are missing');
+  for(const name of ['one.jsonl','one.jsonl','..valid.jsonl','../escape.jsonl','ignored.txt'])listener('change',name);
+  assert.deepEqual(events.takeDiscoveryFiles(),[path.join(root,'one.jsonl'),path.join(root,'..valid.jsonl')]);assert.deepEqual(events.takeDiscoveryFiles(),[]);
+  listener('rename',null);assert.deepEqual(events.takeDiscoveryFiles(),[]);assert.equal((await events.wait(Date.now()+1000)).has('discovery'),true);
+  for(let i=0;i<300;i++)listener('change','file-'+i+'.jsonl');assert.equal(events.takeDiscoveryFiles().length,256);
+  listener('change',Buffer.from('later.jsonl'));assert.deepEqual(events.takeDiscoveryFiles(),[path.join(root,'later.jsonl')]);
+  listener('change','pending.jsonl');events.close();assert.deepEqual(events.takeDiscoveryFiles(),[]);
+ }finally{events.close();}
+});
+
+test('retired discovery watch callbacks cannot enqueue paths into a replacement subscription',()=>{
+ const handles=[],root=path.resolve('discovery-retired');const events=create((_directory,_options,listener)=>{const handle=new EventEmitter();handle.close=()=>{};handles.push({handle,listener});return handle;});
+ try{
+  events.watch(root,'discovery',true);assert.equal(typeof events.takeDiscoveryFiles,'function');handles[0].handle.emit('error',Error('lost'));events.reconcile();assert.equal(handles.length,2);
+  handles[0].listener('change','retired.jsonl');handles[1].listener('change','current.jsonl');assert.deepEqual(events.takeDiscoveryFiles(),[path.join(root,'current.jsonl')]);
+ }finally{events.close();}
+});

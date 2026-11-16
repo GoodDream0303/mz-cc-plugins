@@ -15,12 +15,14 @@ export class RefreshEvents {
     requested;
     pending = new Map();
     directories = new Map();
+    discoveryFiles = new Set();
     wake;
     closed = false;
     constructor(factory = (dir, options, listener) => fs.watch(dir, options, listener), requested) {
         this.factory = factory;
         this.requested = requested;
     }
+    takeDiscoveryFiles() { const files = [...this.discoveryFiles]; this.discoveryFiles.clear(); return files; }
     request(reason, delayMs = 0) {
         if (this.closed || this.requested?.(reason) === false)
             return;
@@ -74,9 +76,17 @@ export class RefreshEvents {
         try {
             const stamp = directoryStamp(entry.path);
             const handle = this.factory(entry.path, { recursive: entry.recursive }, (_event, name) => {
+                if (this.closed || entry.handle !== handle)
+                    return;
                 for (const target of entry.targets)
-                    if (name === null || target.file === undefined || String(name).toLowerCase() === target.file.toLowerCase())
+                    if (name === null || target.file === undefined || String(name).toLowerCase() === target.file.toLowerCase()) {
+                        if (target.reason === 'discovery' && entry.recursive && name !== null && this.discoveryFiles.size < 256) {
+                            const file = path.resolve(entry.path, String(name)), relative = path.relative(entry.path, file);
+                            if (file.endsWith('.jsonl') && relative && !path.isAbsolute(relative) && relative !== '..' && !relative.startsWith('..' + path.sep))
+                                this.discoveryFiles.add(file);
+                        }
                         this.request(target.reason, 25);
+                    }
             });
             entry.handle = handle;
             entry.stamp = stamp;
@@ -111,6 +121,7 @@ export class RefreshEvents {
             handle?.close();
         }
         this.directories.clear();
+        this.discoveryFiles.clear();
         this.pending.clear();
         this.wake?.();
     }

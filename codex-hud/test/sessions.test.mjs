@@ -5,6 +5,8 @@ import promises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {listSessions,findSession} from '../dist/sessions.js';
+const hintApi=await import('../dist/sessions.js');
+function hinted(...args){assert.equal(typeof hintApi.readSessionHints,'function','bounded discovery hints are missing');return hintApi.readSessionHints(...args);}
 
 function fixture(t){const root=fs.mkdtempSync(path.join(os.tmpdir(),'hud-session-head-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));return root;}
 const metadata=payload=>JSON.stringify({type:'session_meta',payload})+'\n';
@@ -52,4 +54,39 @@ test('each discovery sees delayed files and same-size same-time metadata replace
  assert.deepEqual((await listSessions(root)).map(s=>s.id),['first-id']);
  fs.writeFileSync(file,metadata({id:'other-id'}));fs.utimesSync(file,time,time);fs.writeFileSync(path.join(root,'not-the-id.jsonl'),metadata({id:'delayed-id',source:{subagent:{thread_spawn:{parent_thread_id:'other-id'}}}}));
  const sessions=await listSessions(root);assert.deepEqual(sessions.map(s=>s.id).sort(),['delayed-id','other-id']);assert.equal(sessions.find(s=>s.id==='delayed-id').parentId,'other-id');
+});
+
+test('hinted discovery opens only distinct hinted metadata heads and revalidates replacements',async t=>{
+ const root=fixture(t),file=path.join(root,'..valid.jsonl');
+ for(let i=0;i<20;i++)fs.writeFileSync(path.join(root,'unrelated-'+i+'.jsonl'),metadata({id:'unrelated-'+i}));
+ const payload={id:'child-one',cwd:'C:/项目',source:{subagent:{thread_spawn:{parent_thread_id:'parent-one'}}}};
+ fs.writeFileSync(file,metadata(payload)+'x'.repeat(512*1024));const open=promises.open;let reads=0,bytes=0;
+ t.mock.method(promises,'open',async(...args)=>{reads++;const handle=await open(...args),read=handle.read.bind(handle);handle.read=async(...values)=>{const result=await read(...values);bytes+=result.bytesRead;return result;};return handle;});
+ const sessions=await hinted(root,[file,file]);assert.equal(sessions.length,1);assert.equal(sessions[0].id,'child-one');assert.equal(sessions[0].parentId,'parent-one');assert.equal(sessions[0].cwd,'C:/项目');assert.equal(reads,1);assert.ok(bytes<=4096);
+ const time=new Date('2026-11-10T00:00:00Z');fs.writeFileSync(file,metadata({...payload,id:'first-id'}));fs.utimesSync(file,time,time);assert.equal((await hinted(root,[file]))[0].id,'first-id');
+ fs.writeFileSync(file,metadata({...payload,id:'other-id'}));fs.utimesSync(file,time,time);assert.equal((await hinted(root,[file]))[0].id,'other-id');
+});
+
+test('hinted discovery rejects lexical escapes, parent junction escapes and symbolic files before opening',async t=>{
+ const root=fixture(t),inside=path.join(root,'inside'),outside=path.join(root,'outside');fs.mkdirSync(inside);fs.mkdirSync(outside);
+ const foreign=path.join(outside,'foreign.jsonl'),local=path.join(inside,'local.jsonl');fs.writeFileSync(foreign,metadata({id:'foreign'}));fs.writeFileSync(local,metadata({id:'local'}));
+ fs.symlinkSync(outside,path.join(inside,'alias'),'junction');const lstat=promises.lstat,open=promises.open;let opened=0;
+ t.mock.method(promises,'lstat',async(...args)=>{const stat=await lstat(...args);if(path.resolve(args[0])===local)stat.isSymbolicLink=()=>true;return stat;});
+ t.mock.method(promises,'open',async(...args)=>{opened++;return open(...args);});
+ assert.deepEqual(await hinted(inside,[foreign,path.join(inside,'alias','foreign.jsonl'),local,path.join(inside,'missing.jsonl')]),[]);assert.equal(opened,0);
+});
+
+test('hinted metadata uses the existing UTF-8, partial-record and record-size rules',async t=>{
+ const root=fixture(t),file=path.join(root,'arbitrary.jsonl'),bad=path.join(root,'bad.jsonl'),large=path.join(root,'large.jsonl');
+ fs.writeFileSync(file,metadata({padding:'界'.repeat(4000),id:'utf8-child',source:{subagent:{thread_spawn:{parent_thread_id:'parent-one'}}}}));
+ fs.writeFileSync(bad,'{"type":"session_meta","payload":{"id":"partial');fs.writeFileSync(large,metadata({id:'too-large',padding:'x'.repeat(256*1024)}));
+ assert.deepEqual((await hinted(root,[file,bad,large])).map(s=>s.id),['utf8-child']);
+ fs.writeFileSync(bad,metadata({id:'now-valid'}));assert.equal((await hinted(root,[bad]))[0].id,'now-valid');
+});
+
+test('hinted metadata bounds each batch to 256 files and eight open handles',async t=>{
+ const root=fixture(t),files=[];for(let i=0;i<270;i++){const file=path.join(root,i+'.jsonl');fs.writeFileSync(file,metadata({id:'hint-'+i}));files.push(file);}
+ const open=promises.open;let active=0,peak=0,closed=0;
+ t.mock.method(promises,'open',async(...args)=>{const handle=await open(...args),close=handle.close.bind(handle);active++;peak=Math.max(peak,active);handle.close=async()=>{try{return await close();}finally{active--;closed++;}};return handle;});
+ const sessions=await hinted(root,files);assert.equal(sessions.length,256);assert.equal(closed,256);assert.equal(active,0);assert.ok(peak>1&&peak<=8);assert.equal(sessions.some(s=>s.id==='hint-269'),false);
 });
