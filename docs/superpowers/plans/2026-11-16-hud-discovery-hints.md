@@ -1,6 +1,6 @@
 # Bounded Child Discovery Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Reduce unrelated directory-event scanning while retaining child binding and recovery behavior.
 
@@ -31,12 +31,12 @@
 
 **Interfaces:** Produce `takeDiscoveryFiles(): string[]` and `readSessionHints(root: string, files: readonly string[]): Promise<SessionInfo[]>` as specified above. No caller changes in this task.
 
-- [ ] Write regressions for draining/deduplication/256-path bounds, nameless events, paths beginning with two dots, retired callbacks, and close.
-- [ ] Write metadata tests for reading only hinted heads, eight-worker/256-path bounds, UTF-8, partial records, wrong-parent data, lexical/canonical escapes and symlinks where native privileges permit.
-- [ ] Run `node --test --test-concurrency=1 test/refresh-events.test.mjs test/sessions.test.mjs`; Expected: new behavior assertions fail on baseline.
-- [ ] Implement the two interfaces, sharing bounded first-record parsing with full discovery.
-- [ ] Run `npm run build`, then the same focused command; Expected: all pass.
-- [ ] Commit the Task 1 files and generated dist with related tests only; record evidence in the task ledger.
+- [x] Write regressions for draining/deduplication/256-path bounds, nameless events, paths beginning with two dots, retired callbacks, and close.
+- [x] Write metadata tests for reading only hinted heads, eight-worker/256-path bounds, UTF-8, partial records, wrong-parent data, lexical/canonical escapes and symlinks where native privileges permit.
+- [x] Run `node --test --test-concurrency=1 test/refresh-events.test.mjs test/sessions.test.mjs`; Expected: new behavior assertions fail on baseline.
+- [x] Implement the two interfaces, sharing bounded first-record parsing with full discovery.
+- [x] Run `npm run build`, then the same focused command; Expected: all pass.
+- [x] Commit the Task 1 files and generated dist with related tests only; record evidence in the task ledger.
 
 ## Task 2: Preserve binding uniqueness and integrate the viewer
 
@@ -44,19 +44,19 @@
 
 **Interfaces:** Consume Task 1 APIs through optional `refresh(..., {files?: readonly string[]})`. Hints narrow work, while `listSessions` still establishes uniqueness. Ambiguous retry gates are pruned to retained IDs and expire after 5000ms.
 
-- [ ] Write an unrelated-event regression counting metadata opens; verify it fails before implementation.
-- [ ] Cover early genuine child discovery, nonstandard names, partial writes, duplicate matching IDs and bounded ambiguous retries, wrong parents and five-second fallback with controlled clocks.
-- [ ] Add a viewer probe proving actual directory paths reach the tracker and new child completion paints before the ordinary fallback interval; retain cancellation/rebind checks.
-- [ ] Run focused agent/viewer regressions; Expected: new behavior assertions fail on baseline.
-- [ ] Implement hint filtering, fresh uniqueness confirmation and viewer plumbing without changing lifecycle or source checks.
-- [ ] Build and run focused discovery/reader/viewer checks; Expected: all pass.
-- [ ] Run `npm test -- --test-concurrency=1`; Expected: all tests pass, no skips/cancellations.
-- [ ] Run the existing `scripts/smoke-host.mjs` with the pinned backend and dynamic-height/row-paint/task-line/copy-safety options; Expected: native synthetic checks pass with clean owned-process teardown.
-- [ ] Measure the final build with four isolated sources against 0.8.0; preserve actual CPU, memory, scan and latency scope without repeating the entire unchanged prototype experiment.
-- [ ] Update validation with actual results and limits, commit only this task's changes, and complete the ledger.
+- [x] Write an unrelated-event regression counting metadata opens; verify it fails before implementation.
+- [x] Cover early genuine child discovery, nonstandard names, partial writes, duplicate matching IDs and bounded ambiguous retries, wrong parents and five-second fallback with controlled clocks.
+- [x] Add a viewer probe proving actual directory paths reach the tracker and new child completion paints before the ordinary fallback interval; retain cancellation/rebind checks.
+- [x] Run focused agent/viewer regressions; Expected: new behavior assertions fail on baseline.
+- [x] Implement hint filtering, fresh uniqueness confirmation and viewer plumbing without changing lifecycle or source checks.
+- [x] Build and run focused discovery/reader/viewer checks; Expected: all pass.
+- [x] Run `npm test -- --test-concurrency=1`; Expected: all tests pass, no skips/cancellations.
+- [x] Run the existing `scripts/smoke-host.mjs` with the pinned backend and dynamic-height/row-paint/task-line/copy-safety options; Expected: native synthetic checks pass with clean owned-process teardown.
+- [x] Measure the final build with four isolated sources against 0.8.0; preserve actual CPU, memory, scan and latency scope without repeating the entire unchanged prototype experiment.
+- [x] Update validation with actual results and limits, commit only this task's changes, and complete the ledger.
 
 ## Final review and delivery
 
-- [ ] Request one independent whole-change review covering the five Review Focus cases.
-- [ ] Resolve any Critical/Important finding with a precise RED-to-GREEN regression and rerun affected checks/full suite as required.
-- [ ] Leave all evidence in place, verify clean task-specific Git state and no owned experimental processes, and report local commits plus deployment/acceptance limits.
+- [x] Request one independent whole-change review covering the five Review Focus cases.
+- [x] Resolve any Critical/Important finding with a precise RED-to-GREEN regression and rerun affected checks/full suite as required.
+- [x] Leave all evidence in place, verify clean task-specific Git state and no owned experimental processes, and report local commits plus deployment/acceptance limits.

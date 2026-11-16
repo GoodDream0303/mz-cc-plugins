@@ -1,5 +1,64 @@
 # Validation: exact per-source HUD
 
+## Unreleased: bounded child discovery hints — 2026-11-16
+
+The production implementation uses changed-file metadata to reject unrelated
+directory changes cheaply. A matching child hint still requires a fresh full
+scan and an exact, unique child-ID/parent-ID match before binding. Known
+ambiguous IDs are rate limited; retained-agent pruning removes their retry state.
+The original five-second full fallback, 25ms event merge, 256 KiB metadata-head
+limit and eight-worker reader limit remain. File hints are bounded to 256 paths
+and never act as source or resize authority.
+
+The final review found that ID-only viewers still repeated parent discovery on
+every directory hint. The regression observed 20 lookups where one was required.
+The corrected guard preserves initial/missing-parent lookup and the periodic
+parent relocation check while suppressing already-bound noisy lookups.
+
+Native Windows / Node 24.15.0 validation:
+
+| Check | Result and scope |
+|---|---|
+| New bounded metadata/watch APIs | Six expected baseline failures, then 19/19 focused checks passed |
+| Agent/viewer/discovery group | Six behavior regressions observed RED, then 71/71 passed |
+| Independent review correction | ID-only noisy-parent and moved-parent regressions RED, then 2/2 GREEN |
+| Final full serial suite | 424/424, zero failures/skips/cancellations; 152271.6318ms; `npm test -- --test-concurrency=1` |
+| Existing native production fixture | 16/16 real psmux/ConPTY checks with synthetic sources; includes rebind, close/reopen, row painting, dynamic narrow-to-wide fitting, tools/agents/tasks and Ctrl+C/q |
+
+The 16 native checks ran before the final ID-only guard correction; their pinned
+transcript path is unchanged and that evidence is reused only for that scope.
+The corrected ID-only route is covered by its new regressions and the separate
+final-source native four-source comparison. This is local development: the
+installed 0.8.0 package, real configuration and live user viewers are untouched.
+No official Codex/model session was started. Node 20, real visual/long-term use
+and broad ordinary-idle savings are not newly validated.
+
+Final-source four-instance comparison used the same 225 metadata files and a
+roughly 10Hz unrelated append stream, with unresolved child IDs. Each value is
+one 20-second sample of the four viewer processes normalized to this machine's
+18 logical processors; these are synthetic pressure cases, not idle savings.
+
+| Entry path | Installed 0.8.0 viewer CPU | Final source viewer CPU | Private commit peak, old → final |
+|---|---:|---:|---:|
+| pinned | 28.09% | 2.56% | 428.1 → 300.2 MiB |
+| id-only | 46.95% | 3.49% | 470.7 → 315.4 MiB |
+
+The candidate's active dist files were SHA-checked against the final build.
+Quiet controls and raw results are retained in `final-verification.json`; no
+broad quiet-case reduction is asserted. The first ID-only inventory rejected
+a three-viewer snapshot before measurement. All viewer exit records were normal;
+the supplemental run clears psutil's process cache and retains the same fresh
+birth/four-viewer assertions. The rejected attempt is excluded. All owned hosts
+and measurement processes have exited; real configuration and installed module
+hashes remain unchanged.
+
+Evidence: repository-root
+`.superpowers/sdd/2026-11-16-hud-discovery-hints/`, including `progress.md`,
+`task-1-red.log`, `task-1-green.log`, `task-2-red.log`, `task-2-green.log`,
+`review-findings.md`, `review-id-only-red.log`, `review-id-only-green.log`,
+`review-fixed-full-suite.log` and `final-native-smoke.log`. An initial generated
+probe newline error is preserved separately and is not counted as a product RED.
+
 ## 0.8.0: native observation and independent display work — 2026-11-13
 
 Native Windows, Node 24.15.0. Local development only: no release, installed-cache
