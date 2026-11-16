@@ -1,6 +1,6 @@
 # Validation: exact per-source HUD
 
-## Unreleased: bounded child discovery hints — 2026-11-16
+## 0.8.1: bounded child discovery hints — 2026-11-16
 
 The production implementation uses changed-file metadata to reject unrelated
 directory changes cheaply. A matching child hint still requires a fresh full
@@ -28,8 +28,8 @@ Native Windows / Node 24.15.0 validation:
 The 16 native checks ran before the final ID-only guard correction; their pinned
 transcript path is unchanged and that evidence is reused only for that scope.
 The corrected ID-only route is covered by its new regressions and the separate
-final-source native four-source comparison. This is local development: the
-installed 0.8.0 package, real configuration and live user viewers are untouched.
+final-source native four-source comparison. These behavior checks preceded release: the
+installed 0.8.0 package, real configuration and live user viewers were untouched.
 No official Codex/model session was started. Node 20, real visual/long-term use
 and broad ordinary-idle savings are not newly validated.
 

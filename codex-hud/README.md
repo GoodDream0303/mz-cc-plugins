@@ -5,6 +5,19 @@ WT tabs or separate PowerShell windows. The official CLI and native statusline
 remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
 task names retain their original language.
 
+## Version 0.8.1: bounded child discovery
+
+Unrelated session-directory changes use bounded changed-file metadata hints
+instead of repeating a full discovery scan. New child bindings still require
+fresh full-scan uniqueness and exact parent matching; the five-second fallback
+and ordinary child updates remain. ID-only viewers also retain their parent
+lookup interval and moved-log recovery.
+
+The final Windows / Node 24 suite passed 424/424. Four-source synthetic pressure
+measurements reduced viewer CPU from 28.09% to 2.56% with pinned logs and from
+46.95% to 3.49% with ID-only bindings. These are workload-specific results, not
+ordinary-idle or visual/long-term acceptance. See [validation](docs/validation.md).
+
 ## Version 0.8.0: responsive process observation
 
 Source liveness uses exact Windows process handles instead of recurring
