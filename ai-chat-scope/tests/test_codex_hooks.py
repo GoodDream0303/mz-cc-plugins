@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import patch
 
 SRC = Path(__file__).resolve().parents[1]/'src'
 sys.path.insert(0, str(SRC))
@@ -40,6 +41,20 @@ class HookTests(unittest.TestCase):
                 self.assertEqual(hooks.hook_main(io.BytesIO(value), out, Path(raw)), 0)
                 self.assertEqual(json.loads(out.getvalue()), {})
             self.assertEqual(list(Path(raw).iterdir()), [])
+
+    def test_session_start_capture_failure_keeps_empty_response_and_basic_event(self):
+        hooks, _ = self.modules()
+        with tempfile.TemporaryDirectory(prefix='scope-hook-start-') as raw:
+            root = Path(raw)
+            output = io.StringIO()
+            payload = {'session_id':SID,'hook_event_name':'SessionStart','source':'clear',
+                       'transcript_path':str(root/'home'/'sessions'/('rollout-test-'+SID+'.jsonl'))}
+            self.assertTrue((SRC/'codex_lifecycle.py').exists(), 'Lifecycle capture is not implemented')
+            with patch('codex_lifecycle.capture_session_start',side_effect=PermissionError('fixture denied')):
+                self.assertEqual(hooks.hook_main(io.BytesIO(json.dumps(payload).encode()),output,root),0)
+            self.assertEqual(json.loads(output.getvalue()),{})
+            records = [json.loads(p.read_text()) for p in root.rglob('*.json')]
+            self.assertEqual([r['hook_event_name'] for r in records],['SessionStart'])
 
     def test_concurrent_publications_are_complete_and_distinct(self):
         _, paths = self.modules()

@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'src'))
 from runtime_paths import home_events_root,publish_event,consume_events
@@ -38,6 +39,21 @@ class RuntimeBoundaryTests(unittest.TestCase):
         with self.assertRaises((ValueError,OSError)):
             consume_events(requested,SID)
         self.assertTrue(path.exists())
+
+    def test_lifecycle_capture_and_read_refuse_ancestor_junction(self):
+        from codex_lifecycle import capture_session_start,current_session_ids
+        home = self.base/'home'
+        recording = home/'sessions'/('rollout-test-'+SID+'.jsonl')
+        recording.parent.mkdir(parents=True)
+        recording.write_bytes(b'owned fixture')
+        payload = {'session_id':SID,'hook_event_name':'SessionStart','source':'clear',
+                   'transcript_path':str(recording)}
+        with patch('codex_close.session_owner',return_value={'pid':123,'started':456}):
+            with self.assertRaises((ValueError,OSError)):
+                capture_session_start(self.app,home,payload)
+        with self.assertRaises((ValueError,OSError)):
+            current_session_ids(self.app,home,{SID:recording})
+        self.assertEqual(list(self.outside.iterdir()),[])
 
 
 if __name__=='__main__':unittest.main()

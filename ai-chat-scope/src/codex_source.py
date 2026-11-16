@@ -11,6 +11,7 @@ from jsonl_reader import JsonlReader
 from session_types import SessionSnapshot
 from win32_support import probe_writer_lock
 from codex_wait import AsyncAttention
+from codex_lifecycle import current_session_ids
 from runtime_paths import runtime_root, home_events_root, consume_events
 
 UUID_PATTERN = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
@@ -307,6 +308,15 @@ class CodexSource:
             snapshots.append(SessionSnapshot("codex", sid, cwd=cwd, title=title,
                 state=row_state, state_detail=detail, started_at=started,
                 freshness=freshness, capabilities=tuple(capabilities)))
+        recordings = {row.session_id:self._paths[row.session_id] for row in snapshots
+                      if row.freshness == 'fresh' and row.session_id not in self._uncertain}
+        try:
+            visible = current_session_ids(self._runtime_dir, self.home, recordings)
+            snapshots = [row for row in snapshots if row.state in ('run','attn')
+                         or row.session_id not in recordings
+                         or row.session_id in visible]
+        except (OSError, ValueError):
+            notes.add('Codex：辅助会话切换状态暂不可用')
         self.diagnostics = tuple(sorted(notes))
         return sorted(snapshots, key=lambda value: (value.started_at, value.session_id))
 

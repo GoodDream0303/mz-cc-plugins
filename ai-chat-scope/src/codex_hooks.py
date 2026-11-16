@@ -24,6 +24,9 @@ def hook_main(stdin, stdout, root):
         event["observed_ns"] = time.monotonic_ns()
         home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
         publish_event(home_events_root(root, home), event)
+        if payload['hook_event_name'] == 'SessionStart':
+            from codex_lifecycle import capture_session_start
+            capture_session_start(root, home, payload)
     except Exception:
         pass
     stdout.write("{}\n")

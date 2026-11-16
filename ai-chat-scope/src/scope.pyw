@@ -19,7 +19,8 @@ AI Chat Scope (tkinter 轻量版)
 交互会话起子进程 `scope.pyw --quit-session <pid>` 往其控制台注入 Ctrl+C 正常退出,未退出时再经用户确认
 `taskkill /F /PID <pid> /FI "IMAGENAME eq claude.exe"`。本程序(浮窗进程)仍不持有任何进程句柄。
 Codex 使用独立短命 helper 查询所选会话锁的唯一进程持有者,核对身份并经确认后结束该 CLI 进程;
-不归档或删除会话,不关闭共享 app-server。helper 之外不检查进程。
+不归档或删除会话,不关闭共享 app-server。经授权的 SessionStart 短命 hook 另核对本次 CLI 身份;
+浮窗监视仍只读文件,不持有其他进程句柄。
 设计为极低占用:after() 每秒轮询一次,无忙循环;数据无变化不重绘;无任何持续动画。
 """
 import os, re, sys, json, time, ctypes, shutil, subprocess, threading, argparse
@@ -199,8 +200,11 @@ class Scope:
             "SYNC：正在同步会话记录；STALE：状态暂未更新。\n\n"
             "Codex 的完整授权和同步问答提示需要连接已配置的本地实时服务。\n"
             "未配置时，仍可显示执行、待机及已识别的异步待输入状态。\n\n"
+            "已信任的会话启动 hook 可识别 /clear 切换；新聊天首轮消息后更新。\n"
+            "其他独立 CLI、仍执行和待输入的行继续显示。\n\n"
             "终端关闭后 Codex 进程可能仍然运行；写锁占用表示记录写入者仍在，不能证明终端仍开着。\n"
-            "可右键 Codex 行选择关闭会话，核对进程后由你确认结束该 CLI；会话记录保留。"
+            "可右键 Codex 行选择关闭会话，核对进程后由你确认结束该 CLI；会话记录保留。\n"
+            "同一 CLI 仍持有多个会话时取消关闭，避免影响其他聊天。"
         )
         if self.diagnostics:
             text += "\n\n当前提示：\n" + "\n".join(self.diagnostics)

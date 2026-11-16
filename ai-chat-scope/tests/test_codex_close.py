@@ -47,12 +47,14 @@ class System:
         self.exits = True
         self.release_on_exit = True
         self.on_open = None
+        self.other_owners = {}
+        self.other_locks = {}
 
     def owners(self, path):
-        return self.pids
+        return self.other_owners.get(path.stem, self.pids)
 
     def held(self, path):
-        return self.locked
+        return self.other_locks.get(path.stem, self.locked)
 
     def open(self, pid, terminate=False):
         if self.on_open:
@@ -81,6 +83,86 @@ class CodexCloseTests(unittest.TestCase):
         self.assertEqual(close_session(self.home, SID, {'pid':123, 'started':456}, self.system),
                          {'pid':123, 'started':456})
         self.assertTrue(self.system.terminated)
+
+    def other_session(self, owners, held=True):
+        sid = '22222222-2222-4222-8222-222222222222'
+        path = self.path.with_name(sid + '.lock')
+        path.write_bytes(b'other session')
+        self.system.other_owners[sid] = owners
+        self.system.other_locks[sid] = held
+        return path
+
+    def test_clear_retaining_both_locks_cannot_close_the_shared_cli(self):
+        from codex_close import close_session, inspect_session
+        other = self.other_session([123])
+        with self.assertRaisesRegex(ValueError, '其他会话'):
+            inspect_session(self.home, SID, self.system)
+        with self.assertRaisesRegex(ValueError, '其他会话'):
+            close_session(self.home, SID, {'pid':123, 'started':456}, self.system)
+        self.assertFalse(self.system.terminated)
+        self.assertEqual(self.path.read_bytes(), b'fixture')
+        self.assertEqual(other.read_bytes(), b'other session')
+
+    def test_read_only_session_owner_supports_retained_threads_without_termination(self):
+        import codex_close
+        self.other_session([123])
+        self.assertTrue(hasattr(codex_close, 'session_owner'), 'Read-only session owner is not implemented')
+        self.assertEqual(codex_close.session_owner(self.home,SID,self.system),{'pid':123,'started':456})
+        self.assertFalse(self.system.terminated)
+
+    def test_clear_after_confirmation_inspection_is_rechecked_before_close(self):
+        from codex_close import close_session, inspect_session
+        identity = inspect_session(self.home, SID, self.system)
+        self.other_session([123])
+        with self.assertRaisesRegex(ValueError, '其他会话'):
+            close_session(self.home, SID, identity, self.system)
+        self.assertFalse(self.system.terminated)
+
+    def test_other_session_lock_extension_is_case_insensitive_like_monitor(self):
+        from codex_close import close_session
+        other = self.other_session([123])
+        other.rename(other.with_suffix('.LOCK'))
+        with self.assertRaisesRegex(ValueError, '其他会话'):
+            close_session(self.home, SID, {'pid':123, 'started':456}, self.system)
+        self.assertFalse(self.system.terminated)
+
+    def test_new_session_created_during_other_lock_queries_cancels_close(self):
+        from codex_close import close_session, inspect_session
+        identity = inspect_session(self.home, SID, self.system)
+        other_cli = self.other_session([999])
+        owners = self.system.owners
+
+        def create_new_session_during_query(path):
+            if path == other_cli:
+                sid = '33333333-3333-4333-8333-333333333333'
+                path.with_name(sid + '.lock').write_bytes(b'new session')
+                self.system.other_owners[sid] = [123]
+                self.system.other_locks[sid] = True
+            return owners(path)
+
+        with patch.object(self.system, 'owners', side_effect=create_new_session_during_query):
+            with self.assertRaisesRegex(ValueError, '变化|其他会话'):
+                close_session(self.home, SID, identity, self.system)
+        self.assertFalse(self.system.terminated)
+
+    def test_other_cli_and_released_locks_do_not_block_selected_cli_close(self):
+        from codex_close import close_session
+        for owners, held in (([999], True), ([123], False)):
+            with self.subTest(owners=owners, held=held):
+                self.system = System()
+                self.other_session(owners, held)
+                close_session(self.home, SID, {'pid':123, 'started':456}, self.system)
+                self.assertTrue(self.system.terminated)
+
+    def test_unidentified_other_active_lock_cancels_without_termination(self):
+        from codex_close import close_session
+        for owners in ([], [0], [True]):
+            with self.subTest(owners=owners):
+                self.system = System()
+                self.other_session(owners)
+                with self.assertRaisesRegex(ValueError, '核对'):
+                    close_session(self.home, SID, {'pid':123, 'started':456}, self.system)
+                self.assertFalse(self.system.terminated)
 
     def test_ambiguous_or_changed_owners_never_terminate(self):
         from codex_close import close_session
@@ -196,6 +278,48 @@ class CodexCloseTests(unittest.TestCase):
                 self.system.exits, self.system.release_on_exit = exits, release
                 with self.assertRaises(OSError):
                     close_session(self.home, SID, {'pid':123, 'started':456}, self.system)
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows process and file lock primitives')
+    def test_real_two_thread_locks_protect_their_shared_process(self):
+        from codex_close import WindowsSessionControl, close_session, inspect_session
+        other = self.other_session([123])
+        program = ("import msvcrt,sys; files=[open(p,'r+b') for p in sys.argv[1:]]; "
+                   "[msvcrt.locking(f.fileno(),msvcrt.LK_LOCK,1) for f in files]; "
+                   "print('ready',flush=True); sys.stdin.readline(); files[1].close(); "
+                   "print('released',flush=True); sys.stdin.readline()")
+        child = subprocess.Popen([sys.executable, '-I', '-B', '-u', '-c', program,
+                                  str(self.path), str(other)], stdin=subprocess.PIPE,
+                                 stdout=subprocess.PIPE, text=True,
+                                 creationflags=subprocess.CREATE_NO_WINDOW)
+        try:
+            self.assertEqual(child.stdout.readline().strip(), 'ready')
+            system = WindowsSessionControl()
+            with system.open(child.pid) as process:
+                started = process.identity()['started']
+            identity = {'pid':child.pid, 'started':started}
+            # Only the CLI-image check is substituted: owners, locks, process
+            # handles and exit verification all use our real owned child.
+            with patch('codex_close._cli_identity', return_value=identity):
+                with self.assertRaisesRegex(ValueError, '其他会话'):
+                    inspect_session(self.home, SID, system)
+                with self.assertRaisesRegex(ValueError, '其他会话'):
+                    close_session(self.home, SID, identity, system)
+                self.assertIsNone(child.poll())
+                self.assertTrue(system.held(self.path))
+                self.assertTrue(system.held(other))
+                child.stdin.write('release\n')
+                child.stdin.flush()
+                self.assertEqual(child.stdout.readline().strip(), 'released')
+                close_session(self.home, SID, identity, system)
+            child.wait(timeout=5)
+            self.assertFalse(system.held(self.path))
+            self.assertEqual(other.read_bytes(), b'other session')
+        finally:
+            if child.poll() is None:
+                child.terminate()
+                child.wait(timeout=5)
+            child.stdin.close()
+            child.stdout.close()
 
     @unittest.skipUnless(sys.platform == 'win32', 'Windows process and file lock primitives')
     def test_real_owned_child_identity_exit_and_lock_release(self):

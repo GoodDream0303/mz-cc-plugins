@@ -1,4 +1,4 @@
-"""One-shot, user-requested standalone Codex CLI termination.
+"""Checked standalone CLI identity and one-shot, user-requested termination.
 
 This module is run in a helper process, never by the passive monitor. No
 transcript, hook trust, archive state or other process is modified.
@@ -35,6 +35,36 @@ def _owner(system, path):
             or pids[0] in (os.getpid(), os.getppid()) or not system.held(path)):
         raise ValueError('无法确认唯一的会话锁持有进程，已取消关闭。')
     return pids[0]
+
+
+def _ensure_only_session(system, path, pid):
+    # /clear can leave the previous thread's writer alive in the same CLI.
+    # A checked process identity alone does not make termination thread-scoped.
+    if not safe_path(path.parent, path.parent.parent):
+        raise ValueError('无法安全核对会话锁目录，已取消关闭。')
+    paths = set(path.parent.iterdir())
+    for other in paths:
+        if other == path or other.suffix.lower() != '.lock':
+            continue
+        try:
+            if str(uuid.UUID(other.stem)) != other.stem.lower():
+                continue
+        except ValueError:
+            continue
+        if not safe_path(other, path.parent) or not other.is_file():
+            raise ValueError('无法安全核对其他会话锁，已取消关闭。')
+        if not system.held(other):
+            continue
+        pids = system.owners(other)
+        if (not isinstance(pids, list) or not pids
+                or any(type(owner) is not int or owner <= 0 for owner in pids)):
+            raise ValueError('无法核对其他会话锁的持有者，已取消关闭。')
+        if pid in pids:
+            raise ValueError('此 CLI 还持有其他会话（%s）；无法单独关闭所选会话，已取消，避免中断其他会话。'
+                             % other.stem)
+    if (not safe_path(path.parent, path.parent.parent)
+            or set(path.parent.iterdir()) != paths):
+        raise ValueError('核对期间会话锁目录已变化，已取消关闭，请刷新后重试。')
 
 
 def _interactive_argv(argv):
@@ -88,7 +118,7 @@ def _cli_identity(process):
     return {'pid': info['pid'], 'started': info['started']}
 
 
-def inspect_session(home, sid, system=None):
+def session_owner(home, sid, system=None):
     path = _lock_path(home, sid)
     system = system or WindowsSessionControl()
     pid = _owner(system, path)
@@ -97,6 +127,13 @@ def inspect_session(home, sid, system=None):
         if identity['pid'] != pid or _owner(system, path) != pid:
             raise ValueError('会话锁持有者已变化，已取消关闭。')
         return identity
+
+
+def inspect_session(home, sid, system=None):
+    system = system or WindowsSessionControl()
+    identity = session_owner(home, sid, system)
+    _ensure_only_session(system, _lock_path(home, sid), identity['pid'])
+    return identity
 
 
 def close_session(home, sid, expected, system=None):
@@ -110,6 +147,7 @@ def close_session(home, sid, expected, system=None):
     with system.open(pid, terminate=True) as process:
         if _cli_identity(process) != expected or _owner(system, _lock_path(home, sid)) != pid:
             raise ValueError('会话进程身份或锁持有者已变化，已取消关闭。')
+        _ensure_only_session(system, path, pid)
         # Terminate this checked process object, never a later lookup by PID.
         process.terminate()
         if not process.wait() or system.held(path):
