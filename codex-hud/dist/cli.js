@@ -354,7 +354,7 @@ async function watch(args, once = false) {
                 if (readParent || readChildren || reasons.has('discovery')) {
                     baseSnapshot = structuredClone(parentSnapshot);
                     if (reader)
-                        await agentSessions.refresh(baseSnapshot, reader, { invalidate: readChildren, discover: reasons.has('discovery'), onFile: file => subscribe(file, 'child') });
+                        await agentSessions.refresh(baseSnapshot, reader, { invalidate: readChildren, discover: reasons.has('discovery'), files: reasons.has('discovery') ? events.takeDiscoveryFiles() : [], onFile: file => subscribe(file, 'child') });
                     remove('child', new Set(agentSessions.files));
                 }
                 if (!reader || agentSessions.needsDiscovery)

@@ -1,5 +1,5 @@
 import { SessionReader } from './reader.js';
-import { listSessions } from './sessions.js';
+import { listSessions, readSessionHints } from './sessions.js';
 /** Parent activity is primary; verified child lifecycle fills missing notifications. */
 export class AgentSessionTracker {
     root;
@@ -8,6 +8,7 @@ export class AgentSessionTracker {
     discoveryUnavailable = false;
     unresolved = false;
     snapshots = new Map();
+    ambiguousUntil = new Map();
     constructor(root) {
         this.root = root;
     }
@@ -28,27 +29,46 @@ export class AgentSessionTracker {
                 this.readers.delete(id);
                 this.snapshots.delete(id);
             }
+        for (const id of this.ambiguousUntil.keys())
+            if (!retained.has(id))
+                this.ambiguousUntil.delete(id);
         if (!active.length) {
             this.discoveryUnavailable = false;
             this.unresolved = false;
             return;
         }
-        if (active.some(a => !this.readers.has(a.id)) && (options.discover || Date.now() >= this.nextDiscovery)) {
-            this.nextDiscovery = Date.now() + 5000;
-            let sessions = [];
+        const missing = active.filter(a => !this.readers.has(a.id));
+        if (missing.length) {
+            const now = Date.now();
+            let scan = now >= this.nextDiscovery;
             try {
-                sessions = await listSessions(this.root);
-                this.discoveryUnavailable = false;
+                if (!scan && options.discover) {
+                    const eligible = new Set(missing.filter(a => now >= (this.ambiguousUntil.get(a.id) ?? 0)).map(a => a.id));
+                    if (eligible.size) {
+                        const hints = await readSessionHints(this.root, options.files ?? []);
+                        scan = hints.some(s => s.parentId === snapshot.sessionId && eligible.has(s.id));
+                    }
+                }
+                if (scan) {
+                    this.nextDiscovery = Date.now() + 5000;
+                    const sessions = await listSessions(this.root);
+                    this.discoveryUnavailable = false;
+                    for (const agent of missing) {
+                        const matches = sessions.filter(s => s.id === agent.id && s.parentId === snapshot.sessionId);
+                        // Hints may reject unrelated work, but only a fresh full scan proves uniqueness.
+                        if (matches.length === 1) {
+                            this.readers.set(agent.id, new SessionReader(matches[0].path, agent.id));
+                            this.ambiguousUntil.delete(agent.id);
+                        }
+                        else if (matches.length > 1)
+                            this.ambiguousUntil.set(agent.id, this.nextDiscovery);
+                        else
+                            this.ambiguousUntil.delete(agent.id);
+                    }
+                }
             }
             catch {
                 this.discoveryUnavailable = true;
-            }
-            for (const agent of active) {
-                if (this.readers.has(agent.id))
-                    continue;
-                const matches = sessions.filter(s => s.id === agent.id && s.parentId === snapshot.sessionId);
-                if (matches.length === 1)
-                    this.readers.set(agent.id, new SessionReader(matches[0].path, agent.id));
             }
         }
         this.unresolved = active.some(a => !this.readers.has(a.id));

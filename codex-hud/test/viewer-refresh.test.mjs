@@ -46,3 +46,9 @@ test('a child-only completion wakes the viewer and keeps exact parent binding',(
 test('an unresolved session with lost notifications is discovered at the configured fallback cadence',()=>{
  const r=viewerProbe({mode:'discovery',refreshMs:250,duration:1050});assert.match(r.frames.at(-1),/PROBE-MODEL/);assert.ok(r.visibleLatency<800,JSON.stringify(r));
 });
+test('unrelated directory writes do not repeatedly discover the entire sessions root',()=>{
+ const r=viewerProbe({mode:'discovery-noise',refreshMs:1000,duration:1250});assert.equal(r.counts.sessions,1,JSON.stringify(r.counts));assert.equal(r.counts.paint,1);
+});
+test('a late child with a nonstandard filename paints from its directory hint before fallback',()=>{
+ const r=viewerProbe({mode:'late-child',refreshMs:1000,duration:650});assert.ok(r.frames.some(frame=>frame.includes('PROBE-MODEL')),JSON.stringify(r));assert.ok(r.visibleLatency<800,JSON.stringify(r));assert.equal(r.counts.sessions,2);
+});

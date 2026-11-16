@@ -141,7 +141,7 @@ async function watch(args:string[],once=false):Promise<void>{
     if(!current()){reasons=retryInputs();continue;}
     if(readParent||readChildren||reasons.has('discovery')){
      baseSnapshot=structuredClone(parentSnapshot);
-     if(reader)await agentSessions.refresh(baseSnapshot,reader,{invalidate:readChildren,discover:reasons.has('discovery'),onFile:file=>subscribe(file,'child')});
+      if(reader)await agentSessions.refresh(baseSnapshot,reader,{invalidate:readChildren,discover:reasons.has('discovery'),files:reasons.has('discovery')?events.takeDiscoveryFiles():[],onFile:file=>subscribe(file,'child')});
      remove('child',new Set(agentSessions.files));
     }
     if(!reader||agentSessions.needsDiscovery)subscribe(root,'discovery',true);else remove('discovery',new Set());
