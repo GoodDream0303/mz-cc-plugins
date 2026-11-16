@@ -312,7 +312,7 @@ async function watch(args, once = false) {
                             readParent = true;
                         }
                     }
-                    else if (initial || reasons.has('discovery') || !reader && reconcile || Date.now() >= nextDiscover) {
+                    else if (initial || !reader && (reasons.has('discovery') || reconcile) || Date.now() >= nextDiscover) {
                         subscribe(root, 'discovery', true);
                         const session = await findSession(root, selected);
                         nextDiscover = Date.now() + 5000;

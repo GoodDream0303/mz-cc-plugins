@@ -52,3 +52,9 @@ test('unrelated directory writes do not repeatedly discover the entire sessions 
 test('a late child with a nonstandard filename paints from its directory hint before fallback',()=>{
  const r=viewerProbe({mode:'late-child',refreshMs:1000,duration:650});assert.ok(r.frames.some(frame=>frame.includes('PROBE-MODEL')),JSON.stringify(r));assert.ok(r.visibleLatency<800,JSON.stringify(r));assert.equal(r.counts.sessions,2);
 });
+test('an ID-only viewer does not rescan the bound parent for every unrelated directory write',()=>{
+ const r=viewerProbe({mode:'id-only-noise',refreshMs:1000,duration:1250});assert.equal(r.counts.findSession,1,JSON.stringify(r.counts));assert.equal(r.counts.sessions,1);assert.ok(r.counts.jsonlOpens<40,JSON.stringify(r.counts));
+});
+test('an ID-only viewer retains periodic recovery after its parent transcript moves',()=>{
+ const r=viewerProbe({mode:'id-only-relocate',refreshMs:1000,duration:1250});assert.ok(r.frames.some(frame=>frame.includes('PROBE-MODEL')),JSON.stringify(r));assert.ok(r.visibleLatency<800,JSON.stringify(r));assert.equal(r.counts.findSession,2);
+});

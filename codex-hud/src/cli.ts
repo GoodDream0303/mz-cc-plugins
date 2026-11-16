@@ -130,7 +130,7 @@ async function watch(args:string[],once=false):Promise<void>{
     let readParent=initial||bindingChanged||reconcile||reasons.has('log'),readChildren=reconcile||reasons.has('child');
     if(selected){
      if(descriptor?.transcriptPath){if(!reader||knownPath!==descriptor.transcriptPath){knownPath=descriptor.transcriptPath;subscribe(knownPath,'log');reader=new SessionReader(knownPath,selected);readParent=true;}}
-     else if(initial||reasons.has('discovery')||!reader&&reconcile||Date.now()>=nextDiscover){
+      else if(initial||!reader&&(reasons.has('discovery')||reconcile)||Date.now()>=nextDiscover){
       subscribe(root,'discovery',true);const session=await findSession(root,selected);nextDiscover=Date.now()+5000;
       if(!current()){reasons=retryInputs();continue;}
       if(session&&(!reader||session.path!==knownPath)){knownPath=session.path;subscribe(knownPath,'log');reader=new SessionReader(knownPath,session.id);selected=session.id;readParent=true;remove('log',new Set([knownPath]));}
