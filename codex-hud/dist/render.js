@@ -116,6 +116,21 @@ export function render(s, c, o = {}) {
             fields.set('usage', quotas);
         }
     }
+    if (on('showProgress') && ['working', 'idle', 'interrupted'].includes(s.status)) {
+        let message = s.status === 'idle' ? label('Idle', '空闲', '閒置') : s.status === 'interrupted' ? label('Interrupted', '已中断', '已中斷') : s.progress?.message || s.progress?.step;
+        if (!message) {
+            const tools = s.tools.filter(t => t.status === 'running' && (!Number.isFinite(s.turnStartedAt) || Number.isFinite(t.startedAt) && t.startedAt >= s.turnStartedAt));
+            const current = toolRows({ ...s, tools: tools.map(t => ({ ...t, startedAt: undefined })) }, c, { width: Math.max(200, width), now, color: false })[0];
+            message = current?.text.slice(('▸ ' + label('Current: ', '当前: ', '目前: ')).length) || label('Working', '处理中', '處理中');
+        }
+        message = sanitize(message.slice(0, 4096)).replace(/\s+/g, ' ').trim();
+        const started = s.turnStartedAt, seconds = Number.isFinite(started) && started <= now ? Math.floor((now - started) / 1000) : undefined;
+        const suffix = s.status === 'working' && seconds !== undefined ? ' · ' + (seconds >= 60 ? Math.floor(seconds / 60) + 'm ' + seconds % 60 + 's' : seconds + 's') : '';
+        const heading = (s.status === 'working' ? '▸ ' : s.status === 'idle' ? '✓ ' : '⊘ ') + label('Progress: ', '进度: ', '進度: '), available = width - displayWidth(heading) - displayWidth(suffix);
+        const text = ink(available > 0 ? heading + truncate(message, available) + suffix : truncate(heading + message + suffix, width), s.status === 'working' ? 'progress' : 'inactive');
+        groups.set('progress', text);
+        separate.set('progress', [{ text }]);
+    }
     if (on('showTools') && s.tools.length) {
         const rows = toolRows(s, c, { width, now, color: !!o.color });
         if (rows.length) {
@@ -147,7 +162,12 @@ export function render(s, c, o = {}) {
     for (const [flag, reason] of Object.entries(unsupported))
         if (on(flag))
             groups.set('unsupported-' + flag, ink((en ? flag : reason) + ': ' + label('unavailable', '不可用'), 'label'));
-    const elementOrder = [...new Set([...get(c, 'elementOrder'), ...groups.keys()])];
+    const configuredOrder = [...get(c, 'elementOrder')];
+    if (groups.has('progress') && !configuredOrder.includes('progress')) {
+        const tools = configuredOrder.indexOf('tools');
+        configuredOrder.splice(tools < 0 ? configuredOrder.length : tools, 0, 'progress');
+    }
+    const elementOrder = [...new Set([...configuredOrder, ...groups.keys()])];
     const blocks = [];
     const used = new Set();
     for (const key of elementOrder) {

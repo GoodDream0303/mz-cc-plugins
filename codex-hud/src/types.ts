@@ -10,6 +10,7 @@ export interface HudSnapshot {
  context?:{used:number;window:number};totals?:Tokens;latest?:Tokens;quotas:Quota[];
  tools:Tool[];agents:Agent[];todos:Todo[];compactions:number;lastResponseAt?:string;
  errors:string[];status:string;sessionName?:string;
+ progress?:{message?:string;step?:string};
  environment?:EnvironmentFacts;
 }
 export interface EnvironmentFacts {

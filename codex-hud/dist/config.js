@@ -14,7 +14,7 @@ def('showSeparators', false, 'layout');
 def('pathLevels', 1, 'layout', { choices: [1, 2, 3, 'full'] });
 def('maxWidth', 0, 'layout', { min: 0, max: 1000 });
 def('forceMaxWidth', false, 'layout', { reason: 'Reserved: rendering always respects the actual viewport width' });
-def('elementOrder', ['project', 'addedDirs', 'context', 'usage', 'promptCache', 'memory', 'environment', 'tools', 'skills', 'agents', 'todos', 'sessionTime'], 'layout');
+def('elementOrder', ['project', 'addedDirs', 'context', 'usage', 'promptCache', 'memory', 'environment', 'progress', 'tools', 'skills', 'agents', 'todos', 'sessionTime'], 'layout');
 def('projectLineOrder', [], 'layout');
 def('display.mergeGroups', [['context', 'usage']], 'layout');
 def('display.rightAlign', [], 'layout');
@@ -35,7 +35,7 @@ const flags = {
     showModel: false, showProject: false, showAddedDirs: false, showContextBar: true, showConfigCounts: false,
     showCost: false, showRoutedCost: false, showDailyCost: false, showDuration: false, showSpeed: false,
     showTokenBreakdown: true, showUsage: true, showFiveHourUsage: true, showSevenDayUsage: true, usageBarEnabled: true, showResetLabel: true, usageCompact: false,
-    showModelScopedUsage: false, showTools: false, showSkills: false, showAgents: false, showTodos: false,
+    showModelScopedUsage: false, showProgress: true, showTools: false, showSkills: false, showAgents: false, showTodos: false,
     showSessionName: false, showAuth: false, showAuthUser: false, showCodexVersion: false,
     showEffortLevel: false, showMemoryUsage: false, showPromptCache: false, showSessionTokens: false,
     showOutputStyle: false, showSessionStartDate: false, showLastResponseAt: false, showCompactions: false,
@@ -60,7 +60,7 @@ for (const [key, value, max] of [
     def('display.' + key, value, 'display', { min: 0, max });
 for (const key of ['modelOverride', 'providerName', 'customLine', 'advisorOverride', 'externalUsagePath', 'externalUsageWritePath'])
     def('display.' + key, '', 'display', { reason: key.startsWith('externalUsage') ? 'Preserved only; external path I/O is disabled' : key === 'advisorOverride' ? unavailable.showAdvisor : undefined });
-for (const [key, value] of Object.entries({ context: 'green', usage: 'brightBlue', warning: 'yellow', usageWarning: 'brightMagenta', critical: 'red', model: 'cyan', project: 'yellow', git: 'magenta', gitBranch: 'cyan', label: 'dim', heading: '#bac2ce', active: '#f2f2f2', inactive: '#9a9a9a', custom: 208 }))
+for (const [key, value] of Object.entries({ context: 'green', usage: 'brightBlue', warning: 'yellow', usageWarning: 'brightMagenta', critical: 'red', model: 'cyan', project: 'yellow', git: 'magenta', gitBranch: 'cyan', label: 'dim', heading: '#bac2ce', progress: '#89e3bd', active: '#f2f2f2', inactive: '#9a9a9a', custom: 208 }))
     def('colors.' + key, value, 'colors', { kind: 'color' });
 def('colors.barFilled', '█', 'colors');
 def('colors.barEmpty', '░', 'colors');

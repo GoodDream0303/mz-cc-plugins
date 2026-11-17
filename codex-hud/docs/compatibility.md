@@ -2,6 +2,18 @@
 
 Native Codex statusline is unchanged. Model, effort, project and session-name fields default off. Exact-host automatic opening requires the one-time PowerShell entry and a configured portable psmux backend. The source bootstrap opens a waiting HUD; native SessionStart binds main-conversation data. Existing intentional false startup settings are preserved.
 
+The HUD stays bound to the main conversation while using `/side`. Persistent TUI
+side chats (`thread_source=tui_side_chat`) are excluded from both SessionStart
+binding and manual `start`, even though they share the main conversation's CLI host.
+
+`display.showProgress` adds one row for the bound main conversation. While working
+it prefers explicit public `commentary`, then this turn's plan step or safe tool
+activity, with an elapsed-turn clock. Old progress is cleared at lifecycle and
+history boundaries; terminal states show Idle/Interrupted. The reader retains
+only a normalized excerpt of at most 200 terminal cells in memory. Reasoning,
+user text and final answers are excluded. `colors.progress` controls its active
+foreground. Existing explicit false settings and ordering remain respected.
+
 The 0.8.0 process-observation update ships a checksum-verified win32-x64 C
 helper alongside the existing native backend. It needs Windows system libraries,
 not .NET, a compiler, an installed service or a PowerShell daemon. Each viewer owns
@@ -56,6 +68,7 @@ and process facts remain mandatory before any automatic resize.
 | display.usageCompact | false | Supported |
 | display.showModelScopedUsage | false | Per-model quota data is unavailable |
 | display.showTools | false | Supported |
+| display.showProgress | true | Public commentary, current-turn plan or safe activity |
 | display.showSkills | false | Codex does not expose reliable active-Skill events |
 | display.showAgents | false | Supported |
 | display.showTodos | false | Supported |
@@ -108,6 +121,7 @@ and process facts remain mandatory before any automatic resize.
 | colors.label | "dim" | Supported |
 | colors.heading | "#bac2ce" | Current, Recent, Agents and Todo heading foreground |
 | colors.custom | 208 | Supported |
+| colors.progress | "#89e3bd" | Active Progress row foreground |
 | colors.barFilled | "█" | Supported |
 | colors.barEmpty | "░" | Supported |
 | terminal.paneSize | 0.22 | Supported |

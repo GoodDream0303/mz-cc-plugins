@@ -1,5 +1,48 @@
 # Validation: exact per-source HUD
 
+## 0.8.2: public progress — 2026-11-17
+
+Windows / Node 24.15.0, synthetic inputs only. The new row reads explicitly public
+commentary from legacy events, assistant response messages and completed native
+AgentMessage items; reasoning, user/answer text and other-thread messages remain
+excluded. Latest excerpts are normalized, bounded to 200 terminal cells and kept
+in memory. Rewritten logs and turn/lifecycle boundaries clear the old text.
+
+- Eight reader tests first failed on missing progress, then passed with the
+  existing 45 reader regressions: 53/53.
+- Seven display/config/deadline regressions first failed, then all 65 tests in
+  the progress/render/config/menu/deadline/pane-size group passed.
+- Review found duplicated clocks in the tool fallback. A targeted assertion
+  reproduced it (2 clocks instead of 1); the fallback now projects labels without
+  individual tool clocks. Final progress/viewer run: 32/32, including all 15
+  progress tests and 17 existing viewer refresh checks, zero failures/skips.
+- These runs cover 127 distinct targeted tests. Earlier unchanged reader and
+  configuration/render results are reused within their tested scope; this is
+  not a new full-suite result.
+- `node scripts/smoke-host.mjs --psmux <packaged backend> --progress` passed 11
+  native psmux/ConPTY checks. They include real hook-process ancestry, two source
+  owners, same-thread isolation, public Chinese progress, advancing elapsed time
+  without another log record, new-turn and plan fallback, completion/interruption,
+  session rebind, unchanged six-row geometry/neighbour and source-exit cleanup.
+  The final label-only fallback clock adjustment does not affect those tested
+  commentary/plan/terminal paths; native evidence is reused for that scope.
+
+Evidence directory:
+`.superpowers/sdd/2026-11-17-hud-progress/` (`reader-red/green.log`,
+`render-red-isolated.log`, `render-green.log`, `fallback-clock-red.log`,
+`viewer-green.log`, `native-progress.log`). Native summary was also written to
+`C:/Users/mzzhu2/AppData/Local/Temp/hud-production-host-8cTzVa/summary.json`.
+No official Codex/model session was launched. Installed interactive use, hook
+trust, Node 20 and long-term visual behavior remain unverified. The implementation
+checks above ran before release and installation.
+
+Release packaging for 0.8.2 passed the 11 serial package/MCP-removal/runtime-entry
+checks, including offline distribution, Unicode paths, the native observer and
+PowerShell 5/7 loader. The four version fields agree. The 37-file runtime digest
+is unchanged from the implementation checks above; release-only metadata and
+documentation updates do not replace those results with a new full-suite claim.
+Packaging evidence: `.superpowers/sdd/2026-11-17-hud-082-release/`.
+
 ## 0.8.1: bounded child discovery hints — 2026-11-16
 
 The production implementation uses changed-file metadata to reject unrelated

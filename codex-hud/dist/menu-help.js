@@ -77,6 +77,7 @@ for (const [key, [zh, tw, sample]] of Object.entries(flags)) {
     add('display.' + key, zh, tw, true, 'On: ' + example[0] + '; off: hide this field.', '开启示例：' + example[1] + '；关闭后隐藏此项。', '開啟範例：' + example[2] + '；關閉後隱藏此項。');
 }
 add('display.showUsage', '额度总开关', '額度總開關', true, 'On: show enabled quota windows; off: hide all quota windows. Each window has its own switch.', '开启：显示已启用的额度周期；关闭：隐藏全部额度。各周期另有独立开关。', '開啟：顯示已啟用的額度週期；關閉：隱藏全部額度。各週期另有獨立開關。');
+add('display.showProgress', '当前进度', '目前進度', true, 'Show public commentary, then the current plan step or safe tool activity; clear old text at turn boundaries.', '显示公开进度说明，其次为当前计划步骤或工具活动；新一轮、完成或中断时清除旧说明。', '顯示公開進度說明，其次為目前計畫步驟或工具活動；新一輪、完成或中斷時清除舊說明。');
 add('display.showFiveHourUsage', '五小时额度', '五小時額度', true, 'On: 5h: 25% when reported; off: hide the 5-hour quota. Requires the quota master switch; windows with missing metadata stay hidden.', '开启：有数据时显示 5h: 25%；关闭：隐藏五小时额度。需启用额度总开关；未提供的周期不占位。', '開啟：有資料時顯示 5h: 25%；關閉：隱藏五小時額度。需啟用額度總開關；未提供的週期不佔位。');
 add('display.showSevenDayUsage', '七天额度', '七天額度', true, 'On: 7d: 25% when reported; off: hide the 7-day quota. Requires the quota master switch; windows with missing metadata stay hidden.', '开启：有数据时显示 7d: 25%；关闭：隐藏七天额度。需启用额度总开关；未提供的周期不占位。', '開啟：有資料時顯示 7d: 25%；關閉：隱藏七天額度。需啟用額度總開關；未提供的週期不佔位。');
 add('display.usageBarEnabled', '额度进度条', '額度進度條', true, 'On: quota includes a progress bar; off: percentage only. Requires visible, non-compact quota.', '开启：额度带进度条；关闭：仅百分比。需启用额度且关闭紧凑额度。', '開啟：額度帶進度條；關閉：僅百分比。需啟用額度且關閉緊湊額度。');
@@ -109,6 +110,7 @@ for (const [key, zh, tw] of [['externalUsagePath', '外部额度读取路径', '
 const colors = { context: ['上下文颜色', '上下文色彩'], usage: ['额度颜色', '額度色彩'], warning: ['警告颜色', '警告色彩'], usageWarning: ['额度警告颜色', '額度警告色彩'], critical: ['严重告警颜色', '嚴重警示色彩'], model: ['模型颜色', '模型色彩'], project: ['项目颜色', '專案色彩'], git: ['Git 颜色', 'Git 色彩'], gitBranch: ['分支颜色', '分支色彩'], label: ['标签颜色', '標籤色彩'], custom: ['自定义行颜色', '自訂行色彩'] };
 for (const [key, [zh, tw]] of Object.entries(colors))
     add('colors.' + key, zh, tw, '#66ccff', 'Light blue; also accepts named colors or ANSI indices 0-255.', '浅蓝色；也支持预设颜色名或 0–255 的 ANSI 色号。', '淺藍色；也支援預設色彩名稱或 0–255 的 ANSI 色號。');
+add('colors.progress', '进度文字颜色', '進度文字色彩', '#89e3bd', 'Foreground for the active Progress row; accepts named colors or ANSI indices 0-255.', '执行中进度行的文字颜色；也支持预设颜色名或 0–255 的 ANSI 色号。', '執行中進度列的文字色彩；也支援預設色彩名稱或 0–255 的 ANSI 色號。');
 add('colors.active', '活跃条目文字颜色', '活躍項目文字色彩', '#f2f2f2', 'Bright text for current tools and starting/running agents; background and font weight stay unchanged.', '当前工具及启动中、运行中代理的明亮文字；背景和字重不变。', '目前工具及啟動中、執行中代理的明亮文字；背景與字重不變。');
 add('colors.inactive', '近期及非活跃条目文字颜色', '近期及非活躍項目文字色彩', '#9a9a9a', 'Gray text for recent tools and inactive agents; tool failures retain the critical color.', '近期工具及非活跃代理的灰色文字；工具失败保留严重告警颜色。', '近期工具及非活躍代理的灰色文字；工具失敗保留嚴重警示色彩。');
 add('colors.heading', '小标题文字颜色', '小標題文字色彩', '#bac2ce', 'Soft gray-blue text for Current, Recent, Agents and Todo headings; activity colors stay independent.', '当前、近期、子代理和待办小标题使用柔和灰蓝色；条目颜色独立保留。', '目前、近期、子代理和待辦小標題使用柔和灰藍色；項目色彩獨立保留。');

@@ -5,6 +5,8 @@ export function nextDisplayAt(s, c, now) {
     const cadence = get(c, 'terminal.refreshMs');
     const at = (value) => { if (Number.isFinite(value) && value > now)
         next = Math.min(next, value); };
+    if (get(c, 'display.showProgress') && s.status === 'working' && Number.isFinite(s.turnStartedAt) && s.turnStartedAt <= now)
+        at(now + cadence);
     if (get(c, 'display.showTools'))
         for (const tool of s.tools) {
             if (tool.status === 'running') {

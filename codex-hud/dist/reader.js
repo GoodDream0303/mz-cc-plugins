@@ -6,6 +6,7 @@ import { AgentTracker } from './agents.js';
 import { toolOutput } from './tool-output.js';
 import { toolDetails, commandDetails, structuredCommandDetails, isAgentAction, toolCategory } from './tool-details.js';
 import { ImageRecord } from './image-record.js';
+import { sanitize, truncate } from './terminal-text.js';
 const MAX_LINE = 2 * 1024 * 1024;
 const safe = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 function count(v) { return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0; }
@@ -151,6 +152,16 @@ export class SessionReader {
     }
     error(message) { if (!this.snapshot.errors.includes(message))
         this.snapshot.errors.push(message); this.snapshot.errors = this.snapshot.errors.slice(-5); }
+    commentary(p) {
+        if (this.snapshot.status !== 'working' || p.phase !== 'commentary' || p.channel && p.channel !== 'commentary')
+            return;
+        const value = p.type === 'agent_message' ? text(p.message, 4096) : Array.isArray(p.content) ? p.content.slice(0, 16).filter(safe).filter(v => ['output_text', 'Text'].includes(v.type)).map(v => text(v.text, 4096) ?? '').join(' ').slice(0, 4096) : undefined;
+        if (!value)
+            return;
+        const message = truncate(sanitize(value.replace(/\s+/g, ' ')).trim(), 200);
+        if (message)
+            this.snapshot.progress = { ...this.snapshot.progress, message };
+    }
     apply(record) {
         if (!safe(record) || !safe(record.payload))
             return;
@@ -229,19 +240,25 @@ export class SessionReader {
                 }
                 return;
             }
+            case 'agent_message':
+                this.commentary(p);
+                return;
             case 'task_started':
+                this.snapshot.progress = undefined;
                 this.snapshot.status = 'working';
                 this.snapshot.activityAt = text(record.timestamp);
                 this.snapshot.turnStartedAt = Date.parse(String(record.timestamp));
                 this.snapshot.turnEndedAt = undefined;
                 return;
             case 'task_complete':
+                this.snapshot.progress = undefined;
                 this.snapshot.status = 'idle';
                 this.snapshot.activityAt = text(record.timestamp);
                 this.snapshot.turnEndedAt = Date.parse(String(record.timestamp));
                 this.snapshot.lastResponseAt = text(p.completed_at ?? record.timestamp);
                 return;
             case 'turn_aborted':
+                this.snapshot.progress = undefined;
                 this.snapshot.status = 'interrupted';
                 this.snapshot.activityAt = text(record.timestamp);
                 this.snapshot.turnEndedAt = Date.parse(String(record.timestamp));
@@ -255,6 +272,7 @@ export class SessionReader {
                 return;
             case 'context_compacted':
             case 'compact_boundary':
+                this.snapshot.progress = undefined;
                 this.snapshot.compactions++;
                 return;
             case 'item_started':
@@ -329,6 +347,8 @@ export class SessionReader {
     item(p, timestamp, completed = false, startedAt, completedAt) {
         if (!safe(p))
             return;
+        if (p.type === 'AgentMessage' && completed)
+            this.commentary(p);
         if (p.type === 'SubAgentActivity') {
             this.agents.event({ ...p, type: 'sub_agent_activity' }, timestamp);
             return;
@@ -376,8 +396,11 @@ export class SessionReader {
             const row = this.tool(id, name, 'running', false, timestamp);
             const leaf = name.split('.').at(-1);
             this.annotate(row, toolDetails(name, args ?? p.input));
-            if (leaf === 'update_plan' && Array.isArray(args?.plan))
+            if (leaf === 'update_plan' && Array.isArray(args?.plan)) {
                 this.snapshot.todos = args.plan.filter(safe).filter((x) => typeof x.step === 'string' && ['pending', 'in_progress', 'completed'].includes(x.status)).slice(0, 200).map((x) => ({ step: x.step.slice(0, 200), status: x.status }));
+                if (this.snapshot.status === 'working')
+                    this.snapshot.progress = { ...this.snapshot.progress, step: this.snapshot.todos.find(t => t.status === 'in_progress')?.step };
+            }
             if (['write_stdin', 'wait'].includes(leaf ?? '')) {
                 const key = args?.cell_id !== undefined ? 'cell:' + String(args.cell_id) : 'session:' + String(args?.session_id), target = this.processTools.get(key);
                 if (target)
@@ -409,9 +432,13 @@ export class SessionReader {
                 this.agents.result(tool.id, output, failed, timestamp);
             }
         }
-        if (p.type === 'compaction')
+        if (p.type === 'compaction') {
+            this.snapshot.progress = undefined;
             this.snapshot.compactions++;
-        if (p.type === 'message' && p.role === 'assistant')
+        }
+        if (p.type === 'message' && p.role === 'assistant') {
+            this.commentary(p);
             this.snapshot.lastResponseAt = text(timestamp);
+        }
     }
 }

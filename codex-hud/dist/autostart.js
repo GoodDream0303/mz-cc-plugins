@@ -32,7 +32,7 @@ export async function sessionMetadata(file) {
     }
 }
 function remoteTuiMain(meta) { return meta.source === 'vscode' && meta.originator === 'codex-tui' && meta.thread_source === 'user'; }
-export function isMainSession(meta, id, verifiedHost = false) { return !!meta && (meta.source === 'cli' || verifiedHost && remoteTuiMain(meta)) && typeof meta.id === 'string' && idPattern.test(meta.id) && (id === meta.id || id === meta.session_id) && typeof meta.cwd === 'string'; }
+export function isMainSession(meta, id, verifiedHost = false) { return !!meta && meta.thread_source !== 'tui_side_chat' && (meta.source === 'cli' || verifiedHost && remoteTuiMain(meta)) && typeof meta.id === 'string' && idPattern.test(meta.id) && (id === meta.id || id === meta.session_id) && typeof meta.cwd === 'string'; }
 export async function autoStart(event, options = {}) {
     if (event.hook_event_name !== 'SessionStart' || !['startup', 'resume', 'clear', 'fork'].includes(String(event.source)) || event.agent_id || event.subagent_id || event.agent_transcript_path)
         return { status: 'ignored', reason: 'not-main-start' };

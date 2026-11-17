@@ -5,6 +5,23 @@ WT tabs or separate PowerShell windows. The official CLI and native statusline
 remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
 task names retain their original language.
 
+## Version 0.8.2: public progress and side-chat isolation
+
+`Progress` shows the bound main conversation's latest public commentary, then
+the active turn's plan step or safe tool activity. It stays on one terminal row,
+with a turn timer while working and Idle/Interrupted after the turn ends. New
+turns, compaction, log replacement and session rebind clear old progress text.
+
+`display.showProgress` defaults to true; `colors.progress` defaults to `#89e3bd`.
+Both are available in the configuration menu. Existing order arrays place the
+new row before tools unless they explicitly position `progress` elsewhere.
+Only a bounded public excerpt is held in memory; reasoning, user messages and
+final answers are excluded. No model request or transcript-text file is added.
+See [validation](docs/validation.md) for the synthetic verification scope.
+
+Persistent `/side` chats cannot rebind the main conversation's HUD, whether
+started through SessionStart or manual `start`.
+
 ## Version 0.8.1: bounded child discovery
 
 Unrelated session-directory changes use bounded changed-file metadata hints

@@ -6,6 +6,7 @@ import {AgentTracker} from './agents.js';
 import {toolOutput} from './tool-output.js';
 import {toolDetails,commandDetails,structuredCommandDetails,isAgentAction,toolCategory} from './tool-details.js';
 import {ImageRecord} from './image-record.js';
+import {sanitize,truncate} from './terminal-text.js';
 const MAX_LINE=2*1024*1024;
 const safe=(v:unknown):v is Record<string,any>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 function count(v:unknown):number{return typeof v==='number'&&Number.isFinite(v)&&v>=0?v:0;}
@@ -75,6 +76,12 @@ export class SessionReader {
   }finally{await handle.close();}
  }
  private error(message:string){if(!this.snapshot.errors.includes(message))this.snapshot.errors.push(message);this.snapshot.errors=this.snapshot.errors.slice(-5);}
+ private commentary(p:Record<string,any>):void {
+  if(this.snapshot.status!=='working'||p.phase!=='commentary'||p.channel&&p.channel!=='commentary')return;
+  const value=p.type==='agent_message'?text(p.message,4096):Array.isArray(p.content)?p.content.slice(0,16).filter(safe).filter(v=>['output_text','Text'].includes(v.type)).map(v=>text(v.text,4096)??'').join(' ').slice(0,4096):undefined;
+  if(!value)return;const message=truncate(sanitize(value.replace(/\s+/g,' ')).trim(),200);
+  if(message)this.snapshot.progress={...this.snapshot.progress,message};
+ }
  private apply(record:any){
   if(!safe(record)||!safe(record.payload))return;const p=record.payload;const type=record.type;
   if(type==='session_meta'){
@@ -108,10 +115,11 @@ export class SessionReader {
      this.snapshot.quotas=quotas;if(typeof limits.plan_type==='string')this.snapshot.plan=text(limits.plan_type);
     }return;
    }
-   case 'task_started':this.snapshot.status='working';this.snapshot.activityAt=text(record.timestamp);this.snapshot.turnStartedAt=Date.parse(String(record.timestamp));this.snapshot.turnEndedAt=undefined;return;
-   case 'task_complete':this.snapshot.status='idle';this.snapshot.activityAt=text(record.timestamp);this.snapshot.turnEndedAt=Date.parse(String(record.timestamp));this.snapshot.lastResponseAt=text(p.completed_at??record.timestamp);return;
-   case 'turn_aborted':this.snapshot.status='interrupted';this.snapshot.activityAt=text(record.timestamp);this.snapshot.turnEndedAt=Date.parse(String(record.timestamp));for(const t of this.snapshot.tools)if(t.status==='running'){t.status='cancelled';if(Number.isFinite(this.snapshot.turnEndedAt))t.finishedAt=this.snapshot.turnEndedAt;this.canonicalCompleted.add(t.id);}return;
-   case 'context_compacted':case 'compact_boundary':this.snapshot.compactions++;return;
+   case 'agent_message':this.commentary(p);return;
+   case 'task_started':this.snapshot.progress=undefined;this.snapshot.status='working';this.snapshot.activityAt=text(record.timestamp);this.snapshot.turnStartedAt=Date.parse(String(record.timestamp));this.snapshot.turnEndedAt=undefined;return;
+   case 'task_complete':this.snapshot.progress=undefined;this.snapshot.status='idle';this.snapshot.activityAt=text(record.timestamp);this.snapshot.turnEndedAt=Date.parse(String(record.timestamp));this.snapshot.lastResponseAt=text(p.completed_at??record.timestamp);return;
+   case 'turn_aborted':this.snapshot.progress=undefined;this.snapshot.status='interrupted';this.snapshot.activityAt=text(record.timestamp);this.snapshot.turnEndedAt=Date.parse(String(record.timestamp));for(const t of this.snapshot.tools)if(t.status==='running'){t.status='cancelled';if(Number.isFinite(this.snapshot.turnEndedAt))t.finishedAt=this.snapshot.turnEndedAt;this.canonicalCompleted.add(t.id);}return;
+   case 'context_compacted':case 'compact_boundary':this.snapshot.progress=undefined;this.snapshot.compactions++;return;
    case 'item_started':if(safe(p.item))this.item(p.item,record.timestamp,false,p.started_at_ms,p.completed_at_ms);return;
    case 'item_completed':if(safe(p.item))this.item(p.item,record.timestamp,true,p.started_at_ms,p.completed_at_ms);return;
   }
@@ -143,6 +151,7 @@ export class SessionReader {
  }
  private item(p:any,timestamp:unknown,completed=false,startedAt?:unknown,completedAt?:unknown){
   if(!safe(p))return;
+  if(p.type==='AgentMessage'&&completed)this.commentary(p);
   if(p.type==='SubAgentActivity'){this.agents.event({...p,type:'sub_agent_activity'},timestamp);return;}
   if(p.type==='McpToolCall'||p.type==='CommandExecution'||p.type==='Extension'){
    let id=text(p.id??p.call_id);if(!id)return;
@@ -164,7 +173,10 @@ export class SessionReader {
    const row=this.tool(id,name,'running',false,timestamp);
    const leaf=name.split('.').at(-1);
    this.annotate(row,toolDetails(name,args??p.input));
-   if(leaf==='update_plan'&&Array.isArray(args?.plan))this.snapshot.todos=args.plan.filter(safe).filter((x:any)=>typeof x.step==='string'&&['pending','in_progress','completed'].includes(x.status)).slice(0,200).map((x:any)=>({step:x.step.slice(0,200),status:x.status}));
+   if(leaf==='update_plan'&&Array.isArray(args?.plan)){
+    this.snapshot.todos=args.plan.filter(safe).filter((x:any)=>typeof x.step==='string'&&['pending','in_progress','completed'].includes(x.status)).slice(0,200).map((x:any)=>({step:x.step.slice(0,200),status:x.status}));
+    if(this.snapshot.status==='working')this.snapshot.progress={...this.snapshot.progress,step:this.snapshot.todos.find(t=>t.status==='in_progress')?.step};
+   }
    if(['write_stdin','wait'].includes(leaf??'')){const key=args?.cell_id!==undefined?'cell:'+String(args.cell_id):'session:'+String(args?.session_id),target=this.processTools.get(key);if(target)this.pollTargets.set(id,target);}
    this.agents.call(id,leaf??'',args,timestamp);
   }
@@ -182,7 +194,7 @@ export class SessionReader {
     this.pollTargets.delete(tool.id);this.agents.result(tool.id,output,failed,timestamp);
    }
   }
-  if(p.type==='compaction')this.snapshot.compactions++;
-  if(p.type==='message'&&p.role==='assistant')this.snapshot.lastResponseAt=text(timestamp);
+  if(p.type==='compaction'){this.snapshot.progress=undefined;this.snapshot.compactions++;}
+  if(p.type==='message'&&p.role==='assistant'){this.commentary(p);this.snapshot.lastResponseAt=text(timestamp);}
  }
 }

@@ -5,6 +5,7 @@ import type {HudSnapshot} from './types.js';
 export function nextDisplayAt(s:HudSnapshot,c:Config,now:number):number {
  let next=Infinity;const cadence=get(c,'terminal.refreshMs');
  const at=(value:number)=>{if(Number.isFinite(value)&&value>now)next=Math.min(next,value);};
+ if(get(c,'display.showProgress')&&s.status==='working'&&Number.isFinite(s.turnStartedAt)&&s.turnStartedAt!<=now)at(now+cadence);
  if(get(c,'display.showTools'))for(const tool of s.tools){
   if(tool.status==='running'){if(Number.isFinite(tool.startedAt))at(now+cadence);}
   else if(Number.isFinite(tool.finishedAt)){at(tool.finishedAt!);at(tool.finishedAt!+60001);}

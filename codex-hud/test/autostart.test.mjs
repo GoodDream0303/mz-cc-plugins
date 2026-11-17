@@ -13,6 +13,26 @@ test('remote TUI source requires a verified host and remains distinct from IDE a
  assert.equal(isMainSession(meta,'remote-thread'),false);assert.equal(isMainSession(meta,'remote-thread',true),true);
  for(const change of [{originator:'codex-vscode'},{originator:'other-client'},{thread_source:'subagent'},{source:{subagent:{thread_spawn:{}}}}])assert.equal(isMainSession({...meta,...change},'remote-thread',true),false);
 });
+test('main-session provenance excludes persistent side chats while retaining ordinary CLI forks and legacy metadata',()=>{
+ const meta={id:'fork-thread',session_id:'tree-root',cwd:'C:/repo',source:'cli',originator:'codex-tui',forked_from_id:'main-thread'};
+ for(const thread_source of [undefined,'user'])assert.equal(isMainSession({...meta,thread_source},meta.id,true),true);
+ for(const source of ['cli','vscode'])for(const id of [meta.id,meta.session_id])assert.equal(isMainSession({...meta,source,thread_source:'tui_side_chat',attached_thread:true},id,true),false);
+});
+test('persistent side-chat fork and resume hooks cannot create a HUD',async t=>{
+ for(const source of ['fork','resume']){
+  const f=fixture(t,{id:'side-thread',thread_source:'tui_side_chat',attached_thread:true,forked_from_id:'main-thread'});
+  assert.equal((await autoStart({...f.event,source},f.options)).status,'ignored');assert.equal(descriptors(f.runtime).length,0);assert.equal(f.state.splits,0);
+ }
+});
+test('persistent side-chat hooks leave the existing main HUD binding and pane intact',async t=>{
+ const f=fixture(t);await autoStart(f.event,f.options);const launch=descriptors(f.runtime)[0];
+ for(const source of ['fork','resume']){
+  const side=path.join(f.root,'side-'+source+'.jsonl');fs.writeFileSync(side,JSON.stringify({type:'session_meta',payload:{id:'side-'+source,session_id:f.event.session_id,cwd:f.root,source:'cli',originator:'codex-tui',thread_source:'tui_side_chat',attached_thread:true,forked_from_id:'current-thread'}})+'\n');
+  assert.equal((await autoStart({...f.event,source,transcript_path:side},f.options)).status,'ignored');
+  assert.equal(readLaunch(launch).sessionId,'current-thread');assert.equal(readLaunch(launch).transcriptPath,f.file);assert.equal(f.state.splits,1);
+ }
+ assert.equal((await autoStart({...f.event,source:'resume'},f.options)).status,'already-open');assert.equal(f.state.splits,1);
+});
 test('a genuine remote TUI binds through its registered App Server without rewriting metadata',async t=>{
  const f=fixture(t,{source:'vscode',originator:'codex-tui',thread_source:'user'}),original=f.dependencies.processes(),app={pid:901,parentPid:201,name:'codex.exe',startedAt:'2026-11-03T01:00:02.100Z'};
  f.record.proof.appServer={endpoint:'ws://127.0.0.1:12345',process:app};fs.writeFileSync(f.record.file,JSON.stringify(f.record));f.dependencies.processes=()=>[...original.map(p=>p.pid===401?{...p,parentPid:901}:p),app,...f.state.viewers];

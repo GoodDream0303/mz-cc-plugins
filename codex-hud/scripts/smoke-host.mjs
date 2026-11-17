@@ -83,6 +83,22 @@ if(process.argv[2]==='--fixture'){
   const launchA=descriptor('A').file;await bind('A','synthetic-shared-thread',30);await bind('B','synthetic-shared-thread',30);assert.equal(descriptor('A').file,launchA);assert.notEqual(descriptor('A').file,descriptor('B').file);checks.push('same thread in two source owners retains two displays; rebind does not duplicate');
   requestStop(descriptor('A').file);await wait(()=>descriptor('A').state==='exited','A HUD did not close');assert.equal(descriptor('B').state,'running');
   await delay(500);await bind('A','synthetic-reopened',45);assert.notEqual(descriptor('A').file,launchA);checks.push('closing/reopening one HUD keeps the other source and display alive');
+  if(process.argv.includes('--progress')){
+   const viewer=descriptor('A'),neighbour=geometry('B'),transcript=viewer.transcriptPath;
+   const capture=role=>command(role,['capture-pane','-p','-t',descriptor(role).host.hudPane]).stdout;
+   const append=(type,payload,at=Date.now())=>fs.appendFileSync(transcript,JSON.stringify({type,payload,timestamp:new Date(at).toISOString()})+'\n');
+   const visible=text=>wait(()=>capture('A').includes(text),'Native progress did not show '+text);
+   append('event_msg',{type:'task_started'},Date.now()-1000);append('event_msg',{type:'agent_message',phase:'commentary',message:'核对主会话绑定'});
+   await visible('Progress: 核对主会话绑定');await wait(()=>/Progress: 核对主会话绑定 · [2-9]s/.test(capture('A')),'Progress clock did not advance without new telemetry');
+   assert.ok(!capture('B').includes('核对主会话绑定'));checks.push('native Progress row displays public commentary and advances its elapsed clock without another log record');
+   append('event_msg',{type:'task_started'});await visible('Progress: Working');assert.ok(!capture('A').includes('核对主会话绑定'));
+   append('response_item',{type:'function_call',call_id:'native-progress-plan',name:'update_plan',arguments:JSON.stringify({plan:[{step:'Verify progress lifecycle',status:'in_progress'}]})});await visible('Progress: Verify progress lifecycle');
+   append('event_msg',{type:'task_complete'});await visible('Progress: Idle');assert.ok(!capture('A').includes('Verify progress lifecycle'));
+   append('event_msg',{type:'task_started'});append('event_msg',{type:'agent_message',phase:'commentary',message:'Interrupt probe'});await visible('Progress: Interrupt probe');
+   append('event_msg',{type:'turn_aborted'});await visible('Progress: Interrupted');assert.ok(!capture('A').includes('Interrupt probe'));checks.push('native new-turn reset, plan fallback, completion and interruption clear stale progress on the same viewer');
+   await bind('A','synthetic-progress-rebound',47);assert.ok(!capture('A').includes('Progress:'));checks.push('a native session rebind clears the previous progress row');
+   assert.equal(descriptor('A').pid,viewer.pid);geometry('A');assert.deepEqual(geometry('B'),neighbour);checks.push('progress updates retain the exact viewer and six-row geometry without changing the neighboring host');
+  }
   if(process.argv.includes('--row-paint')){
    const before=loadConfig(configFileA);let live=set(set(set(preset('minimal',before),'display.showContextBar',false),'terminal.dynamicHeight',false),'terminal.margin',0);
    for(const text of ['a'.repeat(119)+'Z','界'.repeat(59)+'末','ROW-DONE']){
