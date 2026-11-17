@@ -99,6 +99,20 @@ if(process.argv[2]==='--fixture'){
    await bind('A','synthetic-progress-rebound',47);assert.ok(!capture('A').includes('Progress:'));checks.push('a native session rebind clears the previous progress row');
    assert.equal(descriptor('A').pid,viewer.pid);geometry('A');assert.deepEqual(geometry('B'),neighbour);checks.push('progress updates retain the exact viewer and six-row geometry without changing the neighboring host');
   }
+  if(process.argv.includes('--progress-wrap')){
+   const viewer=descriptor('A'),neighbour=geometry('B'),before=loadConfig(configFileA);
+   const live=set(set(set(set(preset('minimal',before),'display.showProgress',true),'terminal.dynamicHeight',true),'terminal.paneSize',0.75),'terminal.refreshMs',250);saveConfig(configFileA,live);
+   const append=payload=>fs.appendFileSync(viewer.transcriptPath,JSON.stringify({type:'event_msg',payload,timestamp:new Date().toISOString()})+'\n');
+   const capture=()=>command('A',['capture-pane','-p','-t',descriptor('A').host.hudPane]).stdout;
+   append({type:'task_started'});append({type:'agent_message',phase:'commentary',message:'合成进度正在核对终端换行与会话归属。'.repeat(18)+'PROGRESS-WRAP-END'});
+   await wait(()=>{const d=descriptor('A'),v=d.viewport;try{return v?.contentRows>6&&v.pages===1&&v.rows>=v.contentRows?geometry('A',v.rows):undefined;}catch{return;}},'Long progress did not grow the real HUD');assert.ok(capture().includes('PROGRESS-WRAP-END'));const wide=descriptor('A').viewport.contentRows;
+   checks.push('long Chinese public progress retains its ending and grows the real HUD to fit all wrapped rows');
+   command('A',['resize-window','-t','codex','-x','60','-y','40']);
+   await wait(()=>{const v=descriptor('A').viewport;try{return v?.columns===60&&v.contentRows>wide&&v.pages===1&&v.rows>=v.contentRows?geometry('A',v.rows):undefined;}catch{return;}},'Narrow progress wrapping did not resize the real HUD');assert.ok(capture().includes('PROGRESS-WRAP-END'));
+   checks.push('narrowing the native terminal adds physical Progress rows without truncating the final text');
+   append({type:'task_complete'});await wait(()=>capture().includes('Progress: Idle')&&!capture().includes('PROGRESS-WRAP-END'),'Completed progress retained old wrapped text');
+   assert.equal(descriptor('A').pid,viewer.pid);assert.deepEqual(geometry('B'),neighbour);saveConfig(configFileA,before);checks.push('wrapped progress clears at completion without replacing its viewer or changing the neighboring host');
+  }
   if(process.argv.includes('--row-paint')){
    const before=loadConfig(configFileA);let live=set(set(set(preset('minimal',before),'display.showContextBar',false),'terminal.dynamicHeight',false),'terminal.margin',0);
    for(const text of ['a'.repeat(119)+'Z','界'.repeat(59)+'末','ROW-DONE']){

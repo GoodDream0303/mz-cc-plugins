@@ -22,7 +22,11 @@ test('progress excludes reasoning, user/final/partial messages, other threads an
 });
 test('only the latest bounded public excerpt is retained and terminal controls are removed',async t=>{
  const f=fixture(t);f.append('event_msg',{type:'agent_message',phase:'commentary',message:'Old progress'});f.append('event_msg',{type:'agent_message',phase:'commentary',message:'\x1b[31m'+('检查😀 '.repeat(2000))+'\x1b[0m'});
- const message=(await f.reader.read()).progress?.message;assert.ok(message?.startsWith('检查😀 '));assert.ok(displayWidth(message)<=200);assert.doesNotMatch(message,/Old progress|[\x00-\x1f\x7f]/);
+ const message=(await f.reader.read()).progress?.message;assert.ok(message?.startsWith('检查😀 '));assert.ok(displayWidth(message)<=4096);assert.doesNotMatch(message,/Old progress|[\x00-\x1f\x7f]/);
+});
+test('ordinary long public commentary retains its ending beyond the former 200-cell excerpt',async t=>{
+ const f=fixture(t),message='正在核对合成会话的来源与界面刷新行为。'.repeat(18)+'随后验证换行后的计时与分页。';f.append('event_msg',{type:'agent_message',phase:'commentary',message});
+ assert.equal((await f.reader.read()).progress?.message,message);
 });
 test('progress captures only a plan refreshed during the active turn',async t=>{
  const f=fixture(t);f.append('response_item',{type:'function_call',call_id:'plan-1',name:'update_plan',arguments:JSON.stringify({plan:[{step:'Verify binding',status:'in_progress'}]})});assert.equal((await f.reader.read()).progress?.step,'Verify binding');
@@ -56,9 +60,15 @@ test('new turns exclude prior tools and terminal lifecycle states replace old pr
  s.progress={message:'STALE progress',step:'STALE plan'};for(const [status,label]of [['idle','Idle'],['interrupted','Interrupted']]){s.status=status;const line=visible(s)[0];assert.match(line,new RegExp('Progress: '+label));assert.doesNotMatch(line,/STALE|12s|Read/);}
  s.status='unknown';assert.ok(!visible(s).some(line=>line.includes('Progress:')));
 });
-test('progress remains one safe terminal row for Chinese, emoji and narrow viewports',()=>{
+test('long progress wraps safely without losing Chinese or emoji text',()=>{
  const s=working();s.progress.message='\x1b[31m检查😀 '.repeat(100);const c=set(defaultConfig(),'terminal.margin',0);
- for(const width of [1,4,12,24,44,100]){const lines=visible(s,c,{width});assert.equal(lines.length,1);assert.ok(displayWidth(lines[0])<=width);assert.doesNotMatch(lines[0],/\x1b/);}
+ for(const width of [1,4,12,24,44,100]){const lines=visible(s,c,{width,height:10000});assert.ok(lines.length>1);for(const line of lines){assert.ok(displayWidth(line)<=width);assert.doesNotMatch(line,/\x1b/);}if(width>=4)assert.equal(lines.join('').replace(/\s/g,''),'▸Progress:'+'检查😀'.repeat(100)+'·12s');}
+});
+test('wrapped progress counts every row and retains all text across overflow pages',()=>{
+ const s=working();s.progress.message='Synthetic progress checks current source ownership and observes rendering. '.repeat(8)+'END-OF-PROGRESS';const c=set(set(defaultConfig(),'display.showContextBar',false),'terminal.margin',0);
+ const full=render(s,c,{width:40,height:10000,now:13000}),first=render(s,c,{width:40,height:3,now:13000});assert.ok(first.pages>1);assert.equal(first.totalLines,full.lines.length);
+ const collected=[];for(let page=0;page<first.pages;page++)collected.push(...render(s,c,{width:40,height:3,page,now:13000}).lines.filter(line=>!/^\[\d+\/\d+\]/.test(line)));
+ assert.deepEqual(collected,full.lines);assert.ok(collected.join('').includes('END-OF-PROGRESS'));assert.match(collected.join(''),/12s/);
 });
 test('progress labels support all three languages and the toggle hides the row',()=>{
  const s=working();s.progress=undefined;s.tools=[];

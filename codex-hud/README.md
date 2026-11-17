@@ -5,6 +5,13 @@ WT tabs or separate PowerShell windows. The official CLI and native statusline
 remain intact. Menus support English, Simplified Chinese and Traditional Chinese;
 task names retain their original language.
 
+## Version 0.8.3: wrapped progress
+
+Long public progress wraps to the terminal width instead of being truncated to
+one row. The reader retains up to 4096 terminal cells, including the ending of
+ordinary multi-sentence updates. Wrapped rows participate in the existing
+pagination and dynamic-height fitting; elapsed time appears once at the end.
+
 ## Version 0.8.2: public progress and side-chat isolation
 
 `Progress` shows the bound main conversation's latest public commentary, then

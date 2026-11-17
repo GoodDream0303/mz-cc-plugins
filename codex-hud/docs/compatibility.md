@@ -6,11 +6,13 @@ The HUD stays bound to the main conversation while using `/side`. Persistent TUI
 side chats (`thread_source=tui_side_chat`) are excluded from both SessionStart
 binding and manual `start`, even though they share the main conversation's CLI host.
 
-`display.showProgress` adds one row for the bound main conversation. While working
+`display.showProgress` adds progress for the bound main conversation. While working
 it prefers explicit public `commentary`, then this turn's plan step or safe tool
 activity, with an elapsed-turn clock. Old progress is cleared at lifecycle and
 history boundaries; terminal states show Idle/Interrupted. The reader retains
-only a normalized excerpt of at most 200 terminal cells in memory. Reasoning,
+only normalized public text of at most 4096 terminal cells in memory. Long text
+wraps to terminal width and participates in paging and dynamic-height fitting.
+Reasoning,
 user text and final answers are excluded. `colors.progress` controls its active
 foreground. Existing explicit false settings and ordering remain respected.
 

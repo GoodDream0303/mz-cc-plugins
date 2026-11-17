@@ -38,3 +38,11 @@ Synthetic tests prove public-text selection, fallback order, bounded output,
 safe terminal rendering and lifecycle clearing. Native synthetic-host checks
 cover the new row and clearing in a real psmux viewer. Actual user sessions,
 hook trust, Node 20 and long-term visual behavior remain separate acceptance.
+
+## User correction after 0.8.2
+
+Real use exposed incomplete long updates. The user requested wrapping instead
+of the single-row rule above: retain up to 4096 terminal cells of public text,
+wrap through the existing layout/paging pipeline, and count the extra rows for
+dynamic height. The start entry remains unchanged. This correction supersedes
+only the single-row and short-excerpt choices in the original mockup.

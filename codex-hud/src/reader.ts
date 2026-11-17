@@ -79,7 +79,7 @@ export class SessionReader {
  private commentary(p:Record<string,any>):void {
   if(this.snapshot.status!=='working'||p.phase!=='commentary'||p.channel&&p.channel!=='commentary')return;
   const value=p.type==='agent_message'?text(p.message,4096):Array.isArray(p.content)?p.content.slice(0,16).filter(safe).filter(v=>['output_text','Text'].includes(v.type)).map(v=>text(v.text,4096)??'').join(' ').slice(0,4096):undefined;
-  if(!value)return;const message=truncate(sanitize(value.replace(/\s+/g,' ')).trim(),200);
+  if(!value)return;const message=truncate(sanitize(value.replace(/\s+/g,' ')).trim(),4096);
   if(message)this.snapshot.progress={...this.snapshot.progress,message};
  }
  private apply(record:any){

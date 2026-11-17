@@ -1,5 +1,36 @@
 # Validation: exact per-source HUD
 
+## 0.8.3: wrapped progress — 2026-11-17
+
+User feedback identified two truncation points: one terminal row in the renderer
+and 200 retained cells in the reader. The renderer now uses existing wrapping,
+row counting and pagination, and the bounded public-text limit is 4096 cells.
+The start entry, installed configuration and session binding are unchanged.
+
+Windows / Node 24.15.0 verification:
+
+- Three expected regressions failed before the fix: a missing long-message
+  ending, one-row rendering and absent overflow pages. The affected progress,
+  render and pane-size group then passed 48/48, zero failures/skips/cancellations.
+- Native psmux/ConPTY with synthetic source processes passed 10 checks using
+  `node scripts/smoke-host.mjs --psmux <packaged backend> --progress-wrap`.
+  Long Chinese progress retained its final marker, dynamic height grew to fit,
+  narrowing from 120 to 60 columns added physical rows, and completion removed
+  old text while preserving the viewer and neighboring source.
+- Evidence: `.superpowers/sdd/2026-11-17-hud-progress-wrap/` (`red.log`,
+  `green.log`, `native.log`); native summary was written to
+  `C:/Users/mzzhu2/AppData/Local/Temp/hud-production-host-5Hwith/summary.json`.
+
+No official Codex/model session was launched for these checks. They ran before
+release and installation; actual installed long-progress use remains separate.
+The earlier single-row tests describe released 0.8.2 and are superseded only for
+the wrapping/retention behavior covered here.
+
+The 0.8.3 release also passed all 11 serial package/MCP-removal/runtime-entry
+checks. Its four version fields agree; the normalized runtime digest is unchanged
+from the 48-test and 10-check implementation above. Packaging evidence is under
+`.superpowers/sdd/2026-11-17-hud-083-release/`.
+
 ## 0.8.2: public progress — 2026-11-17
 
 Windows / Node 24.15.0, synthetic inputs only. The new row reads explicitly public

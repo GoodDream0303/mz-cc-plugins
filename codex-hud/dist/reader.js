@@ -158,7 +158,7 @@ export class SessionReader {
         const value = p.type === 'agent_message' ? text(p.message, 4096) : Array.isArray(p.content) ? p.content.slice(0, 16).filter(safe).filter(v => ['output_text', 'Text'].includes(v.type)).map(v => text(v.text, 4096) ?? '').join(' ').slice(0, 4096) : undefined;
         if (!value)
             return;
-        const message = truncate(sanitize(value.replace(/\s+/g, ' ')).trim(), 200);
+        const message = truncate(sanitize(value.replace(/\s+/g, ' ')).trim(), 4096);
         if (message)
             this.snapshot.progress = { ...this.snapshot.progress, message };
     }

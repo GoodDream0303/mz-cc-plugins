@@ -126,8 +126,8 @@ export function render(s, c, o = {}) {
         message = sanitize(message.slice(0, 4096)).replace(/\s+/g, ' ').trim();
         const started = s.turnStartedAt, seconds = Number.isFinite(started) && started <= now ? Math.floor((now - started) / 1000) : undefined;
         const suffix = s.status === 'working' && seconds !== undefined ? ' · ' + (seconds >= 60 ? Math.floor(seconds / 60) + 'm ' + seconds % 60 + 's' : seconds + 's') : '';
-        const heading = (s.status === 'working' ? '▸ ' : s.status === 'idle' ? '✓ ' : '⊘ ') + label('Progress: ', '进度: ', '進度: '), available = width - displayWidth(heading) - displayWidth(suffix);
-        const text = ink(available > 0 ? heading + truncate(message, available) + suffix : truncate(heading + message + suffix, width), s.status === 'working' ? 'progress' : 'inactive');
+        const heading = (s.status === 'working' ? '▸ ' : s.status === 'idle' ? '✓ ' : '⊘ ') + label('Progress: ', '进度: ', '進度: ');
+        const text = ink(heading + message + suffix, s.status === 'working' ? 'progress' : 'inactive');
         groups.set('progress', text);
         separate.set('progress', [{ text }]);
     }
