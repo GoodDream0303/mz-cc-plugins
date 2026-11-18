@@ -183,5 +183,28 @@ class UiBoundaryTests(unittest.TestCase):
         self.assertLessEqual(len(label),20)
         self.assertLess(scope.f_name.calls,32)
 
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows window layout')
+    def test_header_shows_manifest_version_at_normal_and_compact_widths(self):
+        import tkinter as tk
+
+        module = self.scope_module()
+        manifest = SRC.parent / '.codex-plugin' / 'plugin.json'
+        version = json.loads(manifest.read_text(encoding='utf-8'))['version']
+        root = tk.Tk()
+        root.withdraw()
+        self.addCleanup(root.destroy)
+        monitor = SimpleNamespace(sources=[], latest=lambda: None)
+        scope = module.Scope(root, monitor, None, {'width': 340, 'pinned': False})
+
+        for width, brand in ((340, 'AI CHAT SCOPE'), (200, 'AI·SCOPE')):
+            with self.subTest(width=width):
+                scope.W = width
+                scope.draw()
+                items = [item for item in scope.cv.find_all()
+                         if scope.cv.type(item) == 'text'
+                         and scope.cv.itemcget(item, 'text') == f'{brand} {version}']
+                self.assertEqual(len(items), 1)
+                self.assertLess(scope.cv.bbox(items[0])[2], scope.pin_bbox[0])
+
 
 if __name__=='__main__':unittest.main()

@@ -1,6 +1,8 @@
 # AI Chat Scope
 
-Windows 上的轻量置顶悬浮窗，在一个列表里查看多个 **Claude Code 与 Codex CLI** 会话。版本 2.2.2，由 claude-scope 更名。
+Windows 上的轻量置顶悬浮窗，在一个列表里查看多个 **Claude Code 与 Codex CLI** 会话。版本 2.2.3，由 claude-scope 更名。
+
+2.2.3 在浮窗标题显示工具版本，并支持按 Windows Terminal 中已登记标签的实际位置排列 Codex 会话。
 
 2.2.2 修复 Codex `/clear` 后旧聊天残留和关闭旧行连带结束新聊天的问题：借助已信任的 SessionStart 元数据识别同一独立 CLI 的切换，保留其他 CLI 和仍活跃的行；同 CLI 多锁时取消关闭。原生 hook 在聊天首轮消息触发，空聊天不会立即切换；身份查询只发生在短命 hook 内，浮窗仍只读文件。
 
@@ -71,6 +73,18 @@ powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '<实际
 
 同一运行目录仅保留一个实例。重复启动保留现有窗口；启动器成功表示请求已发出，不代表新建了另一个窗口。Codex hook 需要用户在宿主中审阅并信任，不自动获信任，也不自动拉起浮窗。
 
+## 按 Windows Terminal 标签顺序排列 Codex 会话
+
+在 Windows Terminal 的 PowerShell 启动配置 `$PROFILE` 中加入以下一行，路径使用当前插件或源码的位置。
+
+```powershell
+& '<实际插件根>\scripts\register-terminal-tab.ps1'
+```
+
+此后在 Windows Terminal 点 `+` 打开 PowerShell，然后直接运行 `codex`。PowerShell 启动时会用短编号登记标签，Codex 可以继续更新标签标题。当前聊天首轮消息触发已信任的 SessionStart hook 后，Scope 依据同一窗口内标签实际的从左到右顺序排列已登记会话。
+
+适用于每个标签运行一个独立 Codex CLI 的场景。登记失败、标签位置不可读或会话绑定有歧义时，相关行依照启动时间显示。多个 Terminal 窗口按各自的标签位置排序。已打开的 PowerShell 如需登记，可在该标签运行上面一行，再启动 Codex。
+
 ## 新环境初始化与故障排查
 
 前提是 Windows 和包含 **tkinter/Tcl/Tk 的 Python 3.9+**。引导入口依次查找 `python`、`py -3`、`python3`，不要求一定存在 `python` 命令；无需 pip 包。缺少可用解释器时会明确提示安装或修复 Python，而不会自动下载、安装依赖或修改 PATH。[Python Windows 安装说明](https://docs.python.org/3/using/windows.html)
@@ -140,7 +154,7 @@ powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '<实际
 - 原始数据只读：Claude registry/jobs/transcript 尾部；Codex 锁、增量 rollout 和标题索引。
 - 不用 SQLite；持续监视不探测其他进程，不采集 CPU/RAM，不监听端口；实时功能连接用户已有本地服务。
 - Codex hook 仅在本工具运行目录记录版本、事件、ID、工具名与时间，不记录提示词、命令、参数、问题、选项、回答或令牌；近期元数据有保留上限。
-- SessionStart 的 startup / clear / resume 另做一次本会话锁的身份核对，只保存 PID、进程创建时间、切换来源与录制文件名；不在浮窗轮询中查询进程。compact 和工具事件不增加身份查询，失败仍返回空 JSON。每会话仅保留一份生命周期记录，沿用现有运行目录隔离。
+- SessionStart 的 startup / clear / resume 另做一次本会话锁的身份核对，保存 PID、进程创建时间、切换来源、录制文件名及可用的终端标签无障碍标识。浮窗只向已登记窗口查询标签位置。compact 和工具事件不增加身份查询，失败仍返回空 JSON。每会话仅保留一份生命周期记录，沿用现有运行目录隔离。
 - Codex 专属配置为 `hooks/codex-hooks.json`，仅 Codex 清单引用；不放默认 `hooks/hooks.json`，避免 Claude 自动加载。
 - 状态含义和 Codex 实时服务的能力说明见浮窗右键菜单“状态说明”；未配置可选服务不显示常驻底部提示，读取或连接异常仍会提示并在恢复后消失。
 - 右键关闭只在用户操作并确认后执行。Claude 保留原有子进程退出流程；Codex 使用短命 helper 一次性核对所选锁的持有者和进程身份，并通过已核对的进程句柄结束该独立 CLI。浮窗监视进程不持有其他进程句柄，也不后台扫描或自动关闭会话。

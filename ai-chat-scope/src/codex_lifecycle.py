@@ -6,6 +6,7 @@ import time
 import uuid
 
 from runtime_paths import home_events_root, _plain_directory, _inside, _remove_event_file
+from terminal_tabs import TAB_ENV, parse_tab
 
 START_SOURCES = frozenset(('startup', 'clear', 'resume'))
 
@@ -47,6 +48,11 @@ def capture_session_start(runtime, home, payload):
     owner = session_owner(home, sid)
     record = {'schema_version':1, 'session_id':sid, 'start_source':payload['source'],
               'observed_ns':time.monotonic_ns(), 'owner':owner, 'recording_name':recording.name}
+    terminal_tab = os.environ.get(TAB_ENV)
+    terminal_session = os.environ.get('AI_CHAT_SCOPE_TERMINAL_SESSION', '').lower()
+    if (terminal_session and terminal_session == os.environ.get('WT_SESSION', '').lower()
+            and parse_tab(terminal_tab) is not None):
+        record['terminal_tab'] = terminal_tab
     path.parent.mkdir(parents=True, exist_ok=True)
     _plain_directory(path.parent)
     temporary = path.with_name('lifecycle-' + uuid.uuid4().hex + '.tmp')
@@ -87,16 +93,24 @@ def _read_start(runtime, home, sid, recording):
     return record
 
 
-def current_session_ids(runtime, home, recordings):
+def session_selection(runtime, home, recordings):
     visible, groups = set(recordings), {}
+    tabs = {}
     for sid, recording in recordings.items():
         record = _read_start(runtime, home, sid, recording)
         if record is not None:
             owner = record['owner']
             groups.setdefault((owner['pid'],owner['started']), []).append((record['observed_ns'],sid))
+            tab = parse_tab(record.get('terminal_tab'))
+            if tab is not None:
+                tabs[sid] = tab
     for records in groups.values():
         newest = max(stamp for stamp, sid in records)
         current = [sid for stamp, sid in records if stamp == newest]
         if len(current) == 1:
             visible.difference_update(sid for stamp, sid in records if sid != current[0])
-    return visible
+    return visible, tabs
+
+
+def current_session_ids(runtime, home, recordings):
+    return session_selection(runtime, home, recordings)[0]

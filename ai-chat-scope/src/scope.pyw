@@ -13,18 +13,19 @@ AI Chat Scope (tkinter 轻量版)
 状态优先级:红 > 蓝 > 绿 > 黄。
 窗口配置与日志放 %LOCALAPPDATA%\\ai-chat-scope\\(与 CLI、插件版本目录均无关,升级不丢)。
 
-**安全约束:只读 Claude/Codex 会话文件及显式配置的本地实时状态；不枚举或打开其他进程。**
+**安全约束:只读 Claude/Codex 会话、本地实时状态和已登记的终端标签位置；不枚举或打开其他进程。**
 (早期版本用 OpenProcess/Toolhelp 查后台 shell,疑似被 EDR 拦截并连带影响 MCP/Dashboard,已彻底移除)。
 用户右键某行「关闭」并确认后,一次性启动外部命令结束该会话:后台会话 `claude stop <jobId>`;
 交互会话起子进程 `scope.pyw --quit-session <pid>` 往其控制台注入 Ctrl+C 正常退出,未退出时再经用户确认
 `taskkill /F /PID <pid> /FI "IMAGENAME eq claude.exe"`。本程序(浮窗进程)仍不持有任何进程句柄。
 Codex 使用独立短命 helper 查询所选会话锁的唯一进程持有者,核对身份并经确认后结束该 CLI 进程;
 不归档或删除会话,不关闭共享 app-server。经授权的 SessionStart 短命 hook 另核对本次 CLI 身份;
-浮窗监视仍只读文件,不持有其他进程句柄。
+浮窗监视不持有其他进程句柄。
 设计为极低占用:after() 每秒轮询一次,无忙循环;数据无变化不重绘;无任何持续动画。
 """
 import os, re, sys, json, time, ctypes, shutil, subprocess, threading, argparse
 import queue
+from pathlib import Path
 sys.dont_write_bytecode = True
 import tkinter as tk
 import tkinter.font as tkfont
@@ -44,6 +45,24 @@ CONFIG_PATH = os.path.join(RUNTIME_DIR, "config.json")
 LEGACY_CONFIG_PATH = os.path.join(os.environ.get("LOCALAPPDATA") or HOME, "claude-scope", "config.json")
 
 POLL_MS = 1000
+
+
+def plugin_version():
+    plugin_root = Path(__file__).resolve().parents[1]
+    for host in (".codex-plugin", ".claude-plugin"):
+        try:
+            manifest = json.loads((plugin_root / host / "plugin.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        version = manifest.get("version") if isinstance(manifest, dict) else None
+        if isinstance(version, str) and re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][a-zA-Z0-9.+-]+)?", version):
+            return version
+    return ""
+
+
+VERSION = plugin_version()
+WINDOW_TITLE = ("AI CHAT SCOPE " + VERSION).rstrip()
+COMPACT_TITLE = ("AI·SCOPE " + VERSION).rstrip()
 
 # 调色板(磷光)
 C_KEY   = "#ff00fe"   # 透明色键(圆角与外缘透明)
@@ -471,19 +490,24 @@ class Scope:
             cv.create_line(6, gy, W - 6, gy, fill=C_GRID)
 
         cy0 = hdr // 2
-        brand = "AI CHAT SCOPE" if W >= round(270 * s) else "AI·SCOPE"
-        cv.create_text(pad, cy0, anchor="w", text=brand, fill=C_RUN, font=self.f_brand)
-        bx = self.f_brand.measure(brand) + pad + round(8 * s)
+        pin_r = W - pad - round(26 * s)
+        pl, pr = pin_r - round(24 * s), pin_r + round(6 * s)
         rd = max(2, round(3 * s))
-        cv.create_oval(bx - rd, cy0 - rd, bx + rd, cy0 + rd, fill=C_RUN, outline="")
+        brand = WINDOW_TITLE if W >= round(270 * s) else COMPACT_TITLE
+        brand_right = pad
+        for text in (brand, COMPACT_TITLE, VERSION):
+            bx = pad + self.f_brand.measure(text) + round(8 * s)
+            if text and bx + rd < pl:
+                cv.create_text(pad, cy0, anchor="w", text=text, fill=C_RUN, font=self.f_brand)
+                cv.create_oval(bx - rd, cy0 - rd, bx + rd, cy0 + rd, fill=C_RUN, outline="")
+                brand_right = bx + rd
+                break
 
         # 退出 ✕
         xc = W - pad - round(4 * s)
         self.x_bbox = (xc - round(9 * s), 0, xc + round(9 * s), hdr)
         cv.create_text(xc, cy0, anchor="e", text="✕", fill=C_DIM, font=self.f_btn)
         # PIN
-        pin_r = W - pad - round(26 * s)
-        pl, pr = pin_r - round(24 * s), pin_r + round(6 * s)
         self.pin_bbox = (pl, 2, pr, hdr - 2)
         if self.pinned:
             self.round_rect(pl, 4, pr, hdr - 4, max(3, round(4 * s)), fill=C_RUN, outline="")
@@ -494,9 +518,9 @@ class Scope:
 
         # 透明度滑块
         self.op_track = None
-        if W >= round(250 * s):
-            tx2 = pl - round(12 * s)
-            tx1 = tx2 - round(44 * s)
+        tx2 = pl - round(12 * s)
+        tx1 = tx2 - round(44 * s)
+        if W >= round(250 * s) and tx1 >= brand_right + round(8 * s):
             cv.create_line(tx1, cy0, tx2, cy0, fill=C_DIM)
             kx = tx1 + (self.opacity - 0.2) / 0.8 * (tx2 - tx1)
             kr = max(3, round(4 * s))
@@ -812,7 +836,7 @@ def main():
     try:
         root = tk.Tk()
         root.report_callback_exception = lambda *a: log_error("tk-callback")
-        root.title("AI Chat Scope")
+        root.title(WINDOW_TITLE)
         monitor.start()
         Scope(root, monitor, sources[0], config)
         root.mainloop()

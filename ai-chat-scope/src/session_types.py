@@ -18,6 +18,7 @@ class SessionSnapshot:
     kind: Optional[str] = None
     job_id: Optional[str] = None
     bg_info: Optional[dict] = None
+    terminal_tab: Optional[tuple] = None
 
     @property
     def key(self):

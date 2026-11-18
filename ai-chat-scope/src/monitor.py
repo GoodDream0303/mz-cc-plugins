@@ -1,10 +1,12 @@
 """Independent source workers publish one latest immutable snapshot to Tk."""
+from collections import Counter
 from dataclasses import replace
 import threading
 import time
 import re
 
 from session_types import SessionSnapshot, to_gui_row
+from terminal_tabs import terminal_positions
 
 
 def _label(value, limit=200):
@@ -50,6 +52,23 @@ def row_action(row):
     return None
 
 
+def order_by_terminal(rows, positions):
+    if not positions:
+        return rows
+    counts = Counter(row.terminal_tab for row in rows)
+    window_slots = {}
+    for index, row in enumerate(rows):
+        tab = row.terminal_tab
+        if tab in positions and counts[tab] == 1:
+            window_slots.setdefault(tab[0], []).append(index)
+    ordered = list(rows)
+    for slots in window_slots.values():
+        tabs = sorted((rows[index] for index in slots), key=lambda row: positions[row.terminal_tab])
+        for index, row in zip(slots, tabs):
+            ordered[index] = row
+    return ordered
+
+
 class Monitor:
     def __init__(self, sources, interval=1.0):
         self.sources = list(sources)
@@ -57,6 +76,7 @@ class Monitor:
         self._stop = threading.Event()
         self._lock = threading.Lock()
         self._source_values = {}
+        self._terminal_positions = {}
         self._latest = None
         self._threads = []
 
@@ -83,7 +103,12 @@ class Monitor:
                     rows = [replace(row, freshness="stale") for row in previous]
                     provider = getattr(source, "provider", "来源")
                     diagnostics = (provider + "：状态暂不可用",)
+                positions = None
+                if getattr(source, "provider", None) == "Codex":
+                    positions = terminal_positions(row.terminal_tab for row in rows if row.terminal_tab)
                 with self._lock:
+                    if positions is not None:
+                        self._terminal_positions = positions
                     self._source_values[index] = (rows, diagnostics)
                     merged, messages = {}, set()
                     for values, notes in self._source_values.values():
@@ -92,8 +117,9 @@ class Monitor:
                             old = merged.get(row.key)
                             if old is None or row.started_at >= old.started_at:
                                 merged[row.key] = row
-                    self._latest = (sorted(merged.values(), key=lambda value: (
-                        value.started_at, value.provider, value.session_id)), tuple(sorted(messages)))
+                    rows = sorted(merged.values(), key=lambda value: (
+                        value.started_at, value.provider, value.session_id))
+                    self._latest = (order_by_terminal(rows, self._terminal_positions), tuple(sorted(messages)))
                 self._stop.wait(max(.01, self.interval - (time.monotonic() - started)))
         finally:
             if hasattr(source, "close"):
